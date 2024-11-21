@@ -1,0 +1,35 @@
+{
+    "time_budget": 120,
+    "task": "classification",
+    "presets": "standard",
+    "assay_id": "ASSAY",
+    "assay_type": null,
+    "credibility_range": {
+        "min": null,
+        "max": null
+    },
+    "thresholds": {
+        "expert_1": null,
+        "expert_2": null,
+        "expert_3": null,
+        "expert_4": null,
+        "expert_5": null
+    },
+    "direction": "high",
+    "ersilia_hub": [
+        "morgan-counts",
+        "cc-signaturizer",
+        "molfeat-chemgpt",
+        "rdkit-fingerprint",
+        "mordred"
+    ],
+    "estimators": [
+        "baseline-classic",
+        "baseline-fingerprint",
+        "flaml-individual-descriptors",
+        "autogluon-manifolds",
+        "kerastuner-reference-embedding",
+        "kerastuner-eosce-embedding",
+        "molmap"
+    ]
+}

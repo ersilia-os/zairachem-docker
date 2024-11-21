@@ -1,170 +1,130 @@
 import os
-import numpy as np
 import pandas as pd
+import numpy as np
 import random
-from tools.melloddy import MELLODDY_SUBFOLDER
-from . import COMPOUNDS_FILENAME, COMPOUND_IDENTIFIER_COLUMN, FOLDS_FILENAME
+from collections import defaultdict
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem.Scaffolds import MurckoScaffold
+from sklearn.cluster import KMeans
+#from sklearn.preprocessing import StandardScaler
 
-from sklearn.model_selection import KFold
-from zairabase.vars import DATA_FILENAME, N_FOLDS
+from . import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN
 
+class RandomFolds(object):
+    def __init__(self, outdir):
+        self.outdir = outdir
+        self.input_file = self.get_input_file()
 
-class RandomFolding(object):
-    def __init__(self, path):
-        self.path = path
-        self.df = pd.read_csv(os.path.join(self.path, COMPOUNDS_FILENAME))
+    def get_input_file(self):
+        return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
+    
+    def random_k_fold_split(self, k=5, random_seed=42):
+        df = pd.read_csv(self.input_file)
+        random.seed(random_seed)
+        shuffled_indices = np.random.permutation(len(df))
+        folds = np.array_split(shuffled_indices,k)
+        return folds
+    
+    def run(self):
+        df = pd.read_csv(self.input_file)
+        folds = self.random_k_fold_split()
+        for fold_number, indices in enumerate(folds):
+            df.loc[indices, "fld_rnd"] = fold_number
+        return df["fld_rnd"].tolist()
 
-    def get_folds(self):
-        splitter = KFold(n_splits=N_FOLDS, shuffle=True)
-        folds = np.zeros(self.df.shape[0], dtype=int)
-        i = 0
-        for _, test_idx in splitter.split(folds):
-            folds[test_idx] = i
-            i += 1
-        return list(folds)
+class ScaffoldFolds(object):
+    def __init__(self, outdir):
+        self.outdir = outdir
+        self.input_file = self.get_input_file()
 
+    def get_input_file(self):
+        return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
+    
+    def _compute_scaffold(self, smiles, include_chirality=False):
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        return Chem.MolToSmiles(scaffold, isomericSmiles=include_chirality)
+    
+    def _group_by_scaffold(self):
+        df = pd.read_csv(self.input_file)
+        smiles_list = df[STANDARD_SMILES_COLUMN]
+        scaffold_dict = defaultdict(list)
+        for idx, smiles in enumerate(smiles_list):
+            scaffold = self._compute_scaffold(smiles)
+            if scaffold:
+                scaffold_dict[scaffold].append(idx)
+        return scaffold_dict
+    
+    def scaffold_k_fold_split(self, k=5, random_seed=42):
+        random.seed(random_seed)
+        scaffold_dict = self._group_by_scaffold()
+        scaffold_items =  sorted(scaffold_dict.items(), key=lambda x: len(x[1]), reverse=True)
+        folds = [[] for _ in range(k)]
+        fold_sizes = [0] * k
+        for _, indices in scaffold_items:
+            smallest_fold = min(range(k), key=lambda x: fold_sizes[x])
+            folds[smallest_fold].extend(indices)
+            fold_sizes[smallest_fold] += len(indices)
+        return folds, fold_sizes
+    
+    def run(self):
+        df = pd.read_csv(self.input_file)
+        folds, fold_sizes= self.scaffold_k_fold_split()
+        for fold_number, indices in enumerate(folds):
+            df.loc[indices, "fld_scf"] = fold_number
+        return df["fld_scf"].tolist()
 
-class ScaffoldFolding(object):
-    def __init__(self, path):
-        self.path = path
-        self.df = pd.read_csv(os.path.join(self.path, COMPOUNDS_FILENAME))
+class ClusterFolds(object):
+    def __init__(self, outdir):
+        self.outdir = outdir
+        self.input_file = self.get_input_file()
 
-    def get_folds(self):
-        dfm = pd.read_csv(
-            os.path.join(
-                self.path,
-                MELLODDY_SUBFOLDER,
-                "results",
-                "results_tmp",
-                "folding",
-                "T2_folds.csv",
-            )
-        )[["input_compound_id", "fold_id"]]
-        folds_dict = {}
-        for cid, fld in dfm.values:
-            folds_dict[cid] = fld
-        folds = []
-        for cid in list(self.df[COMPOUND_IDENTIFIER_COLUMN]):
-            if cid not in folds_dict:
-                folds += [random.choice(list(dfm["fold_id"]))]
+    def get_input_file(self):
+        return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
+
+    def _compute_ecfp4_fingerprints(self):
+        df = pd.read_csv(self.input_file)
+        smiles_list=df[STANDARD_SMILES_COLUMN]
+        fingerprints = []
+        for smiles in smiles_list:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol:
+                fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=1024)
+                fingerprints.append(np.array(fp))
             else:
-                folds += [folds_dict[cid]]
-        return folds
+                fingerprints.append(None)
+        return np.array([fp for fp in fingerprints if fp is not None])
 
-
-class LshFolding(object):
-    def __init__(self, path):
-        self.path = path
-        self.df = pd.read_csv(os.path.join(self.path, COMPOUNDS_FILENAME))
-
-    def get_folds(self):
-        dfm = pd.read_csv(
-            os.path.join(
-                self.path,
-                MELLODDY_SUBFOLDER,
-                "results",
-                "results_tmp",
-                "lsh_folding",
-                "T2_descriptors_lsh.csv",
-            )
-        )[["input_compound_id", "fold_id"]]
-        folds_dict = {}
-        for cid, fld in dfm.values:
-            folds_dict[cid] = fld
-        folds = []
-        for cid in list(self.df[COMPOUND_IDENTIFIER_COLUMN]):
-            if cid not in folds_dict:
-                folds += [random.choice(list(dfm["fold_id"]))]
-            else:
-                folds += [folds_dict[cid]]
-        return folds
-
-
-class GroupFolding(object):
-    def __init__(self, path):
-        pass
-
-    def get_folds(self):
-        pass
-
-
-class DateFolding(object):
-    def __init__(self, path):
-        self.path = path
-        self.df = pd.read_csv(os.path.join(self.path, DATA_FILENAME))
-        pass
-
-    def get_folds(self):
-        pass
-
-
-class AuxiliaryFolding(object):
-    def __init__(self, df):
-        self.df = df.copy()
-
-    @staticmethod
-    def split(a, n):
-        k, m = divmod(len(a), n)
-        return (a[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n))
-
-    def get_folds(self):
-        # TODO: Use time or pseudo-time (e.g. based on PCA)
-        N = self.df.shape[0]
-        self.df["index"] = [i for i in range(self.df.shape[0])]
-        self.df = self.df.sort_values(["fld_scf", "fld_lsh", "fld_rnd"]).reset_index(
-            drop=True
-        )
-        chunks = list(self.split(range(N), N_FOLDS))
-        indices = list(self.df["index"])
-        folds = [0] * N
-        for j, c in enumerate(chunks):
-            for i in c:
-                folds[indices[i]] = j
-        return folds
-
-
-class ValidationFolding(object):
-    def __init__(self, df):
-        self.df = df.copy()
-
-    def _has_date(self):
-        if "fld_dat" in list(self.df.columns):
-            return True
-        else:
-            return False
-
-    def _reference_column(self):
-        return "fld_rnd"
-        if self._has_date():
-            return "fld_dat"
-        else:
-            return "fld_aux"
-
-    def get_folds(self):
-        ref = self._reference_column()
-        n = np.max(self.df[ref])
-        folds = []
-        for f in list(self.df[ref]):
-            if f == n:
-                folds += [1]
-            else:
-                folds += [0]
-        return folds
-
-
-# TODO: check minimum number of folds
-class Folds(object):
-    def __init__(self, path):
-        self.path = path
-        self.file_name = os.path.join(self.path, FOLDS_FILENAME)
+    def _cluster_k_fold_split(self, k=5, random_seed=42):
+        fingerprints = self._compute_ecfp4_fingerprints()
+        kmeans = KMeans(n_clusters=k, random_state=random_seed)
+        clusters = kmeans.fit_predict(fingerprints)
+        return clusters
 
     def run(self):
-        data = {
-            "fld_rnd": RandomFolding(self.path).get_folds(),
-            "fld_scf": ScaffoldFolding(self.path).get_folds(),
-            "fld_lsh": LshFolding(self.path).get_folds(),
-        }
-        df = pd.DataFrame(data)
-        df["fld_aux"] = AuxiliaryFolding(df).get_folds()
-        df["fld_val"] = ValidationFolding(df).get_folds()
-        df.to_csv(self.file_name, index=False)
+        folds = self._cluster_k_fold_split()
+        return folds
+
+
+class FoldEnsemble(object):
+    def __init__(self,outdir):
+        self.outdir = outdir
+        self.input_file = self.get_input_file()
+        self.output_file = self.get_output_file()
+
+    def get_output_file(self):
+        return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME.split(".")[0] + "_folds.csv")
+
+    def get_input_file(self):
+        return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
+    
+    def run(self):
+        df = pd.read_csv(self.input_file)
+        fld_scf = ScaffoldFolds(self.outdir).run()
+        fld_clt = ClusterFolds(self.outdir).run()
+        fld_rnd = RandomFolds(self.outdir).run()
+        df = df.assign(fld_rnd=fld_rnd, fld_scf=fld_scf, fld_clt=fld_clt)
+        df.to_csv(self.get_output_file(), index=False)

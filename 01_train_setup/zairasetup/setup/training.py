@@ -6,14 +6,13 @@ from zairabase import ZairaBase, create_session_symlink
 
 from .files import ParametersFile
 from .files import SingleFile
-from .files import ReferenceFile
-from .standardize import Standardize
-from .folding import Folds
+from .standardize import ChemblStandardize
+from .folding import FoldEnsemble
+from .unify import UnifyData
 from .tasks import SingleTasks
 from .merge import DataMerger
 from .clean import SetupCleaner
 from .check import SetupChecker
-from zairasetup.tools.melloddy.pipeline import MelloddyTunerTrainPipeline
 
 from . import PARAMETERS_FILE, RAW_INPUT_FILENAME
 
@@ -42,7 +41,6 @@ class TrainSetup(object):
         threshold,
         direction,
         parameters,
-        is_lazy,
     ):
         if output_dir is None:
             output_dir = input_file.split(".")[0]
@@ -57,24 +55,12 @@ class TrainSetup(object):
             "threshold": threshold,
             "direction": direction,
             "task": task,
+            "presets": "standard"
         }
-        self._is_lazy = is_lazy
-        if self._is_lazy:
-            passed_params["presets"] = "lazy"
-        else:
-            passed_params["presets"] = "standard"
         self.params = self._load_params(parameters, passed_params)
         self.input_file = os.path.abspath(input_file)
         self.output_dir = os.path.abspath(output_dir)
         self.time_budget = time_budget  #TODO
-
-    def is_lazy(self):
-        with open(
-            os.path.join(self.output_dir, DATA_SUBFOLDER, PRESETS_FILENAME), "w"
-        ) as f:
-            data = {"is_lazy": self._is_lazy}
-            json.dump(data, f, indent=4)
-        return self._is_lazy
 
     def _copy_input_file(self):
         extension = self.input_file.split(".")[-1]
@@ -125,32 +111,24 @@ class TrainSetup(object):
             f.process()
             step.update()
 
-    def _melloddy_tuner_run(self):
-        print("MELLODY")
-        step = PipelineStep("mellody_tuner", self.output_dir)
+    def _standardise(self):
+        step = PipelineStep("standardise_smiles", self.output_dir)
         if not step.is_done():
-            MelloddyTunerTrainPipeline(
-                os.path.join(self.output_dir, DATA_SUBFOLDER)
-            ).run()
+            std = ChemblStandardize(os.path.join(self.output_dir, DATA_SUBFOLDER))
+            std.run()
+            step.update()
+    
+    def _create_folds(self):
+        step = PipelineStep("create_folds", self.output_dir)
+        if not step.is_done():
+            std = FoldEnsemble(os.path.join(self.output_dir, DATA_SUBFOLDER))
+            std.run()
             step.update()
 
-    def _standardize(self):
-        step = PipelineStep("standardize", self.output_dir)
+    def _unify_data(self):
+        step = PipelineStep("unify_data", self.output_dir)
         if not step.is_done():
-            Standardize(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
-            step.update()
-
-    def _process_reference_file(self):
-        step = PipelineStep("reference_file", self.output_dir)
-        if not step.is_done():
-            f = ReferenceFile(self.output_dir)
-            f.process()
-            step.update()
-
-    def _folds(self):
-        step = PipelineStep("folds", self.output_dir)
-        if not step.is_done():
-            Folds(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
+            UnifyData(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
             step.update()
 
     def _tasks(self):
@@ -199,12 +177,11 @@ class TrainSetup(object):
     def setup(self):
         self._initialize()
         self._normalize_input()
-        self._melloddy_tuner_run()
-        self._standardize()
-        self._process_reference_file()
-        self._folds()
-        self._tasks()
-        self._merge()
-        self._clean()
-        self._check()
-        self.update_elapsed_time()
+        self._standardise()
+        self._create_folds()
+        self._unify_data()
+        #self._tasks()
+        #self._merge()
+        #self._clean()
+       # self._check()
+        #self.update_elapsed_time()

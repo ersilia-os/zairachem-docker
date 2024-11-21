@@ -3,17 +3,13 @@ import pandas as pd
 import json
 import numpy as np
 import collections
-import csv
-import requests
 from rdkit import Chem
 
-from zairabase import ZairaBase
 from .schema import InputSchema
 
 from zairabase.vars import DATA_SUBFOLDER
 from zairabase.vars import ERSILIA_HUB_DEFAULT_MODELS
 from zairabase.vars import DEFAULT_ESTIMATORS
-from zairabase.vars import REFERENCE_FILENAME
 from zairabase.vars import DEFAULT_PRESETS
 from . import (
     COMPOUNDS_FILENAME,
@@ -21,12 +17,12 @@ from . import (
     VALUES_FILENAME,
     MAPPING_FILENAME,
     INPUT_SCHEMA_FILENAME,
-    RAW_REFERENCE_FILENAME,
 )
 from . import (
     MAPPING_ORIGINAL_COLUMN,
     MAPPING_DEDUPE_COLUMN,
     COMPOUND_IDENTIFIER_COLUMN,
+    USER_COMPOUND_IDENTIFIER_COLUMN,
     ASSAY_IDENTIFIER_COLUMN,
     SMILES_COLUMN,
     DATE_COLUMN,
@@ -37,6 +33,7 @@ from . import (
     DIRECTION_COLUMN,
     EXPERT_THRESHOLD_COLUMN_PREFIX,
     PARAMETERS_FILE,
+    DATA0_FILENAME
 )
 
 
@@ -57,7 +54,6 @@ class ParametersFile(object):
                 self.filename = full_path
             self.params = self.load()
 
-    # TODO Improve readibility
     def load(self):
         if self.filename is not None:
             with open(self.filename, "r") as f:
@@ -128,15 +124,6 @@ class SingleFile(InputSchema):
                 identifiers += [None]
         return identifiers
 
-    def _sanitize_identifiers(self):
-        # TODO more sophisticated sanitization of identifiers
-        if self.df[self.df[self.identifier_column].isnull()].shape[0] > 0:
-            return self._make_identifiers()
-        identifiers = list(self.df[self.identifier_column])
-        if len(identifiers) > len(set(identifiers)):
-            return self._make_identifiers()
-        return identifiers
-
     def _impute_qualifiers(self):
         qualifiers = []
         for qual in list(self.df[self.qualifier_column]):
@@ -156,18 +143,10 @@ class SingleFile(InputSchema):
         self.date_column = resolved_columns["date_column"]
         self.group_column = resolved_columns["group_column"]
         identifiers = self._make_identifiers()
-
         if self.identifier_column is None:
             df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
         else:
-            identifiers_skip = self._sanitize_identifiers()
-            df = pd.DataFrame(
-                {
-                    COMPOUND_IDENTIFIER_COLUMN: identifiers,
-                    COMPOUND_IDENTIFIER_COLUMN + "_skip": identifiers_skip,
-                }
-            )
-
+            df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers, USER_COMPOUND_IDENTIFIER_COLUMN: self.df[self.identifier_column]})
         df[SMILES_COLUMN] = self.df[self.smiles_column]
 
         if self.qualifier_column is None:
@@ -219,6 +198,8 @@ class SingleFile(InputSchema):
                 COMPOUND_IDENTIFIER_COLUMN,
             ],
         )
+        if USER_COMPOUND_IDENTIFIER_COLUMN in df.columns:
+            dfm[USER_COMPOUND_IDENTIFIER_COLUMN]=df[USER_COMPOUND_IDENTIFIER_COLUMN]
         dfm.to_csv(os.path.join(path, MAPPING_FILENAME), index=False)
         R = []
         for cid in unique_cids:
@@ -297,6 +278,8 @@ class SingleFile(InputSchema):
         dfa = self.assays_table(df)
         dfa.to_csv(os.path.join(path, ASSAYS_FILENAME), index=False)
         dfv = self.values_table(df)
+        df_all = pd.merge(dfc, dfv, on =[COMPOUND_IDENTIFIER_COLUMN], how="inner")
+        df_all.to_csv(os.path.join(path, DATA0_FILENAME), index=False)
         dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
         schema = self.input_schema()
         with open(os.path.join(path, INPUT_SCHEMA_FILENAME), "w") as f:
@@ -379,46 +362,3 @@ class SingleFileForPrediction(SingleFile):
         schema = self.input_schema()
         with open(os.path.join(path, INPUT_SCHEMA_FILENAME), "w") as f:
             json.dump(schema, f, indent=4)
-
-
-class ReferenceFile(ZairaBase):
-    def __init__(self, path=None):
-        if path is None:
-            self.path = self.get_output_dir()
-        else:
-            self.path = path
-        self.raw_reference_file = os.path.join(
-            self.path, RAW_REFERENCE_FILENAME + ".csv"
-        )
-        self.reference_file = os.path.join(
-            self.path, DATA_SUBFOLDER, REFERENCE_FILENAME
-        )
-        if not os.path.exists(self.raw_reference_file):
-            self._download_from_ersilia()
-
-    def _download_from_ersilia(self):
-        url = "https://raw.githubusercontent.com/ersilia-os/ersilia-model-hub-maintained-inputs/main/compound/single/inp-000.csv"
-        with requests.Session() as s:
-            download = s.get(url)
-            decoded_content = download.content.decode("utf-8")
-            cr = csv.reader(decoded_content.splitlines(), delimiter=",")
-            data = list(cr)[1:]
-            R = []
-            for r in data:
-                R += [r[1]]
-        with open(self.raw_reference_file, "w") as f:
-            writer = csv.writer(f, delimiter="\t")
-            writer.writerow([SMILES_COLUMN])
-            for r in R:
-                writer.writerow([r])
-
-    def process(self):
-        df = pd.read_csv(
-            self.raw_reference_file
-        )  # TODO better processing of reference file
-        smiles = list(df[SMILES_COLUMN])
-        with open(self.reference_file, "w") as f:
-            writer = csv.writer(f, delimiter="\t")
-            writer.writerow([SMILES_COLUMN])
-            for r in smiles:
-                writer.writerow([r])

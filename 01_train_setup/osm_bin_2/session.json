@@ -1,0 +1,14 @@
+{
+    "output_dir": "/home/gturon/github/ersilia-os/zairachem-docker/01_train_setup/osm_bin_2",
+    "model_dir": "/home/gturon/github/ersilia-os/zairachem-docker/01_train_setup/osm_bin_2",
+    "time_stamp": 1732208141,
+    "elapsed_time": 0,
+    "mode": "fit",
+    "steps": [
+        "initialize",
+        "normalize_input",
+        "standardise_smiles",
+        "create_folds",
+        "unify_data"
+    ]
+}

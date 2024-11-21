@@ -8,6 +8,7 @@ ZairaChem v2, like v1, is focused in Classifiers. The option to train Regressors
 
 ### Questions:
 - Model dir or Output dir? what is the best naming here?
+- is_values_column works as expected?
 - Ensemble modes: only bagging available, do we want to include others? ZairaBase still has option for Blending, consider removing?
 - Lazy: the lazy functionality is not being used, consider removing entirely?
 - Pandas: ZairaBase requires pandas installed, but this could actually be removed
