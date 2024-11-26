@@ -1,9 +1,0 @@
-{
-    "input_file": "/home/gturon/github/ersilia-os/tests/osm_bin_smi.csv",
-    "identifier_column": null,
-    "smiles_column": "smiles",
-    "qualifier_column": null,
-    "values_column": "bin_activity",
-    "date_column": null,
-    "group_column": null
-}

@@ -9,7 +9,7 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from sklearn.cluster import KMeans
 #from sklearn.preprocessing import StandardScaler
 
-from . import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN
+from . import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN, FOLDS_FILENAME
 
 class RandomFolds(object):
     def __init__(self, outdir):
@@ -116,7 +116,7 @@ class FoldEnsemble(object):
         self.output_file = self.get_output_file()
 
     def get_output_file(self):
-        return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME.split(".")[0] + "_folds.csv")
+        return os.path.join(self.outdir, FOLDS_FILENAME)
 
     def get_input_file(self):
         return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)

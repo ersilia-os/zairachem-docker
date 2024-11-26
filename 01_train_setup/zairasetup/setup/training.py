@@ -180,7 +180,7 @@ class TrainSetup(object):
         self._standardise()
         self._create_folds()
         self._unify_data()
-        #self._tasks()
+        self._tasks()
         #self._merge()
         #self._clean()
        # self._check()
