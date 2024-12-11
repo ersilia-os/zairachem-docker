@@ -4,10 +4,9 @@ import numpy as np
 import random
 from collections import defaultdict
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import rdFingerprintGenerator
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from sklearn.cluster import KMeans
-#from sklearn.preprocessing import StandardScaler
 
 from . import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN, FOLDS_FILENAME
 
@@ -89,10 +88,11 @@ class ClusterFolds(object):
         df = pd.read_csv(self.input_file)
         smiles_list=df[STANDARD_SMILES_COLUMN]
         fingerprints = []
+        mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2,fpSize=1024)
         for smiles in smiles_list:
             mol = Chem.MolFromSmiles(smiles)
             if mol:
-                fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, nBits=1024)
+                fp = mfpgen.GetFingerprint(mol)
                 fingerprints.append(np.array(fp))
             else:
                 fingerprints.append(None)

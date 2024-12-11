@@ -94,8 +94,6 @@ class ParametersFile(object):
             data["ersilia_hub"] = ERSILIA_HUB_DEFAULT_MODELS
         if "estimators" not in data:
             data["estimators"] = DEFAULT_ESTIMATORS
-        if "presets" not in data:
-            data["presets"] = DEFAULT_PRESETS
         return data
 
 

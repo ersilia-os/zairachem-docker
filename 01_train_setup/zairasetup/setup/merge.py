@@ -2,36 +2,41 @@ import os
 import pandas as pd
 import json
 from zairabase.vars import DATA_FILENAME
-from . import FOLDS_FILENAME, COMPOUNDS_FILENAME, TASKS_FILENAME, SCHEMA_MERGE_FILENAME
-from . import COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN
-
+from . import DATA0_FILENAME, STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME, SCHEMA_MERGE_FILENAME
+from . import COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN
 
 class DataMerger(object):
     def __init__(self, path):
         self.path = path
 
+    def get_input_file(self):
+        return pd.read_csv(os.path.join(self.path, DATA0_FILENAME))
+    
+    def get_standard_smiles(self):
+        return pd.read_csv(os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME))
+    
+    def get_folds(self):
+        return pd.read_csv(os.path.join(self.path, FOLDS_FILENAME))
+    
+    def get_tasks(self):
+        return pd.read_csv(os.path.join(self.path, TASKS_FILENAME))
+    
     def run(self):
-        df_cpd = pd.read_csv(os.path.join(self.path, COMPOUNDS_FILENAME))[
-            [COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN]
-        ]
-        df_fld = pd.read_csv(os.path.join(self.path, FOLDS_FILENAME))
-        df_tsk = pd.read_csv(os.path.join(self.path, TASKS_FILENAME))
-        df_tsk = df_tsk[
-            [
-                c
-                for c in list(df_tsk.columns)
-                if "reg_" in c or "clf_" in c or c == COMPOUND_IDENTIFIER_COLUMN
-            ]
-        ]
-        df = pd.concat([df_cpd, df_fld], axis=1)
-        df = df.merge(df_tsk, on="compound_id")
+        df1 = self.get_standard_smiles()
+        df2 = self.get_folds()
+        df = pd.merge(df1, df2, on=[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN])
+        df = df.drop(columns=[SMILES_COLUMN])
+        df = df.rename(columns={STANDARD_SMILES_COLUMN:SMILES_COLUMN})
+        df_tsk = self.get_tasks()
+        df = df.merge(df_tsk, on=COMPOUND_IDENTIFIER_COLUMN)
         schema = {
-            "compounds": list(df_cpd.columns),
-            "folds": list(df_fld.columns),
+            "compounds": list(df[[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN]].columns),
+            "folds": list(df[[c for c in list(df.columns) if "fld" in c]].columns),
             "tasks": [
-                c for c in list(df_tsk.columns) if c != COMPOUND_IDENTIFIER_COLUMN
+                c for c in list(df_tsk.columns) if "reg_" in c or "clf_" in c
             ],
         }
+
         df.to_csv(os.path.join(self.path, DATA_FILENAME), index=False)
         with open(os.path.join(self.path, SCHEMA_MERGE_FILENAME), "w") as f:
             json.dump(schema, f, indent=4)

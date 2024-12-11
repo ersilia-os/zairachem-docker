@@ -22,6 +22,8 @@ COMPOUND_IDENTIFIER_COLUMN = "compound_id"
 USER_COMPOUND_IDENTIFIER_COLUMN = "orig_compound_id"
 ASSAY_IDENTIFIER_COLUMN = "assay_id"
 SMILES_COLUMN = "smiles"
+INCHIKEY_COLUMN = "inchikey"
+STANDARD_SMILES_COLUMN = "standard_smiles"
 DATE_COLUMN = "date"
 QUALIFIER_COLUMN = "qualifier"
 VALUES_COLUMN = "value"
@@ -32,7 +34,6 @@ EXPERT_THRESHOLD_COLUMN_PREFIX = "expert_threshold_"
 PERCENTILE_THRESHOLD_COLUMN_PREFIX = "percentile_threshold_"
 AUXILIARY_TASK_COLUMN = "clf_aux"
 
-INCHIKEY_COLUMN = "inchikey"
-STANDARD_SMILES_COLUMN = "standard_smiles"
+
 
 RAW_INPUT_FILENAME = "raw_input"

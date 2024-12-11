@@ -10,6 +10,7 @@ from . import RAW_INPUT_FILENAME
 from . import INPUT_SCHEMA_FILENAME
 from . import SCHEMA_MERGE_FILENAME
 from . import MAPPING_FILENAME
+from . import VALUES_COLUMN
 
 from zairabase.vars import DATA_SUBFOLDER
 from zairabase.vars import DATA_FILENAME
@@ -36,7 +37,7 @@ class SetupChecker(object):
         dm = pd.read_csv(self.mapping_file)
         dd = pd.read_csv(self.data_file)
         data_schema = self.data_schema_dict
-        cid_mapping_column = "compound_id"
+        cid_mapping_column = "compound_id" #WHY not using the Variable?
         cid_mapping = list(dm[cid_mapping_column])
         cid_data_column = data_schema["compounds"][0]
         cid_data = list(dd[cid_data_column])
@@ -50,22 +51,24 @@ class SetupChecker(object):
             else:
                 new_idxs += [cid_data_idx[cid]]
         orig_idxs = list(dm["orig_idx"])
-        with open(self.mapping_file, "w") as f:
+        with open(self.mapping_file, "w") as f:  
             writer = csv.writer(f, delimiter=",")
             writer.writerow(["orig_idx", "uniq_idx", "compound_id"])
             for o, u, c in zip(orig_idxs, new_idxs, cid_mapping):
                 writer.writerow([o, u, c])
+
 
     def check_smiles(self):
         self._get_schemas()
         input_schema = self.input_schema_dict
         data_schema = self.data_schema_dict
         input_smiles_column = input_schema["smiles_column"]
-        data_smiles_column = data_schema["compounds"][1]
+        data_smiles_column = data_schema["compounds"][1] 
         di = pd.read_csv(self.input_file)
         dd = pd.read_csv(self.data_file)
         ismi = list(di[input_smiles_column])
         dsmi = list(dd[data_smiles_column])
+        dsmi = list(dd["smiles"])
         mapping = pd.read_csv(self.mapping_file)
         discrepancies = 0
         for oidx, uidx, cid in mapping.values:
@@ -101,13 +104,17 @@ class SetupChecker(object):
         if "reg_raw_skip" in data_schema["tasks"]:
             data_values_column = "reg_raw_skip"
         else:
-            if "clf_aux" in data_schema["tasks"]:
+            if any(task.startswith("clf_p") for task in data_schema["tasks"]): #if CLF PERCENTILES are calculated, data was passed as continuous, take original values to compare
+                print("HERE")
+                data_values_column = VALUES_COLUMN
+            elif "clf_aux" in data_schema["tasks"]:
                 data_values_column = "clf_aux"
             else:
                 if input_values_column in data_schema["tasks"]:
                     data_values_column = input_values_column
                 else:
-                    data_values_column = data_schema["tasks"][0]
+                    data_values_column = VALUES_COLUMN
+        print(data_values_column, input_values_column)
         di = pd.read_csv(self.input_file)
         dd = pd.read_csv(self.data_file)
         ival = list(di[input_values_column])

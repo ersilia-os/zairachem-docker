@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "zairasetup"
+name = "zairadescribe"
 version = "2.0.0"
 authors = ["Ersilia Open Source Initiative <hello@ersilia.io>"]
 description = "Automated QSAR modeling for chemistry"
@@ -29,8 +29,3 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.8"
 zairabase = { path = "../00_zaira_base" }
-pandas = "2.2.3"
-numpy = "2.1.3"
-rdkit = "2024.3.6"
-standardiser="0.1.9"
-scikit-learn = "1.5.2"

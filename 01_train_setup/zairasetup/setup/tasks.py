@@ -199,7 +199,7 @@ class ClfTasks(object):
         for k in keys:
             v = self.thresholds[k]
             if v is not None:
-                cuts += [v]
+                cuts += [v] 
         return cuts
 
     def percentiles(self):
@@ -319,7 +319,7 @@ class SingleTasks(ZairaBase):
         else:
             self.path = path
         if self.is_predict():
-            self.trained_path = self.get_trained_dir()
+            self.trained_path = self.get_trained_dir() #TODO REMOVE
         else:
             self.trained_path = self.get_output_dir()
         self._task = ExpectedTaskType(path=path).get()
@@ -399,21 +399,26 @@ class SingleTasks(ZairaBase):
             self.logger.debug("Data is not simply a binary")
             df = self._get_data()
             params = self._get_params()
-            reg_tasks = RegTasks(df, params, path=self.trained_path)
-            reg = reg_tasks.as_dict()
-            for k, v in reg.items():
-                self.logger.debug("Setting {0}".format(k))
-                df[k] = v
-            clf_tasks = ClfTasks(df, params, path=self.trained_path)
-            clf = clf_tasks.as_dict()
-            clf_tasks.save(self.trained_path)
-            for k, v in clf.items():
-                self.logger.debug("Setting {0}".format(k))
-                df[k] = v
-        df = df.drop(columns=[VALUES_COLUMN])
-        auxiliary = AuxiliaryBinaryTask(df)
-        df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
-        df = task_skipper(df, self._task)
+            if params["task"]=="regression":
+                reg_tasks = RegTasks(df, params, path=self.trained_path)
+                reg = reg_tasks.as_dict()
+                for k, v in reg.items():
+                    self.logger.debug("Setting {0}".format(k))
+                    df[k] = v
+                df = df.drop(columns=[VALUES_COLUMN])
+            elif params["task"]=="classification":
+                clf_tasks = ClfTasks(df, params, path=self.trained_path)
+                clf = clf_tasks.as_dict()
+                clf_tasks.save(self.trained_path)
+                for k, v in clf.items():
+                    self.logger.debug("Setting {0}".format(k))
+                    df[k] = v
+                auxiliary = AuxiliaryBinaryTask(df)
+                df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
+                df[VALUES_COLUMN]=clf_tasks.values
+                print(clf_tasks.values)
+                print(df.columns)
+        #df = task_skipper(df, self._task)
         df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)
 
 

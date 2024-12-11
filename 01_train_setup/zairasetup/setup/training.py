@@ -47,15 +47,14 @@ class TrainSetup(object):
         if task is None and threshold is not None:
             task = "classification"
         else:
-            if task is None:
+            if task is None: #task is pre-set in classification, currently it will not enter here
                 task = "regression"
         assert task in ["regression", "classification"]
         passed_params = {
-            "time_budget": time_budget,
+            "time_budget": time_budget, #time budget is pre-set at 120s
             "threshold": threshold,
             "direction": direction,
-            "task": task,
-            "presets": "standard"
+            "task": task
         }
         self.params = self._load_params(parameters, passed_params)
         self.input_file = os.path.abspath(input_file)
@@ -103,6 +102,16 @@ class TrainSetup(object):
         self._make_subfolder(APPLICABILITY_SUBFOLDER)
         self._make_subfolder(REPORT_SUBFOLDER)
         self._make_subfolder(DISTILL_SUBFOLDER)
+
+    def _initialize(self):
+        step = PipelineStep("initialize", self.output_dir)
+        if not step.is_done():
+            self._make_output_dir()
+            self._open_session()
+            self._make_subfolders()
+            self._save_params()
+            self._copy_input_file()
+            step.update()
 
     def _normalize_input(self):
         step = PipelineStep("normalize_input", self.output_dir)
@@ -155,15 +164,7 @@ class TrainSetup(object):
             SetupChecker(self.output_dir).run()
             step.update()
 
-    def _initialize(self):
-        step = PipelineStep("initialize", self.output_dir)
-        if not step.is_done():
-            self._make_output_dir()
-            self._open_session()
-            self._make_subfolders()
-            self._save_params()
-            self._copy_input_file()
-            step.update()
+
 
     def update_elapsed_time(self):
         ZairaBase().update_elapsed_time()
@@ -179,9 +180,9 @@ class TrainSetup(object):
         self._normalize_input()
         self._standardise()
         self._create_folds()
-        self._unify_data()
+        #self._unify_data()
         self._tasks()
-        #self._merge()
+        self._merge()
         #self._clean()
-       # self._check()
+        self._check()
         #self.update_elapsed_time()

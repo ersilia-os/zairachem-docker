@@ -17,8 +17,8 @@ if __name__ == "__main__":
 
     # Add arguments
     parser.add_argument("--input_file", "-i", required=True, help="Path to the input file.")
-    parser.add_argument("--model_dir", "-o", required=False, help="Path to the directory where the model will be stored.")
-    parser.add_argument("--cutoff", "-c", required=False, help="Cutoff to binarize data, i.e. to separate actives and inactives. By convention, actives = 1 and inactives = 0, check 'direction'.")
+    parser.add_argument("--model_dir", "-m", required=False, help="Path to the directory where the model will be stored.")
+    parser.add_argument("--cutoff", "-c", required=False, type=float, help="Cutoff to binarize data, i.e. to separate actives and inactives. By convention, actives = 1 and inactives = 0, check 'direction'.")
     parser.add_argument("--direction", "-d", required=False, help="Direction of the actives: 'high' means that high values are actives, 'low' means that low values are actives.")
     parser.add_argument("--parameters", "-p", required=False, help="Path to parameters file in JSON format.")
     # Parse arguments

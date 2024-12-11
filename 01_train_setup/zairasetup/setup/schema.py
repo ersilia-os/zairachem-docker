@@ -6,7 +6,7 @@ from zairabase import ZairaBase
 
 
 _SNIFF_SAMPLE_SIZE = 1000
-_MAX_EMPTY = 0.2 #TODO NOt USED
+_MAX_EMPTY = 0.2 #TODO NOT USED
 _MIN_CORRECT = 0.8
 
 

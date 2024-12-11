@@ -26,11 +26,6 @@ class SetupCleaner(object):
             if os.path.exists(path):
                 os.remove(path)
 
-    def _melloddy(self):
-        path = os.path.join(self.path, "melloddy")
-        if os.path.exists(path):
-            shutil.rmtree(path)
-
 #TODO REMOVE
     def _augmenter(self):
         path = os.path.join(self.path, "augmenter")
@@ -38,6 +33,5 @@ class SetupCleaner(object):
             shutil.rmtree(path)
 
     def run(self):
-        self._melloddy()
         self._individual_files()
         self._augmenter()
