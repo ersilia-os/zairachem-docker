@@ -8,7 +8,6 @@ from .files import ParametersFile
 from .files import SingleFile
 from .standardize import ChemblStandardize
 from .folding import FoldEnsemble
-from .unify import UnifyData
 from .tasks import SingleTasks
 from .merge import DataMerger
 from .clean import SetupCleaner
@@ -26,7 +25,6 @@ from zairabase.vars import APPLICABILITY_SUBFOLDER
 from zairabase.vars import REPORT_SUBFOLDER
 from zairabase.vars import DISTILL_SUBFOLDER
 from zairabase.vars import OUTPUT_FILENAME
-from zairabase.vars import PRESETS_FILENAME
 
 from zairabase.utils.pipeline import PipelineStep, SessionFile
 
@@ -134,12 +132,6 @@ class TrainSetup(object):
             std.run()
             step.update()
 
-    def _unify_data(self):
-        step = PipelineStep("unify_data", self.output_dir)
-        if not step.is_done():
-            UnifyData(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
-            step.update()
-
     def _tasks(self):
         step = PipelineStep("tasks", self.output_dir)
         if not step.is_done():
@@ -152,19 +144,17 @@ class TrainSetup(object):
             DataMerger(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
             step.update()
 
-    def _clean(self):
-        step = PipelineStep("clean", self.output_dir)
-        if not step.is_done():
-            SetupCleaner(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
-            step.update()
-
     def _check(self):
         step = PipelineStep("setup_check", self.output_dir)
         if not step.is_done():
             SetupChecker(self.output_dir).run()
             step.update()
 
-
+    def _clean(self):
+        step = PipelineStep("clean", self.output_dir)
+        if not step.is_done():
+            SetupCleaner(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
+            step.update()
 
     def update_elapsed_time(self):
         ZairaBase().update_elapsed_time()
@@ -180,9 +170,8 @@ class TrainSetup(object):
         self._normalize_input()
         self._standardise()
         self._create_folds()
-        #self._unify_data()
         self._tasks()
         self._merge()
-        #self._clean()
         self._check()
-        #self.update_elapsed_time()
+        #self._clean()
+        self.update_elapsed_time()

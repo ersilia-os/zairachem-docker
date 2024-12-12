@@ -2,15 +2,12 @@ import os
 import pandas as pd
 import json
 from zairabase.vars import DATA_FILENAME
-from . import DATA0_FILENAME, STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME, SCHEMA_MERGE_FILENAME
+from . import STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME, SCHEMA_MERGE_FILENAME
 from . import COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN
 
 class DataMerger(object):
     def __init__(self, path):
         self.path = path
-
-    def get_input_file(self):
-        return pd.read_csv(os.path.join(self.path, DATA0_FILENAME))
     
     def get_standard_smiles(self):
         return pd.read_csv(os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME))

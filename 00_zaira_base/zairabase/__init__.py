@@ -121,7 +121,6 @@ class ZairaBase(object):
                 "Training set is the full dataset. Interpret with caution!"
             )
             idxs = self._dummy_indices(path)
-            print(idxs)
             return idxs
 
     def get_validation_indices(self, path):

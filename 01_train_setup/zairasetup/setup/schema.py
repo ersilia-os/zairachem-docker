@@ -29,7 +29,7 @@ class InputSchema(ZairaBase):
         self.assigned_columns.update([col])
 
     def _prop_correct_smiles(self, col):
-        values = list(self.df_[col])[:100]
+        values = list(self.df_[col])[:10] #check only the first 10 smiles, if they are not correct continue
         c = 0
         for v in values:
             try:

@@ -2,8 +2,8 @@ import shutil
 import os
 
 from . import (
-    ASSAYS_FILENAME,
     COMPOUNDS_FILENAME,
+    STANDARD_COMPOUNDS_FILENAME,
     FOLDS_FILENAME,
     TASKS_FILENAME,
     VALUES_FILENAME,
@@ -16,8 +16,8 @@ class SetupCleaner(object):
 
     def _individual_files(self):
         for f in [
-            ASSAYS_FILENAME,
             COMPOUNDS_FILENAME,
+            STANDARD_COMPOUNDS_FILENAME,
             FOLDS_FILENAME,
             TASKS_FILENAME,
             VALUES_FILENAME,
@@ -26,12 +26,5 @@ class SetupCleaner(object):
             if os.path.exists(path):
                 os.remove(path)
 
-#TODO REMOVE
-    def _augmenter(self):
-        path = os.path.join(self.path, "augmenter")
-        if os.path.exists(path):
-            shutil.rmtree(path)
-
     def run(self):
         self._individual_files()
-        self._augmenter()

@@ -18,8 +18,7 @@ class RandomFolds(object):
     def get_input_file(self):
         return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
     
-    def random_k_fold_split(self, k=5, random_seed=42):
-        df = pd.read_csv(self.input_file)
+    def random_k_fold_split(self, df, k=5, random_seed=42):
         random.seed(random_seed)
         shuffled_indices = np.random.permutation(len(df))
         folds = np.array_split(shuffled_indices,k)
@@ -27,7 +26,7 @@ class RandomFolds(object):
     
     def run(self):
         df = pd.read_csv(self.input_file)
-        folds = self.random_k_fold_split()
+        folds = self.random_k_fold_split(df)
         for fold_number, indices in enumerate(folds):
             df.loc[indices, "fld_rnd"] = fold_number
         return df["fld_rnd"].tolist()
@@ -47,9 +46,7 @@ class ScaffoldFolds(object):
         scaffold = MurckoScaffold.GetScaffoldForMol(mol)
         return Chem.MolToSmiles(scaffold, isomericSmiles=include_chirality)
     
-    def _group_by_scaffold(self):
-        df = pd.read_csv(self.input_file)
-        smiles_list = df[STANDARD_SMILES_COLUMN]
+    def _group_by_scaffold(self, smiles_list):        
         scaffold_dict = defaultdict(list)
         for idx, smiles in enumerate(smiles_list):
             scaffold = self._compute_scaffold(smiles)
@@ -57,9 +54,9 @@ class ScaffoldFolds(object):
                 scaffold_dict[scaffold].append(idx)
         return scaffold_dict
     
-    def scaffold_k_fold_split(self, k=5, random_seed=42):
+    def scaffold_k_fold_split(self, smiles_list, k=5, random_seed=42):
         random.seed(random_seed)
-        scaffold_dict = self._group_by_scaffold()
+        scaffold_dict = self._group_by_scaffold(smiles_list)
         scaffold_items =  sorted(scaffold_dict.items(), key=lambda x: len(x[1]), reverse=True)
         folds = [[] for _ in range(k)]
         fold_sizes = [0] * k
@@ -71,7 +68,8 @@ class ScaffoldFolds(object):
     
     def run(self):
         df = pd.read_csv(self.input_file)
-        folds, fold_sizes= self.scaffold_k_fold_split()
+        smiles_list = df[STANDARD_SMILES_COLUMN]
+        folds, fold_sizes= self.scaffold_k_fold_split(smiles_list)
         for fold_number, indices in enumerate(folds):
             df.loc[indices, "fld_scf"] = fold_number
         return df["fld_scf"].tolist()
@@ -84,9 +82,7 @@ class ClusterFolds(object):
     def get_input_file(self):
         return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
 
-    def _compute_ecfp4_fingerprints(self):
-        df = pd.read_csv(self.input_file)
-        smiles_list=df[STANDARD_SMILES_COLUMN]
+    def _compute_ecfp4_fingerprints(self, smiles_list):
         fingerprints = []
         mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2,fpSize=1024)
         for smiles in smiles_list:
@@ -98,14 +94,16 @@ class ClusterFolds(object):
                 fingerprints.append(None)
         return np.array([fp for fp in fingerprints if fp is not None])
 
-    def _cluster_k_fold_split(self, k=5, random_seed=42):
-        fingerprints = self._compute_ecfp4_fingerprints()
+    def cluster_k_fold_split(self, smiles_list, k=5, random_seed=42):
+        fingerprints = self._compute_ecfp4_fingerprints(smiles_list)
         kmeans = KMeans(n_clusters=k, random_state=random_seed)
         clusters = kmeans.fit_predict(fingerprints)
         return clusters
 
     def run(self):
-        folds = self._cluster_k_fold_split()
+        df = pd.read_csv(self.input_file)
+        smiles_list=df[STANDARD_SMILES_COLUMN]
+        folds = self.cluster_k_fold_split(smiles_list)
         return folds
 
 

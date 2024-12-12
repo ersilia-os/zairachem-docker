@@ -36,7 +36,7 @@ class ExpectedTaskType(ZairaBase):
         else:
             self.path = path
         if self.is_predict():
-            self.trained_path = self.get_trained_dir() #TODO PREDICT Remove
+            self.trained_path = self.get_trained_dir()
         else:
             self.trained_path = self.get_output_dir()
 
@@ -115,7 +115,7 @@ class RegTasks(object):
 
     def as_dict(self):
         res = OrderedDict()
-        res["reg_raw_skip"] = self.raw(smoothen=True)
+        res["reg_raw_skip"] = self.raw(smoothen=False) #TODO if left True, shows high activity difference when values are passed as continuous for Binary
         res["reg_pwr_skip"] = self.pwr()
         res["reg_rnk_skip"] = self.rnk()
         res["reg_qnt"] = self.qnt()
@@ -319,7 +319,7 @@ class SingleTasks(ZairaBase):
         else:
             self.path = path
         if self.is_predict():
-            self.trained_path = self.get_trained_dir() #TODO REMOVE
+            self.trained_path = self.get_trained_dir()
         else:
             self.trained_path = self.get_output_dir()
         self._task = ExpectedTaskType(path=path).get()
@@ -338,6 +338,15 @@ class SingleTasks(ZairaBase):
 
     def _rewrite_data(self, df):
         df.to_csv(os.path.join(self.path, VALUES_FILENAME), sep=",", index=False)
+
+    def _force_classification_task(self):
+        params = self._get_params()
+        params["task"] = "classification"
+        with open(
+            os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE), "w"
+        ) as f:
+            json.dump(params, f, indent=4)
+        self.task = "classification"
 
     def _is_simply_binary_classification(self, data):
         unique_values = set(data[VALUES_COLUMN])
@@ -377,15 +386,6 @@ class SingleTasks(ZairaBase):
             self.logger.debug("There is continuous data")
             return False
 
-    def _force_classification_task(self):
-        params = self._get_params()
-        params["task"] = "classification"
-        with open(
-            os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE), "w"
-        ) as f:
-            json.dump(params, f, indent=4)
-        self.task = "classification"
-
     def run(self):
         df = self._get_data()
         if self._is_simply_binary_classification(df):
@@ -399,26 +399,21 @@ class SingleTasks(ZairaBase):
             self.logger.debug("Data is not simply a binary")
             df = self._get_data()
             params = self._get_params()
-            if params["task"]=="regression":
-                reg_tasks = RegTasks(df, params, path=self.trained_path)
-                reg = reg_tasks.as_dict()
-                for k, v in reg.items():
-                    self.logger.debug("Setting {0}".format(k))
-                    df[k] = v
-                df = df.drop(columns=[VALUES_COLUMN])
-            elif params["task"]=="classification":
-                clf_tasks = ClfTasks(df, params, path=self.trained_path)
-                clf = clf_tasks.as_dict()
-                clf_tasks.save(self.trained_path)
-                for k, v in clf.items():
-                    self.logger.debug("Setting {0}".format(k))
-                    df[k] = v
-                auxiliary = AuxiliaryBinaryTask(df)
-                df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
-                df[VALUES_COLUMN]=clf_tasks.values
-                print(clf_tasks.values)
-                print(df.columns)
-        #df = task_skipper(df, self._task)
+            reg_tasks = RegTasks(df, params, path=self.trained_path)
+            reg = reg_tasks.as_dict()
+            for k, v in reg.items():
+                self.logger.debug("Setting {0}".format(k))
+                df[k] = v
+            clf_tasks = ClfTasks(df, params, path=self.trained_path)
+            clf = clf_tasks.as_dict()
+            clf_tasks.save(self.trained_path)
+            for k, v in clf.items():
+                self.logger.debug("Setting {0}".format(k))
+                df[k] = v
+        df = df.drop(columns=[VALUES_COLUMN])
+        auxiliary = AuxiliaryBinaryTask(df)
+        df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
+        df = task_skipper(df, self._task)
         df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)
 
 

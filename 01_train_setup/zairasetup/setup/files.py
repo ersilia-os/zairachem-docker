@@ -10,10 +10,9 @@ from .schema import InputSchema
 from zairabase.vars import DATA_SUBFOLDER
 from zairabase.vars import ERSILIA_HUB_DEFAULT_MODELS
 from zairabase.vars import DEFAULT_ESTIMATORS
-from zairabase.vars import DEFAULT_PRESETS
+
 from . import (
     COMPOUNDS_FILENAME,
-    ASSAYS_FILENAME,
     VALUES_FILENAME,
     MAPPING_FILENAME,
     INPUT_SCHEMA_FILENAME,
@@ -23,17 +22,12 @@ from . import (
     MAPPING_DEDUPE_COLUMN,
     COMPOUND_IDENTIFIER_COLUMN,
     USER_COMPOUND_IDENTIFIER_COLUMN,
-    ASSAY_IDENTIFIER_COLUMN,
     SMILES_COLUMN,
     DATE_COLUMN,
     QUALIFIER_COLUMN,
     VALUES_COLUMN,
     GROUP_COLUMN,
-    ASSAY_TYPE_COLUMN,
-    DIRECTION_COLUMN,
-    EXPERT_THRESHOLD_COLUMN_PREFIX,
-    PARAMETERS_FILE,
-    DATA0_FILENAME
+    PARAMETERS_FILE
 )
 
 
@@ -62,10 +56,6 @@ class ParametersFile(object):
             data = {}
         for k, v in self.params.items():
             data[k] = v
-        if "assay_id" not in data:
-            data["assay_id"] = "ASSAY"
-        if "assay_type" not in data:
-            data["assay_type"] = None
         if "credibility_range" not in data:
             data["credibility_range"] = {"min": None, "max": None}
         if "threshold" not in data:
@@ -209,47 +199,27 @@ class SingleFile(InputSchema):
         dfc = self.dedupe(df, path)
         return dfc
 
-    def assays_table(self, df):
-        dfa = pd.DataFrame({ASSAY_IDENTIFIER_COLUMN: [self.params["assay_id"]]})
-        # TODO: Allowed types: ADME, OTHER, PANEL, AUX_HTS
-        assay_type = self.params["assay_type"]
-        if assay_type is None:
-            assay_type = "OTHER"
-        dfa[ASSAY_TYPE_COLUMN] = assay_type
-        direction = self.params["direction"]
-        dfa[DIRECTION_COLUMN] = direction
-        if direction is None:
-            raise Exception
-        thresholds = self.params["thresholds"]
-        for k, v in thresholds.items():
-            num = k.split("_")[-1]
-            dfa[EXPERT_THRESHOLD_COLUMN_PREFIX + num] = v
-        return dfa
-
     def values_table(self, df):
         dfv = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: df[COMPOUND_IDENTIFIER_COLUMN]})
-        dfv[ASSAY_IDENTIFIER_COLUMN] = self.params["assay_id"]
         dfv[QUALIFIER_COLUMN] = df[QUALIFIER_COLUMN]
         dfv[VALUES_COLUMN] = df[VALUES_COLUMN]
         dedupe = collections.defaultdict(list)
         for r in dfv[
             [
                 COMPOUND_IDENTIFIER_COLUMN,
-                ASSAY_IDENTIFIER_COLUMN,
                 QUALIFIER_COLUMN,
                 VALUES_COLUMN,
             ]
         ].values:
-            dedupe[(r[0], r[1])] += [(r[2], r[3])]
+            dedupe[r[0]] += [(r[1], r[2])]
         R = []
         for k, v in dedupe.items():
             v = np.median([x[1] for x in v])
-            R += [[k[0], k[1], "=", v]]
+            R += [[k, "=", v]]
         dfv = pd.DataFrame(
             R,
             columns=[
                 COMPOUND_IDENTIFIER_COLUMN,
-                ASSAY_IDENTIFIER_COLUMN,
                 QUALIFIER_COLUMN,
                 VALUES_COLUMN,
             ],
@@ -273,11 +243,7 @@ class SingleFile(InputSchema):
         df = self.normalize_dataframe()
         dfc = self.compounds_table(df, path)
         dfc.to_csv(os.path.join(path, COMPOUNDS_FILENAME), index=False)
-        dfa = self.assays_table(df)
-        dfa.to_csv(os.path.join(path, ASSAYS_FILENAME), index=False)
         dfv = self.values_table(df)
-        df_all = pd.merge(dfc, dfv, on =[COMPOUND_IDENTIFIER_COLUMN], how="inner")
-        df_all.to_csv(os.path.join(path, DATA0_FILENAME), index=False)
         dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
         schema = self.input_schema()
         with open(os.path.join(path, INPUT_SCHEMA_FILENAME), "w") as f:
