@@ -10,7 +10,6 @@ RAW_INPUT_FILENAME = "raw_input"
 
 PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
-SCHEMA_MERGE_FILENAME = "data_schema.json"
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"

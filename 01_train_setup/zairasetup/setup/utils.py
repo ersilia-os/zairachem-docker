@@ -1,46 +1,19 @@
 import os
 import numpy as np
 import collections
-from sklearn.preprocessing import QuantileTransformer
 from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors as rd
 from rdkit.Chem import rdFingerprintGenerator
-from flaml.automl.automl import AutoML
-
 
 ALPHA_DETECT_TAIL_CENTER = 0.05
 ALPHA_REPEATS = 0.01
 NOISE_LEVEL = 1e-6
+
 RADIUS = 3
 NBITS = 2048
 
-class _Fingerprinter(object):
-    def __init__(self):
-        self.nbits = NBITS
-        self.radius = RADIUS
-
-    def clip_sparse(self, vect, nbits):
-        l = [0] * nbits
-        for i, v in vect.GetNonzeroElements().items():
-            l[i] = v if v < 255 else 255
-        return l
-    
-    def calc(self, mol):
-        v = rd.GetHashedMorganFingerprint(mol, radius=self.radius, nBits=self.nbits)
-        return self.clip_sparse(v, self.nbits)
-
 class Fingerprinter(object):
     def __init__(self):
-        self.fingerprinter = _Fingerprinter()
-
-    def _calculate(self, smiles_list):
-        X = np.zeros((len(smiles_list), NBITS), np.uint8)
-        for i, smi in enumerate(smiles_list):
-            mol = Chem.MolFromSmiles(smi)
-            if mol is None:
-                continue
-            X[i, :] = self.fingerprinter.calc(mol)
-        return X
+        pass
     
     def _compute_ecfp4_fingerprints(self, smiles_list):
         fingerprints = []
@@ -55,16 +28,14 @@ class Fingerprinter(object):
         return np.array([fp for fp in fingerprints if fp is not None])
 
     def calculate(self, smiles_list):
-        #X = self._calculate(smiles_list)
         X = self._compute_ecfp4_fingerprints(smiles_list)
         return X
-
-
 
 class SmoothenY(object):
     def __init__(self, smiles_list, y):
         self.smiles_list = smiles_list
         self.y = np.array(y)
+
 
     @staticmethod
     def detect_repeats(y):
@@ -129,6 +100,8 @@ class SmoothenY(object):
         return repeats_idxs
 
     def run(self):
+        from sklearn.preprocessing import QuantileTransformer
+        from flaml.automl.automl import AutoML  #TODO will require Flaml[automl]
         y = self.y
         smiles_list = self.smiles_list
         repeats = self.detect_repeats(y)

@@ -4,9 +4,10 @@ import numpy as np
 import random
 from collections import defaultdict
 from rdkit import Chem
-from rdkit.Chem import rdFingerprintGenerator
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from sklearn.cluster import KMeans
+
+from .utils import Fingerprinter
 
 from . import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN, FOLDS_FILENAME
 
@@ -82,20 +83,9 @@ class ClusterFolds(object):
     def get_input_file(self):
         return os.path.join(self.outdir, STANDARD_COMPOUNDS_FILENAME)
 
-    def _compute_ecfp4_fingerprints(self, smiles_list):
-        fingerprints = []
-        mfpgen = rdFingerprintGenerator.GetMorganGenerator(radius=2,fpSize=1024)
-        for smiles in smiles_list:
-            mol = Chem.MolFromSmiles(smiles)
-            if mol:
-                fp = mfpgen.GetFingerprint(mol)
-                fingerprints.append(np.array(fp))
-            else:
-                fingerprints.append(None)
-        return np.array([fp for fp in fingerprints if fp is not None])
-
     def cluster_k_fold_split(self, smiles_list, k=5, random_seed=42):
-        fingerprints = self._compute_ecfp4_fingerprints(smiles_list)
+        fp_generator = Fingerprinter()
+        fingerprints = fp_generator.calculate(smiles_list)
         kmeans = KMeans(n_clusters=k, random_state=random_seed)
         clusters = kmeans.fit_predict(fingerprints)
         return clusters

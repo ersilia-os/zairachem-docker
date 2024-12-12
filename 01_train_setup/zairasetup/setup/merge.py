@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import json
 from zairabase.vars import DATA_FILENAME
-from . import STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME, SCHEMA_MERGE_FILENAME
+from . import STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME
 from . import COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN
 
 class DataMerger(object):
@@ -26,17 +26,7 @@ class DataMerger(object):
         df = df.rename(columns={STANDARD_SMILES_COLUMN:SMILES_COLUMN})
         df_tsk = self.get_tasks()
         df = df.merge(df_tsk, on=COMPOUND_IDENTIFIER_COLUMN)
-        schema = {
-            "compounds": list(df[[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN]].columns),
-            "folds": list(df[[c for c in list(df.columns) if "fld" in c]].columns),
-            "tasks": [
-                c for c in list(df_tsk.columns) if "reg_" in c or "clf_" in c
-            ],
-        }
-
         df.to_csv(os.path.join(self.path, DATA_FILENAME), index=False)
-        with open(os.path.join(self.path, SCHEMA_MERGE_FILENAME), "w") as f:
-            json.dump(schema, f, indent=4)
 
 
 class DataMergerForPrediction(object):

@@ -115,7 +115,7 @@ class RegTasks(object):
 
     def as_dict(self):
         res = OrderedDict()
-        res["reg_raw_skip"] = self.raw(smoothen=False) #TODO if left True, shows high activity difference when values are passed as continuous for Binary
+        res["reg_raw_skip"] = self.raw(smoothen=True) #TODO revise naming and choose regressor to keep
         res["reg_pwr_skip"] = self.pwr()
         res["reg_rnk_skip"] = self.rnk()
         res["reg_qnt"] = self.qnt()
@@ -385,6 +385,11 @@ class SingleTasks(ZairaBase):
         else:
             self.logger.debug("There is continuous data")
             return False
+        
+    def _keep_one_clf_column(self, df):
+        clf_columns = [col for col in df.columns if "clf" in col]
+        keep_col_name = [col for col in clf_columns if "skip" not in col and "aux" not in col]
+        return keep_col_name
 
     def run(self):
         df = self._get_data()
@@ -395,25 +400,31 @@ class SingleTasks(ZairaBase):
             df = self._get_data()
             df["clf_ex1"] = [int(x) for x in list(df[VALUES_COLUMN])]
             self._task = "classification"
+            keep_col_name = self._keep_one_clf_column(df)
+            df["bin"]=df[keep_col_name]
         else:
             self.logger.debug("Data is not simply a binary")
             df = self._get_data()
             params = self._get_params()
-            reg_tasks = RegTasks(df, params, path=self.trained_path)
-            reg = reg_tasks.as_dict()
-            for k, v in reg.items():
-                self.logger.debug("Setting {0}".format(k))
-                df[k] = v
-            clf_tasks = ClfTasks(df, params, path=self.trained_path)
-            clf = clf_tasks.as_dict()
-            clf_tasks.save(self.trained_path)
-            for k, v in clf.items():
-                self.logger.debug("Setting {0}".format(k))
-                df[k] = v
-        df = df.drop(columns=[VALUES_COLUMN])
-        auxiliary = AuxiliaryBinaryTask(df)
-        df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
-        df = task_skipper(df, self._task)
+            if params["task"] == "regression":
+                reg_tasks = RegTasks(df, params, path=self.trained_path)
+                reg = reg_tasks.as_dict()
+                for k, v in reg.items():
+                    self.logger.debug("Setting {0}".format(k))
+                    df[k] = v
+                df = task_skipper(df, self._task)
+            if params["task"] == "classification":
+                clf_tasks = ClfTasks(df, params, path=self.trained_path)
+                clf = clf_tasks.as_dict()
+                clf_tasks.save(self.trained_path)
+                for k, v in clf.items():
+                    self.logger.debug("Setting {0}".format(k))
+                    df[k] = v
+                auxiliary = AuxiliaryBinaryTask(df)
+                df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
+                df = task_skipper(df, self._task)
+                keep_col_name = self._keep_one_clf_column(df)
+                df["bin"]=df[keep_col_name]        
         df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)
 
 

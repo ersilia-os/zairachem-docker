@@ -6,8 +6,8 @@ from rdkit import DataStructs
 from rdkit import Chem
 from standardiser import standardise
 
-from . import INPUT_SCHEMA_FILENAME, SCHEMA_MERGE_FILENAME, RAW_INPUT_FILENAME, MAPPING_FILENAME
-from . import VALUES_COLUMN, COMPOUND_IDENTIFIER_COLUMN, USER_COMPOUND_IDENTIFIER_COLUMN, MAPPING_ORIGINAL_COLUMN , MAPPING_DEDUPE_COLUMN
+from . import INPUT_SCHEMA_FILENAME, RAW_INPUT_FILENAME, MAPPING_FILENAME
+from . import COMPOUND_IDENTIFIER_COLUMN, MAPPING_ORIGINAL_COLUMN , MAPPING_DEDUPE_COLUMN, VALUES_COLUMN, SMILES_COLUMN
 
 from zairabase.vars import DATA_SUBFOLDER
 from zairabase.vars import DATA_FILENAME
@@ -19,25 +19,18 @@ class SetupChecker(object):
             if RAW_INPUT_FILENAME in f:
                 self.input_file = os.path.join(path, f)
         self.input_schema = os.path.join(path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME)
-        self.data_schema = os.path.join(path, DATA_SUBFOLDER, SCHEMA_MERGE_FILENAME)
         self.data_file = os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME)
         self.mapping_file = os.path.join(path, DATA_SUBFOLDER, MAPPING_FILENAME)
 
-    def _get_schemas(self):
-        with open(self.data_schema, "r") as f:
-            self.data_schema_dict = json.load(f)
+    def _get_input_schema(self):
         with open(self.input_schema, "r") as f:
             self.input_schema_dict = json.load(f)
 
     def remap(self):
-        self._get_schemas()
         dm = pd.read_csv(self.mapping_file)
         dd = pd.read_csv(self.data_file)
-        data_schema = self.data_schema_dict
-        cid_mapping_column = COMPOUND_IDENTIFIER_COLUMN
-        cid_mapping = list(dm[cid_mapping_column])
-        cid_data_column = data_schema["compounds"][0]
-        cid_data = list(dd[cid_data_column])
+        cid_mapping = list(dm[COMPOUND_IDENTIFIER_COLUMN])
+        cid_data = list(dd[COMPOUND_IDENTIFIER_COLUMN])
         cid_data_idx = {}
         for i, cid in enumerate(cid_data):
             cid_data_idx[cid] = i
@@ -56,16 +49,12 @@ class SetupChecker(object):
 
 
     def check_smiles(self):
-        self._get_schemas()
-        input_schema = self.input_schema_dict
-        data_schema = self.data_schema_dict
-        input_smiles_column = input_schema["smiles_column"]
-        data_smiles_column = data_schema["compounds"][1] 
+        self._get_input_schema()
+        input_smiles_column = self.input_schema_dict["smiles_column"]
         di = pd.read_csv(self.input_file)
         dd = pd.read_csv(self.data_file)
         ismi = list(di[input_smiles_column])
-        dsmi = list(dd[data_smiles_column])
-        dsmi = list(dd["smiles"])
+        dsmi = list(dd[SMILES_COLUMN])
         mapping = pd.read_csv(self.mapping_file)
         discrepancies = 0
         for oidx, uidx, cid in mapping.values:
@@ -91,27 +80,14 @@ class SetupChecker(object):
         assert discrepancies < mapping.shape[0] * 0.25
 
     def check_activity(self):
-        with open(self.data_schema, "r") as f:
-            data_schema = json.load(f)
-        with open(self.input_schema, "r") as f:
-            input_schema = json.load(f)
-        input_values_column = input_schema["values_column"]
+        self._get_input_schema()
+        input_values_column = self.input_schema_dict["values_column"]
         if input_values_column is None:
             return
-        if "reg_raw_skip" in data_schema["tasks"]:
-            data_values_column = "reg_raw_skip"
-        else:
-            if "clf_aux" in data_schema["tasks"]:
-                data_values_column = "clf_aux"
-            else:
-                if input_values_column in data_schema["tasks"]:
-                    data_values_column = input_values_column
-                else:
-                    data_values_column = data_schema["tasks"][0]
         di = pd.read_csv(self.input_file)
         dd = pd.read_csv(self.data_file)
         ival = list(di[input_values_column])
-        dval = list(dd[data_values_column])
+        dval = list(dd[VALUES_COLUMN])
         mapping = pd.read_csv(self.mapping_file)
         for oidx, uidx, cid in mapping.values:
             if str(oidx) == "nan" or str(uidx) == "nan":

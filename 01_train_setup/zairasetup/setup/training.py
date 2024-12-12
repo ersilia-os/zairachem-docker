@@ -173,5 +173,5 @@ class TrainSetup(object):
         self._tasks()
         self._merge()
         self._check()
-        #self._clean()
+        self._clean()
         self.update_elapsed_time()
