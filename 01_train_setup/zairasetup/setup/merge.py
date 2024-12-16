@@ -1,9 +1,8 @@
 import os
 import pandas as pd
 import json
-from zairabase.vars import DATA_FILENAME
-from . import STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME
-from . import COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN
+from zairabase.vars import STANDARD_COMPOUNDS_FILENAME, FOLDS_FILENAME,TASKS_FILENAME, DATA_FILENAME
+from zairabase.vars import COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN
 
 class DataMerger(object):
     def __init__(self, path):

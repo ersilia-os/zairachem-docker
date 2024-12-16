@@ -1,16 +1,14 @@
-import shutil
 import os
 import pandas as pd
 
-from . import (
+from zairabase.vars import (
     COMPOUNDS_FILENAME,
     STANDARD_COMPOUNDS_FILENAME,
     FOLDS_FILENAME,
     TASKS_FILENAME,
     VALUES_FILENAME,
+    DATA_FILENAME
 )
-
-from zairabase.vars import DATA_FILENAME
 
 class SetupCleaner(object):
     def __init__(self, path):

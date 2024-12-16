@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import random
 from time import time
-from .vars import BASE_DIR, DATA_FILENAME, DATA_SUBFOLDER, PRESETS_FILENAME
+from .vars import BASE_DIR, DATA_FILENAME, DATA_SUBFOLDER
 from .vars import SESSION_FILE
 from .vars import ENSEMBLE_MODE
 

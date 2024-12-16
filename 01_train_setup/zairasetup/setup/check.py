@@ -6,11 +6,9 @@ from rdkit import DataStructs
 from rdkit import Chem
 from standardiser import standardise
 
-from . import INPUT_SCHEMA_FILENAME, RAW_INPUT_FILENAME, MAPPING_FILENAME
-from . import COMPOUND_IDENTIFIER_COLUMN, MAPPING_ORIGINAL_COLUMN , MAPPING_DEDUPE_COLUMN, VALUES_COLUMN, SMILES_COLUMN
-
-from zairabase.vars import DATA_SUBFOLDER
-from zairabase.vars import DATA_FILENAME
+from zairabase.vars import INPUT_SCHEMA_FILENAME, RAW_INPUT_FILENAME, MAPPING_FILENAME
+from zairabase.vars import COMPOUND_IDENTIFIER_COLUMN, MAPPING_ORIGINAL_COLUMN , MAPPING_DEDUPE_COLUMN, VALUES_COLUMN, SMILES_COLUMN
+from zairabase.vars import DATA_SUBFOLDER, DATA_FILENAME
 
 
 class SetupChecker(object):

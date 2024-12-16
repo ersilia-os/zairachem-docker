@@ -6,7 +6,7 @@ from collections import OrderedDict
 import joblib
 import json
 
-from . import (
+from zairabase.vars import (
     COMPOUNDS_FILENAME,
     COMPOUND_IDENTIFIER_COLUMN,
     PARAMETERS_FILE,

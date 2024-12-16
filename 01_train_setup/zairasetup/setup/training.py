@@ -13,8 +13,8 @@ from .merge import DataMerger
 from .clean import SetupCleaner
 from .check import SetupChecker
 
-from . import PARAMETERS_FILE, RAW_INPUT_FILENAME
-
+from zairabase.vars import PARAMETERS_FILE
+from zairabase.vars import RAW_INPUT_FILENAME
 from zairabase.vars import DATA_SUBFOLDER
 from zairabase.vars import DESCRIPTORS_SUBFOLDER
 from zairabase.vars import ESTIMATORS_SUBFOLDER

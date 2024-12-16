@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 
-from . import SMILES_COLUMN, COMPOUNDS_FILENAME, COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN
+from zairabase.vars import SMILES_COLUMN, COMPOUNDS_FILENAME, COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN
 from zairasetup.tools.chembl_structure.standardizer import standardize_molblock_from_smiles
 
 

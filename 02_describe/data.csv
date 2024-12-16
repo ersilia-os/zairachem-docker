@@ -1,0 +1,16 @@
+compound_id,smiles,fld_rnd,fld_scf,fld_clt,bin
+CID000,Oc1ncc(OCCc2ccccc2)n2c(-c3ccc(OC(F)F)cc3)nnc12,1.0,0.0,3,0
+CID001,FC(F)Oc1ccc(-c2nnc3cncc(OCCCC45C6C7C8C6C4C8C75)n23)cc1,4.0,1.0,1,0
+CID002,O=C1Cc2ccc(-c3nnc4cncc(OCCc5ccc(F)c(F)c5)n34)cc2N1,4.0,3.0,2,1
+CID003,CCc1nnc2cncc(OCC(O)c3ccccc3)n12,2.0,4.0,3,0
+CID004,OCC(CO)(COc1cncc2nnc(-c3ccc(OC(F)F)cc3)n12)c1ccccc1,2.0,0.0,1,0
+CID005,CCOc1ccccc1-c1nnc2cncc(OCCc3ccccc3)n12,1.0,0.0,3,0
+CID006,COc1ccc(-c2nnc3c(OCCc4ccccc4)nccn23)cc1,1.0,4.0,3,1
+CID007,OCC(COc1cncc2nnc(-c3ccc(OC(F)F)cc3)n12)c1c(F)cc(F)cc1F,4.0,0.0,1,0
+CID008,FC(F)Oc1ccc(-c2nnc3cncc(Oc4ccc5ccc(C(F)(F)F)nc5c4)n23)cc1,1.0,4.0,1,0
+CID009,OCc1ccc(COc2cncc3nnc(-c4ccc(OC(F)F)cc4)n23)cc1,2.0,3.0,1,0
+CID010,Fc1ccc(C2C(Oc3cncc4nnc(-c5ccc(OC(F)F)cc5)n34)CN2C2CC2)cc1F,4.0,1.0,1,0
+CID011,O=C(Nc1cccc(Cl)c1)c1cncc2nnc(-c3ccc(OC(F)F)cc3)n12,3.0,1.0,4,0
+CID012,Fc1ccc(CCOc2cncc3nnc(-c4cccc5c4OCO5)n23)cc1F,1.0,3.0,2,0
+CID013,FC(F)Oc1ccc(-c2nnc3cncc(OCC45CC(C(F)F)(C4)C5)n23)cc1,4.0,2.0,1,0
+CID014,Fc1ccc(CCOc2cnc(Cl)c3nnc(-c4ccc(OC(F)F)cc4)n23)cc1F,3.0,0.0,2,0

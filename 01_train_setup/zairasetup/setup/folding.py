@@ -9,7 +9,7 @@ from sklearn.cluster import KMeans
 
 from .utils import Fingerprinter
 
-from . import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN, FOLDS_FILENAME
+from zairabase.vars import STANDARD_COMPOUNDS_FILENAME, STANDARD_SMILES_COLUMN, FOLDS_FILENAME
 
 class RandomFolds(object):
     def __init__(self, outdir):
