@@ -20,6 +20,8 @@ PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
 RAW_DESC_FILENAME = "raw.h5"
+TREATED_FILE_NAME = "treated.h5"
+
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"
@@ -42,7 +44,7 @@ APPLICABILITY_SUBFOLDER = "applicability"
 DESCRIPTORS_SUBFOLDER = "descriptors"
 ESTIMATORS_SUBFOLDER = "estimators"
 POOL_SUBFOLDER = "pool"
-RESULTS_FILENAME = "results_unmapped.csv"
+RESULTS_FILENAME = "results_unmapped.csv" #TODO CONSOLIDATR WITH RESULTS_MAPPED_FILENAME
 LITE_SUBFOLDER = "lite"
 REPORT_SUBFOLDER = "report"
 DISTILL_SUBFOLDER = "distill"
@@ -50,6 +52,14 @@ OUTPUT_FILENAME = "output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
 OUTPUT_XLSX_FILENAME = "output.xlsx"
+
+Y_HAT_FILE = "y_hat.joblib"
+
+RESULTS_UNMAPPED_FILENAME = "results_unmapped.csv"
+RESULTS_MAPPED_FILENAME = "results_mapped.csv"
+
+CLF_REPORT_FILENAME = "clf_report.json"
+REG_REPORT_FILENAME = "reg_report.json"
 
 CLF_PERCENTILES = [1, 10, 25, 50]
 

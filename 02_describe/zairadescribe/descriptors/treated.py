@@ -15,10 +15,8 @@ from zairadescribe.fpsim2.searcher import SimilaritySearcher
 
 from zairabase import ZairaBase
 from zairabase.utils.matrices import Hdf5
-from zairabase.vars import DESCRIPTORS_SUBFOLDER, TREATED_DESCRIPTORS
+from zairabase.vars import DESCRIPTORS_SUBFOLDER, TREATED_DESCRIPTORS, TREATED_FILE_NAME
 
-
-TREATED_FILE_NAME = "treated.h5"
 MAX_NA = 0.2
 
 

@@ -13,7 +13,7 @@ This step calculates several descriptors for the molecules
 
 ```bash
 conda create -n zairadescribe python=3.12
-cd 01_describe
+cd 02_describe
 python pip install -e .
 python zairadescribe/run.py
 ```
