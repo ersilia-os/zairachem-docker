@@ -2,11 +2,11 @@ import os
 import numpy as np
 import pandas as pd
 
-from ... import ZairaBase
+from zairabase import ZairaBase
 from ..base import BaseEstimator, BaseOutcomeAssembler
-from ...automl.autogluon import AutoGluonEstimator
-from .. import RESULTS_MAPPED_FILENAME, RESULTS_UNMAPPED_FILENAME
-from ...vars import DATA_FILENAME, DATA_SUBFOLDER, ESTIMATORS_SUBFOLDER
+from ..automl.autogluon import AutoGluonEstimator
+from zairabase.vars import RESULTS_MAPPED_FILENAME, RESULTS_UNMAPPED_FILENAME
+from zairabase.vars import DATA_FILENAME, DATA_SUBFOLDER, ESTIMATORS_SUBFOLDER
 
 
 AUTOGLUON_SAVE_SUBFOLDER = "autogluon"
