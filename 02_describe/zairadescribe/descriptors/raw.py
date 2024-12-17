@@ -3,13 +3,10 @@ import os
 
 from zairabase import ZairaBase
 from zairabase.utils.matrices import Hdf5
-from zairabase.vars import PARAMETERS_FILE, DATA_SUBFOLDER, DATA_FILENAME, DESCRIPTORS_SUBFOLDER
+from zairabase.vars import PARAMETERS_FILE, DATA_SUBFOLDER, DATA_FILENAME, DESCRIPTORS_SUBFOLDER, REFERENCE_DESCRIPTOR, RAW_DESC_FILENAME
 
 from ersilia import logger
 from ersilia import ErsiliaModel
-
-RAW_FILE_NAME = "raw.h5"
-
 
 class RawLoader(ZairaBase):
     def __init__(self):
@@ -17,7 +14,7 @@ class RawLoader(ZairaBase):
         self.path = self.get_output_dir()
 
     def open(self, eos_id):
-        path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, RAW_FILE_NAME)
+        path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, RAW_DESC_FILENAME)
         return Hdf5(path)
 
 class ModelArtifact(object):
@@ -60,14 +57,15 @@ class RawDescriptors(ZairaBase):
         return params
 
     def eos_ids(self):
-        for x in self.params["ersilia_hub"]:
-            yield x
+        eos_ids = list(set(self.params["ersilia_hub"]))
+        if REFERENCE_DESCRIPTOR not in eos_ids:
+            eos_ids += [REFERENCE_DESCRIPTOR]
+        return eos_ids
 
     def output_h5_filename(self, eos_id):
         path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
-        print(path)
         os.makedirs(path, exist_ok=True)
-        return os.path.join(path, RAW_FILE_NAME)
+        return os.path.join(path, RAW_DESC_FILENAME)
 
     def _run_eos(self, eos_id):
         output_h5 = self.output_h5_filename(eos_id)

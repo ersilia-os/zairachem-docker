@@ -10,12 +10,12 @@ import h5py
 
 from . import DescriptorBase
 from .raw import RawLoader
-from .tools.fpsim2.searcher import SimilaritySearcher
+from zairadescribe.fpsim2.searcher import SimilaritySearcher
 
 
-from .. import ZairaBase
+from zairabase import ZairaBase
 from zairabase.utils.matrices import Hdf5
-from zairabase.vars import DESCRIPTORS_SUBFOLDER
+from zairabase.vars import DESCRIPTORS_SUBFOLDER, TREATED_DESCRIPTORS
 
 
 TREATED_FILE_NAME = "treated.h5"
@@ -239,9 +239,16 @@ class TreatedDescriptors(DescriptorBase):
         for eos_id in data:
             yield eos_id
 
+    def keep_treated_eos_ids(self):
+        treated_eos_ids = []
+        for eos_id in self.done_eos_iter():
+            if eos_id in TREATED_DESCRIPTORS:
+                treated_eos_ids += [eos_id]
+        return treated_eos_ids
+
     def run(self):
         rl = RawLoader()
-        for eos_id in self.done_eos_iter():
+        for eos_id in self.keep_treated_eos_ids():
             path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
             if not self._is_predict:
                 trained_path = path

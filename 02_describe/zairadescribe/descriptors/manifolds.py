@@ -13,10 +13,9 @@ from lol import LOL
 
 
 from . import DescriptorBase
-from .reference import REFERENCE_FOLDER_NAME, REFERENCE_FILE_NAME, SIMPLE_FILE_NAME
 
 from zairabase.utils.matrices import Hdf5, Data
-from zairabase.vars import DATA_FILENAME, DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER
+from zairabase.vars import DATA_FILENAME, DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER, RAW_DESC_FILENAME, REFERENCE_DESCRIPTOR
 
 
 MAX_COMPONENTS = 4
@@ -107,11 +106,11 @@ class Manifolds(DescriptorBase):
         DescriptorBase.__init__(self)
         self.y = self._get_y_aux()
 
-    def _get_y_aux(self):
+    def _get_y_aux(self): #TODO USE REAL BIN not AUX
         if not self.is_predict():
             y = np.array(
                 pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))[
-                    "clf_aux"
+                    "bin"
                 ]
             )
             return y
@@ -133,9 +132,7 @@ class Manifolds(DescriptorBase):
         data.save_info(file_name.split(".")[0] + ".json")
 
     def run(self):
-        file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, REFERENCE_FOLDER_NAME, REFERENCE_FILE_NAME)
-        if not os.path.exists(file_name):
-            file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, REFERENCE_FOLDER_NAME, SIMPLE_FILE_NAME)
+        file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, REFERENCE_DESCRIPTOR, RAW_DESC_FILENAME)
         data = Hdf5(file_name).load()
         self.keys = data.keys()
         self.inputs = data.inputs()

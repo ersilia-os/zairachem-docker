@@ -10,12 +10,7 @@ from .schema import InputSchema
 from zairabase.vars import DATA_SUBFOLDER
 from zairabase.vars import ERSILIA_HUB_DEFAULT_MODELS, DEFAULT_ESTIMATORS
 
-from zairabase.vars import (
-    COMPOUNDS_FILENAME,
-    VALUES_FILENAME,
-    MAPPING_FILENAME,
-    INPUT_SCHEMA_FILENAME,
-)
+from zairabase.vars import COMPOUNDS_FILENAME, VALUES_FILENAME, MAPPING_FILENAME, INPUT_SCHEMA_FILENAME
 from zairabase.vars import (
     MAPPING_ORIGINAL_COLUMN,
     MAPPING_DEDUPE_COLUMN,

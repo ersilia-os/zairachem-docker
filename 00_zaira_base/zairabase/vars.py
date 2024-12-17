@@ -19,6 +19,7 @@ FOLDS_FILENAME = "folds.csv"
 PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
+RAW_DESC_FILENAME = "raw.h5"
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"
@@ -64,8 +65,17 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 ERSILIA_HUB_DEFAULT_MODELS = [
     "morgan-counts",
+    "rdkit-fingerprint",
+    "mordred",
     "cc-signaturizer",
     "molfeat-chemgpt",
+    "eosce",
+]
+
+REFERENCE_DESCRIPTOR = "grover-embedding"
+
+TREATED_DESCRIPTORS = [
+    "morgan-counts",
     "rdkit-fingerprint",
     "mordred",
 ]

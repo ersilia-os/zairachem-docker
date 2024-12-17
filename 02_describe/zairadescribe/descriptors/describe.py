@@ -1,8 +1,6 @@
 import os
 
 from .treated import TreatedDescriptors
-from .reference import ReferenceDescriptors
-from .eosce import EosceDescriptors
 from .manifolds import Manifolds
 from .raw import RawDescriptors
 
@@ -15,8 +13,10 @@ class Describer(ZairaBase):
         ZairaBase.__init__(self)
         if path is None:
             self.path = self.get_output_dir()
+            print(self.path)
         else:
             self.path = path
+            print(self.path)
         self.output_dir = os.path.abspath(self.path)
         assert os.path.exists(self.output_dir)
         self.logger.debug(self.path)
@@ -33,18 +33,6 @@ class Describer(ZairaBase):
             TreatedDescriptors().run()
             step.update()
 
-    def _reference_descriptors(self):
-        step = PipelineStep("reference_descriptors", self.output_dir)
-        if not step.is_done():
-            ReferenceDescriptors().run()
-            step.update()
-
-    def _eosce_descriptors(self):
-        step = PipelineStep("eosce_descriptors", self.output_dir)
-        if not step.is_done():
-            EosceDescriptors().run()
-            step.update()
-
     def _manifolds(self):
         step = PipelineStep("manifolds", self.output_dir)
         if not step.is_done():
@@ -54,8 +42,6 @@ class Describer(ZairaBase):
     def run(self):
         self.reset_time()
         self._raw_descriptions()
-        self._reference_descriptors()
         self._treated_descriptions()
-        self._eosce_descriptors()
         self._manifolds()
         self.update_elapsed_time()
