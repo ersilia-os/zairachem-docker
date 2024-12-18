@@ -1,24 +1,15 @@
 import os
 import json
 import numpy as np
-import pandas as pd
 import joblib
 import collections
 
 from sklearn import metrics
 
-from .. import Y_HAT_FILE
-from ... import ZairaBase
+from zairabase.vars import Y_HAT_FILE,DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER, ESTIMATORS_SUBFOLDER, DATA_FILENAME,CLF_REPORT_FILENAME, REG_REPORT_FILENAME, PARAMETERS_FILE
+from zairabase import ZairaBase
 
 from . import ESTIMATORS_FAMILY_SUBFOLDER
-from ...vars import (
-    DATA_SUBFOLDER,
-    DESCRIPTORS_SUBFOLDER,
-    ESTIMATORS_SUBFOLDER,
-    DATA_FILENAME,
-)
-
-from .. import CLF_REPORT_FILENAME, REG_REPORT_FILENAME
 
 
 class BasePerformance(ZairaBase):
@@ -46,7 +37,7 @@ class ClassificationPerformance(BasePerformance):
     def __init__(self, path, model_id):
         BasePerformance.__init__(self, path=path, model_id=model_id)
         self.results = self._get_y_hat_dict()
-        self._prefix = self._get_prefix()
+        self._prefix = "clf"
         self.results = self.results[self._prefix]
 
     def _get_prefix(self):
@@ -131,42 +122,18 @@ class IndividualPerformanceReporter(ZairaBase):
             self.path = self.get_output_dir()
         else:
             self.path = path
-        self.has_tasks = self._has_tasks()
-        if self._has_clf_tasks():
-            self.clf = ClassificationPerformance(path=path, model_id=model_id)
-        else:
-            self.clf = None
-        if self._has_reg_tasks():
-            self.reg = RegressionPerformance(path=path, model_id=model_id)
-        else:
-            self.reg = None
         self.model_id = model_id
+        self.task = self._get_task()
 
-    def _has_tasks(self):
-        df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-        for c in list(df.columns):
-            if "clf_" in c or "reg_" in c:
-                return True
-        return False
-
-    def _has_reg_tasks(self):
-        df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-        for c in list(df.columns):
-            if "reg_" in c and "_skip" not in c and "_aux" not in c:
-                return True
-        return False
-
-    def _has_clf_tasks(self):
-        df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-        for c in list(df.columns):
-            if "clf_" in c and "_skip" not in c and "_aux" not in c:
-                return True
-        return False
-
+    def _get_task(self):
+        with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+            task = json.load(f)["task"]
+        return task
+    
     def run(self):
-        if not self.has_tasks:
-            return
-        if self.clf is not None:
+        if self.task == "classification":
+            print("HERE")
+            self.clf = ClassificationPerformance(path=self.path, model_id=self.model_id)
             clf_rep = self.clf.calculate()
             with open(
                 os.path.join(
@@ -179,7 +146,8 @@ class IndividualPerformanceReporter(ZairaBase):
                 "w",
             ) as f:
                 json.dump(clf_rep, f, indent=4)
-        if self.reg is not None:
+        if self.task == "regression":
+            self.reg = RegressionPerformance(path=self.path, model_id=self.model_id)
             reg_rep = self.reg.calculate()
             with open(
                 os.path.join(

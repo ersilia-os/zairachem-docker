@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import json
 import numpy as np
+import h5py
 
 from zairabase import ZairaBase
 from zairabase.vars import (
@@ -11,7 +12,11 @@ from zairabase.vars import (
     PARAMETERS_FILE,
     SMILES_COLUMN,
     DATA_SUBFOLDER, 
-    DATA_FILENAME
+    DATA_FILENAME,
+    ESTIMATORS_SUBFOLDER,
+    DESCRIPTORS_SUBFOLDER,
+    RAW_DESC_FILENAME,
+    TREATED_DESC_FILENAME
 )
 
 
@@ -33,7 +38,7 @@ class BaseEstimator(ZairaBase):
         if self.task == "classification":
             Y_col = "bin"
         if self.task == "regression":
-            Y_col = "reg"
+            Y_col = "val"
         return Y_col
 
     def _get_total_time_budget_sec(self):
@@ -46,7 +51,7 @@ class BaseEstimator(ZairaBase):
             task = json.load(f)["task"]
         return task
     
-    def _estimate_time_budget(self):
+    def _estimate_time_budget(self): #TODO CONFIRM TIME TO USE
         elapsed_time = self.get_elapsed_time()
         print("Elapsed time: {0}".format(elapsed_time))
         total_time_budget = self._get_total_time_budget_sec()
@@ -60,6 +65,45 @@ class BaseEstimator(ZairaBase):
         print("Available time: {0}".format(available_time))
         return available_time
 
+class BaseEstimatorIndividual(BaseEstimator):
+    def __init__(self, path, estimator, model_id):
+        BaseEstimator.__init__(self, path=path)
+        path_ = os.path.join(
+            self.path, ESTIMATORS_SUBFOLDER, estimator, model_id
+        )
+        if not os.path.exists(path_):
+            os.makedirs(path_)
+        self.model_id = model_id
+        self.task = self._get_task()
+    
+    def _get_task(self):
+        with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+            task = json.load(f)["task"]
+        return task
+
+    def _get_X(self):
+        f_treated = os.path.join(
+            self.path, DESCRIPTORS_SUBFOLDER, self.model_id, TREATED_DESC_FILENAME
+        )
+        f_raw = os.path.join(
+            self.path, DESCRIPTORS_SUBFOLDER, self.model_id, RAW_DESC_FILENAME
+        )
+        f = f_treated if os.path.exists(f_treated) else f_raw
+        with h5py.File(f, "r") as f:
+            X = f["Values"][:]
+        return X
+    
+    def _get_Y_col(self):
+        if self.task == "classification":
+            Y_col = "bin"
+        if self.task == "regression":
+            Y_col = "val"
+        return Y_col
+
+    def _get_y(self): 
+        df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
+        Y_col = self.get_Y_col()
+        return np.array(df[Y_col])
 
 class BaseOutcomeAssembler(ZairaBase):
     def __init__(self, path=None):

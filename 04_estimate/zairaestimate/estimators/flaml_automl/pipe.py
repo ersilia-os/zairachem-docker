@@ -3,7 +3,7 @@ from .assemble import OutcomeAssembler
 from .performance import PerformanceReporter
 
 
-class IndividualFullDescriptorPipeline(object):
+class FlamlAutoMLPipeline(object):
     def __init__(self, path):
         self.e = Estimator(path=path)
         self.a = OutcomeAssembler(path=path)

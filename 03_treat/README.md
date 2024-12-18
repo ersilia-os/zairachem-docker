@@ -12,10 +12,10 @@ This step treats the descriptors that require it and applies dimensionality redu
 ## Run from system 
 
 ```bash
-conda create -n zairadescribe python=3.12
-cd 02_describe
+conda create -n zairatreat python=3.12
+cd 03_treat
 python pip install -e .
-python zairadescribe/run.py
+python zairatreat/run.py
 ```
 
 ## High level overview

@@ -20,7 +20,9 @@ PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
 RAW_DESC_FILENAME = "raw.h5"
-TREATED_FILE_NAME = "treated.h5"
+TREATED_DESC_FILENAME = "treated.h5"
+SIMPLE_EVALUATION_FILENAME = "evaluation.json"
+SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
@@ -91,14 +93,15 @@ TREATED_DESCRIPTORS = [
 ]
 
 DEFAULT_ESTIMATORS = [
-    "baseline-classic",
-    "baseline-fingerprint",
-    "flaml-individual-descriptors",
+    "flaml"
+    #"baseline-classic",
+    #"baseline-fingerprint",
+    #"flaml-individual-descriptors",
     #"tabpfn-individual-descriptors",
-    "autogluon-manifolds",
-    "kerastuner-reference-embedding",
-    "kerastuner-eosce-embedding",
-    "molmap",
+    #"autogluon-manifolds",
+    #"kerastuner-reference-embedding",
+    #"kerastuner-eosce-embedding",
+    #"molmap",
 ]
 
 ENSEMBLE_MODE = (

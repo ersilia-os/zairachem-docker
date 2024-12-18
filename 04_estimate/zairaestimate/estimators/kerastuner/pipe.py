@@ -2,8 +2,7 @@ from .estimate import Estimator
 from .assemble import OutcomeAssembler
 from .performance import PerformanceReporter
 
-
-class IndividualFullDescriptorTabPFNPipeline(object):
+class KerasTunerPipeline(object):
     def __init__(self, path):
         self.e = Estimator(path=path)
         self.a = OutcomeAssembler(path=path)
@@ -13,3 +12,4 @@ class IndividualFullDescriptorTabPFNPipeline(object):
         self.e.run(time_budget_sec=time_budget_sec)
         self.a.run()
         self.p.run()
+

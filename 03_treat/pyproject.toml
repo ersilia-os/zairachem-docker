@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "zairadescribe"
+name = "zairatreat"
 version = "2.0.0"
 authors = ["Ersilia Open Source Initiative <hello@ersilia.io>"]
 description = "Automated QSAR modeling for chemistry"

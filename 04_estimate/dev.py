@@ -1,4 +1,4 @@
-from zairaestimate.pipe import EstimatorPipeline
+from zairaestimate.estimators.kerastuner.pipe import KerasTunerPipeline
 
-ep = EstimatorPipeline(path=None)
-ep._individual_estimator_pipeline(time_budget_sec=None)
+ep = KerasTunerPipeline(path=None)
+ep.run(time_budget_sec=None)

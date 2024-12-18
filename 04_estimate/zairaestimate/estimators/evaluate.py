@@ -6,18 +6,16 @@ import collections
 from sklearn.metrics import roc_auc_score
 from sklearn.metrics import r2_score
 
-from ..vars import (
+from zairabase import ZairaBase
+from zairabase.vars import (
     DATA_FILENAME,
     DATA_SUBFOLDER,
     DESCRIPTORS_SUBFOLDER,
     ESTIMATORS_SUBFOLDER,
+    RESULTS_UNMAPPED_FILENAME,
+    SIMPLE_EVALUATION_FILENAME,
+    SIMPLE_EVALUATION_VALIDATION_FILENAME
 )
-from . import RESULTS_UNMAPPED_FILENAME
-
-from .. import ZairaBase
-
-SIMPLE_EVALUATION_FILENAME = "evaluation.json"
-SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 
 
 class ResultsIterator(ZairaBase):
@@ -29,8 +27,6 @@ class ResultsIterator(ZairaBase):
             self.path = path
 
     def _read_model_ids(self):
-        if self.is_lazy():
-            return []
         with open(
             os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r"
         ) as f:
@@ -44,17 +40,9 @@ class ResultsIterator(ZairaBase):
         for est_fam in os.listdir(estimators_folder):
             if os.path.isdir(os.path.join(estimators_folder, est_fam)):
                 focus_folder = os.path.join(estimators_folder, est_fam)
-                is_individual = True
-                # first look for results in the root
-                for f in os.listdir(focus_folder):
-                    if f == RESULTS_UNMAPPED_FILENAME:
-                        rpaths += [[est_fam]]
-                        is_individual = False
-                # now look for results in individual predictors
-                if is_individual:
-                    for d in os.listdir(focus_folder):
-                        if d in model_ids:
-                            rpaths += [[est_fam, d]]
+                for d in os.listdir(focus_folder):
+                    if d in model_ids:
+                        rpaths += [[est_fam, d]]
         for rpath in rpaths:
             yield rpath
 
@@ -76,7 +64,6 @@ class SimpleEvaluator(ZairaBase):
         df_true = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
         if valid_idxs is not None:
             df_true = df_true.iloc[valid_idxs, :]
-        avail_columns = list(df_true.columns)
         for relpath in self.results_iterator.iter_relpaths():
             abspath = "/".join([self.path, ESTIMATORS_SUBFOLDER] + relpath)
             file_path = os.path.join(abspath, RESULTS_UNMAPPED_FILENAME)
@@ -85,19 +72,19 @@ class SimpleEvaluator(ZairaBase):
                 df_pred = df_pred.iloc[valid_idxs, :]
             data = collections.OrderedDict()
             for c in list(df_pred.columns):
-                if "reg_" in c or "clf_" in c:
-                    if c in avail_columns:
-                        if "clf_" in c:
-                            if len(set(df_true[c])) > 1:
-                                data[c] = {
-                                    "roc_auc_score": roc_auc_score(
-                                        df_true[c], df_pred[c]
-                                    )
-                                }
-                            else:
-                                data[c] = 0.0
-                        else:
-                            data[c] = {"r2_score": r2_score(df_true[c], df_pred[c])}
+                if c=="clf":
+                    c_real = "bin"
+                    if len(set(df_true[c_real])) > 1:
+                        data[c] = {
+                            "roc_auc_score": roc_auc_score(
+                                df_true[c_real], df_pred[c]
+                            )
+                        }
+                    else:
+                        data[c] = 0.0
+                elif c == "reg":
+                    c_real = "val"
+                    data[c] = {"r2_score": r2_score(df_true[c_real], df_pred[c])}
             if valid_idxs is not None:
                 file_name = SIMPLE_EVALUATION_VALIDATION_FILENAME
             else:
@@ -105,7 +92,7 @@ class SimpleEvaluator(ZairaBase):
             with open(os.path.join(abspath, file_name), "w") as f:
                 json.dump(data, f, indent=4)
 
-    def run(self):
+    def run(self): #TODO WHY RUN TWICE?
         self._run(None)
         if not self.is_predict():
             valid_idxs = self.get_validation_indices(path=self.path)

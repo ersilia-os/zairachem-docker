@@ -30,3 +30,5 @@ classifiers = [
 python = ">=3.8"
 pandas = "*"
 loguru = "*"
+h5py = "*"
+joblib = "*"

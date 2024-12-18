@@ -9,15 +9,15 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.calibration import CalibratedClassifierCV
 
 from flaml import AutoML
-from ..tools.ghost.ghost import GhostLight
+from zairaestimate.tools.ghost.ghost import GhostLight
 
 from zairabase.vars import N_FOLDS
 
 
-FLAML_TIME_BUDGET_SECONDS = 60
+FLAML_TIME_BUDGET_SECONDS = 360
 
 FLAML_COLD_MINIMUM_TIME_BUDGET_SECONDS = 30  # 60
-FLAML_COLD_MAXIMUM_TIME_BUDGET_SECONDS = 120  # 600
+FLAML_COLD_MAXIMUM_TIME_BUDGET_SECONDS = 360  # 600
 FLAML_WARM_MINIMUM_TIME_BUDGET_SECONDS = 10  # 10
 FLAML_WARM_MAXIMUM_TIME_BUDGET_SECONDS = 60  # 60
 
@@ -127,6 +127,8 @@ class FlamlSettings(object):
         }
         if estimators is not None:
             automl_settings["estimator_list"] = estimators
+        print("HERE")
+        print(automl_settings["time_budget"])
         return automl_settings
 
     def get_automl_settings(self, task, time_budget, estimators, groups):

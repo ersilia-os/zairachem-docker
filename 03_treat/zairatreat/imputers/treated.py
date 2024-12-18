@@ -9,13 +9,12 @@ import tempfile
 import h5py
 
 from . import DescriptorBase
-from .raw import RawLoader
-from zairadescribe.fpsim2.searcher import SimilaritySearcher
+from zairatreat.fpsim2.searcher import SimilaritySearcher
 
 
 from zairabase import ZairaBase
 from zairabase.utils.matrices import Hdf5
-from zairabase.vars import DESCRIPTORS_SUBFOLDER, TREATED_DESCRIPTORS, TREATED_FILE_NAME
+from zairabase.vars import DESCRIPTORS_SUBFOLDER, RAW_DESC_FILENAME, TREATED_DESCRIPTORS, TREATED_DESC_FILENAME
 
 MAX_NA = 0.2
 
@@ -205,6 +204,14 @@ class VarianceFilter(object):
     def load(self, file_name):
         return joblib.load(file_name)
 
+class RawLoader(ZairaBase):
+    def __init__(self):
+        ZairaBase.__init__(self)
+        self.path = self.get_output_dir()
+
+    def open(self, eos_id):
+        path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, RAW_DESC_FILENAME)
+        return Hdf5(path)
 
 class TreatedLoader(ZairaBase):
     def __init__(self):
@@ -212,7 +219,7 @@ class TreatedLoader(ZairaBase):
         self.path = self.get_output_dir()
 
     def open(self, eos_id):
-        path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, TREATED_FILE_NAME)
+        path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, TREATED_DESC_FILENAME)
         return Hdf5(path)
 
 
@@ -225,7 +232,7 @@ class TreatedDescriptors(DescriptorBase):
             (2, 1, VarianceFilter),
             (3, 2, Scaler),
         ]
-        self._name = TREATED_FILE_NAME
+        self._name = TREATED_DESC_FILENAME
         self._is_predict = self.is_predict()
         print("IS PREDICT", self._is_predict)
 

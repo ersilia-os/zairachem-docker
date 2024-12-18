@@ -5,9 +5,8 @@ import joblib
 import collections
 
 from . import ESTIMATORS_FAMILY_SUBFOLDER
-from ... import ZairaBase
-from ...vars import DESCRIPTORS_SUBFOLDER, ESTIMATORS_SUBFOLDER
-from .. import Y_HAT_FILE, RESULTS_UNMAPPED_FILENAME, RESULTS_MAPPED_FILENAME
+from zairabase import ZairaBase
+from zairabase.vars import DESCRIPTORS_SUBFOLDER, ESTIMATORS_SUBFOLDER, Y_HAT_FILE, RESULTS_UNMAPPED_FILENAME, RESULTS_MAPPED_FILENAME
 from ..base import BaseOutcomeAssembler
 
 

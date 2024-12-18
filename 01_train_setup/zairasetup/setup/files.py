@@ -57,19 +57,11 @@ class ParametersFile(object):
                 pass
             else:
                 data["thresholds"] = {
-                    "expert_1": None,
-                    "expert_2": None,
-                    "expert_3": None,
-                    "expert_4": None,
-                    "expert_5": None,
+                    "expert_1": None
                 }
         else:
             data["thresholds"] = {
-                "expert_1": data["threshold"],
-                "expert_2": None,
-                "expert_3": None,
-                "expert_4": None,
-                "expert_5": None,
+                "expert_1": data["threshold"]
             }
             del data["threshold"]
         if "direction" not in data:

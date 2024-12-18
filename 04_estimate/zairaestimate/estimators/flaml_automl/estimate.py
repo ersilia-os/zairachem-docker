@@ -11,69 +11,30 @@ from zairabase.vars import (
     DESCRIPTORS_SUBFOLDER,
     DATA_SUBFOLDER,
     DATA_FILENAME,
-    PARAMETERS_FILE,
     ESTIMATORS_SUBFOLDER,
-    TREATED_FILE_NAME,
     Y_HAT_FILE
 )
 
-from ..base import BaseEstimator
-from ..automl.flaml import FlamlClassifier, FlamlRegressor
+from ..base import BaseEstimatorIndividual
+from .flaml import FlamlClassifier, FlamlRegressor
 from . import ESTIMATORS_FAMILY_SUBFOLDER
 
 
-ESTIMATORS = ["rf", "extra_tree"]  # None
-
-
-class BaseEstimatorIndividual(BaseEstimator):
-    def __init__(self, path, model_id):
-        BaseEstimator.__init__(self, path=path)
-        path_ = os.path.join(
-            self.path, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER, model_id
-        )
-        if not os.path.exists(path_):
-            os.makedirs(path_)
-        self.model_id = model_id
-        self.task = self._get_task()
-    
-    def _get_task(self):
-        with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-            task = json.load(f)["task"]
-        return task
-
-    def _get_X(self):
-        f = os.path.join(
-            self.path, DESCRIPTORS_SUBFOLDER, self.model_id, TREATED_FILE_NAME
-        )
-        with h5py.File(f, "r") as f:
-            X = f["Values"][:]
-        return X
-    
-    def _get_Y_col(self):
-        if self.task == "classification":
-            Y_col = "bin"
-        if self.task == "regression":
-            Y_col = "reg"
-        return Y_col
+ESTIMATORS = ["rf", "extra_tree"]  # TODO CONFIRM THESE ONLY
 
 class Fitter(BaseEstimatorIndividual):
     def __init__(self, path, model_id, is_simple):
-        BaseEstimatorIndividual.__init__(self, path=path, model_id=model_id)
+        BaseEstimatorIndividual.__init__(self, path=path, estimator=ESTIMATORS_FAMILY_SUBFOLDER, model_id=model_id)
         self.trained_path = os.path.join(
             self.get_output_dir(), ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER
         )
         self.is_simple = is_simple
 
-    def _get_flds(self): #TODO decide which folds to use
+    def _get_flds(self): #TODO ARE WE USING FOLDS?
         # for now only auxiliary folds are used
         col = [f for f in self.schema["folds"] if "_aux" in f][0]
         df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
         return np.array(df[col])
-
-    def _get_y(self): 
-        df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-        Y_col = self.get_Y_col()
-        return np.array(df[Y_col])
 
     def run_heavy(self, time_budget_sec=None):
         self.reset_time()
@@ -85,7 +46,7 @@ class Fitter(BaseEstimatorIndividual):
         tasks = collections.OrderedDict()
         X = self._get_X()
         y = self._get_y()
-        t = self.task
+        t = "reg" if self.task == "regression" else "clf"
         if self.task == "regression":
             model = FlamlRegressor()
             model.fit_heavy(
@@ -98,7 +59,7 @@ class Fitter(BaseEstimatorIndividual):
             )
             file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
             model.save(file_name)
-            tasks["reg"] = model.results
+            tasks[t] = model.results
         if self.task == "classification":
             model = FlamlClassifier()
             model.fit_heavy(
@@ -111,7 +72,7 @@ class Fitter(BaseEstimatorIndividual):
             )
             file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
             model.save(file_name)
-            tasks["bin"] = model.results
+            tasks[t] = model.results
         self.update_elapsed_time()
         return tasks
 
@@ -126,8 +87,7 @@ class Fitter(BaseEstimatorIndividual):
         train_idxs = self.get_train_indices(path=self.path)
         valid_idxs = self.get_validation_indices(path=self.path)
         y = self._get_y()
-        print(y)
-        t = self.task
+        t = "reg" if self.task == "regression" else "clf"
         if self.task == "regression":
             model = FlamlRegressor()
             model.fit_simple(
@@ -143,9 +103,6 @@ class Fitter(BaseEstimatorIndividual):
             _valid_task = model.run(X[valid_idxs], y[valid_idxs])
             tasks[t]["valid"] = _valid_task["main"]
         if self.task == "classification":
-            print("HERE")
-            print(type(y))
-            print(y.shape)
             model = FlamlClassifier()
             model.fit_simple(
                 X[train_idxs],
@@ -171,18 +128,10 @@ class Fitter(BaseEstimatorIndividual):
 
 class Predictor(BaseEstimatorIndividual):
     def __init__(self, path, model_id):
-        BaseEstimatorIndividual.__init__(self, path=path, model_id=model_id)
+        BaseEstimatorIndividual.__init__(self, path=path, estimator=ESTIMATORS_FAMILY_SUBFOLDER, model_id=model_id)
         self.trained_path = os.path.join(
             self.get_trained_dir(), ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER
         )
-
-    def _get_y(self, task):
-        df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-        columns = set(df.columns)
-        if task in columns:
-            return np.array(df[task])
-        else:
-            return None
 
     def run(self):
         self.reset_time()
@@ -196,7 +145,7 @@ class Predictor(BaseEstimatorIndividual):
             model = model.load(file_name)
             tasks[t] = model.run(X, y)
         if self.task == "classification":
-            y = self._get_y(t)
+            y = self._get_y()
             model = FlamlClassifier()
             file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
             model = model.load(file_name)
@@ -259,13 +208,8 @@ class Estimator(ZairaBase):
             os.path.join(path_trained, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r"
         ) as f:
             model_ids = list(json.load(f))
-        model_ids_successful = []
-        for model_id in model_ids:
-            if os.path.isfile(
-                os.path.join(path, DESCRIPTORS_SUBFOLDER, model_id, "treated.h5")
-            ):
-                model_ids_successful += [model_id]
-        return model_ids_successful
+        #TODO do we need to check that the descriptors that must be treated should be treated?
+        return model_ids
 
     def run(self, time_budget_sec=None):
         model_ids = self._get_model_ids()
