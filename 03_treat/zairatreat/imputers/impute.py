@@ -1,12 +1,13 @@
 import os
 
-from .raw import RawDescriptors
+from .treated import TreatedDescriptors
+from .manifolds import Manifolds
 
 from zairabase import ZairaBase
 from zairabase.utils.pipeline import PipelineStep
 
 
-class Describer(ZairaBase):
+class Imputer(ZairaBase):
     def __init__(self, path):
         ZairaBase.__init__(self)
         if path is None:
@@ -19,13 +20,20 @@ class Describer(ZairaBase):
         assert os.path.exists(self.output_dir)
         self.logger.debug(self.path)
 
-    def _raw_descriptions(self):
-        step = PipelineStep("raw_descriptions", self.output_dir)
+    def _treated_descriptions(self):
+        step = PipelineStep("treated_descriptions", self.output_dir)
         if not step.is_done():
-            RawDescriptors().run()
+            TreatedDescriptors().run()
+            step.update()
+
+    def _manifolds(self):
+        step = PipelineStep("manifolds", self.output_dir)
+        if not step.is_done():
+            Manifolds().run()
             step.update()
 
     def run(self):
         self.reset_time()
-        self._raw_descriptions()
+        self._treated_descriptions()
+        self._manifolds()
         self.update_elapsed_time()
