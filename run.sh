@@ -10,3 +10,12 @@ python 03_treat/zairatreat/run.py
 
 conda activate zairaestimate
 python 04_estimate/zairaestimate/run.py
+
+conda activate zairapool
+python 05_pool/zairapool/run.py
+
+conda activate zairareport
+python 06_report/zairareport/run.py
+
+conda activate zairafinish
+python 07_finish/zairafinish/run.py
