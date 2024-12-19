@@ -132,7 +132,6 @@ class IndividualPerformanceReporter(ZairaBase):
     
     def run(self):
         if self.task == "classification":
-            print("HERE")
             self.clf = ClassificationPerformance(path=self.path, model_id=self.model_id)
             clf_rep = self.clf.calculate()
             with open(

@@ -11,10 +11,11 @@ from zairabase import ZairaBase
 from zairabase.vars import (
     DESCRIPTORS_SUBFOLDER,
     ESTIMATORS_SUBFOLDER,
+    Y_HAT_FILE,
 )
 
 from ..base import BaseEstimatorIndividual
-from .kerastuner_ import KerasTunerClassifier, KerasTunerRegressor
+from .kerastuner import KerasTunerClassifier, KerasTunerRegressor
 from . import ESTIMATORS_FAMILY_SUBFOLDER
 
 TUNER_PROJECT_NAME = "kerastuner"
@@ -37,8 +38,9 @@ class Fitter(BaseEstimatorIndividual):
         train_idxs = self.get_train_indices(path=self.path)
         valid_idxs = self.get_validation_indices(path=self.path)
         y = self._get_y()
-        save_path = os.path.join(self.trained_path, self.model_id,  TUNER_PROJECT_NAME)
         t = "reg" if self.task == "regression" else "clf"
+        save_path = os.path.join(self.trained_path, self.model_id,  TUNER_PROJECT_NAME)
+        file_name = f"{t}.keras"
         if self.task == "regression":
             model = KerasTunerRegressor()
             model.fit(
@@ -46,8 +48,9 @@ class Fitter(BaseEstimatorIndividual):
                 y[train_idxs],
                 save_path
             )
-            model.save(save_path)
-            model = model.load(save_path)
+            model.save(os.path.join(save_path, file_name))
+            model.clean(save_path)
+            model = model.load(os.path.join(save_path,file_name))
             tasks[t] = model.run(X, y)
             _valid_task = model.run(X[valid_idxs], y[valid_idxs])
             tasks[t]["valid"] = _valid_task["main"]
@@ -56,8 +59,9 @@ class Fitter(BaseEstimatorIndividual):
             model.fit(
                 save_path
             )
-            model.save(save_path)
-            model = model.load(save_path)
+            model.save(os.path.join(save_path, file_name))
+            model.clear()
+            model = model.load(os.path.join(save_path, file_name))
             tasks[t] = model.run(X, y)
             _valid_task = model.run(X[valid_idxs], y[valid_idxs])
             tasks[t]["valid"] = _valid_task["main"]

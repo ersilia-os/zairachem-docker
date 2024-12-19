@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import collections
+import shutil
 
 import tensorflow as tf
 from tensorflow import keras
@@ -16,6 +17,8 @@ COLUMNS_FILENAME = "columns.json"
 EPOCHS = 100
 VALIDATION_SPLIT = 0.2
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 
 class KerasTunerClassifier(object):
     def __init__(self, X, y):
@@ -24,10 +27,8 @@ class KerasTunerClassifier(object):
         self.objective = "val_auc"
         self.X = X
         self.y = y
-        self.input_shape = X.shape[1] #TODO finalise input shape and output shape properly
-        print(self.input_shape)
-        print(X.shape, y.shape)
-        self.output_shape = y.shape[0]
+        self.input_shape = X.shape[1]
+        self.output_shape = 1 if len(y.shape) == 1 else y.shape[1:]
 
     def _model_builder(self, hp):
         model = keras.Sequential()
@@ -38,7 +39,7 @@ class KerasTunerClassifier(object):
                 units=hp_units, activation="relu", input_shape=(self.input_shape,)
             )
         )
-        model.add(keras.layers.Dense(1, activation="sigmoid"))
+        model.add(keras.layers.Dense(self.output_shape, activation="sigmoid"))
         model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=hp_learning_rate),
             loss=self.loss,
@@ -47,13 +48,19 @@ class KerasTunerClassifier(object):
         return model
 
     def _search(self, save_path):
+        tuner_directory = os.path.join(save_path, 'trials')
+        print(tuner_directory)
+        if os.path.exists(tuner_directory):
+            shutil.rmtree(tuner_directory)  # Delete old trials directory
+
+        print("Using save path:", save_path)
         self.tuner = kt.Hyperband(
             self._model_builder,
             objective=kt.Objective(self.objective, direction="max"),
             max_epochs=10,
             factor=3,
             directory=os.path.join(save_path),
-            project_name="trials",
+            project_name="trials"
         )
         stop_early = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5)
         self.tuner.search(
@@ -76,7 +83,7 @@ class KerasTunerClassifier(object):
     def _final_train(self):
         self.hypermodel = self.tuner.hypermodel.build(self.best_hps)
         self.hypermodel.fit(
-            epochs=self.best_epoch, validation_split=VALIDATION_SPLIT
+            self.X, self.y, epochs=self.best_epoch, validation_split=VALIDATION_SPLIT
         )
 
     def fit(self, save_path):
@@ -89,6 +96,15 @@ class KerasTunerClassifier(object):
         self.hypermodel.save(
             os.path.join(save_path)
         )
+    
+    def clean(self, save_path):
+        tuner_directory = os.path.join(save_path, 'trials')
+        print(tuner_directory)
+        if os.path.exists(tuner_directory):
+            shutil.rmtree(tuner_directory) 
+    
+    def clear(self):
+        keras.backend.clear_session()
 
     def export_model(self):
         return self.hypermodel
@@ -97,40 +113,20 @@ class KerasTunerClassifier(object):
         model = load_model(path, custom_objects=ak.CUSTOM_OBJECTS)
         return KerasTunerClassifierArtifact(model)
 
-        
-class Binarizer(object):
-    def __init__(self, threshold):
-        self.threshold = threshold
-
-    def binarize(self, y_hat):
-        y_bin = []
-        for y in y_hat:
-            if y > self.threshold:
-                y_bin += [1]
-            else:
-                y_bin += [0]
-        return np.array(y_bin, dtype=np.uint8)
 
 class KerasTunerClassifierArtifact(object):
-    def __init__(self, model, threshold):
+    def __init__(self, model):
         self.model = model
-        self.threshold = threshold
-        if threshold is not None:
-            self.binarizer = Binarizer(self.threshold)
-        else:
-            self.binarizer = None
 
     def predict_proba(self, X):
-        return self.model.predict_proba(X)[:, 1]
-
+        probas = self.model.predict(X)
+        return probas.flatten().tolist()
+    
     def predict(self, X):
-        if self.binarizer is not None:
-            y_hat = self.predict_proba(X)
-            y_bin = self.binarizer.binarize(y_hat)
-        else:
-            y_bin = self.model.predict(X)
-        return y_bin
-
+        probas = self.predict_proba(X)
+        threshold = 0.5
+        return [1 if proba > threshold else 0 for proba in probas]
+    
     def run(self, X, y=None):
         results = collections.OrderedDict()
         results["main"] = {
@@ -156,7 +152,7 @@ class KerasTunerRegressor(object):
                 units=hp_units, activation="relu", input_shape=(self.input_shape,)
             )
         )
-        model.add(keras.layers.Dense(self.output_shape))
+        model.add(keras.layers.Dense(self.output_shape,))
         model.compile(
             optimizer=keras.optimizers.Adam(learning_rate=hp_learning_rate),
             loss=self.loss,

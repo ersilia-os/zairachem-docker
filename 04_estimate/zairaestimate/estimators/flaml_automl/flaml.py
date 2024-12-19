@@ -127,8 +127,6 @@ class FlamlSettings(object):
         }
         if estimators is not None:
             automl_settings["estimator_list"] = estimators
-        print("HERE")
-        print(automl_settings["time_budget"])
         return automl_settings
 
     def get_automl_settings(self, task, time_budget, estimators, groups):
