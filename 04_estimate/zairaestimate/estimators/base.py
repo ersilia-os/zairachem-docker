@@ -33,13 +33,6 @@ class BaseEstimator(ZairaBase):
         else:
             self.trained_path = self.path
         self.task = self._get_task()
-    
-    def get_Y_col(self):
-        if self.task == "classification":
-            Y_col = "bin"
-        if self.task == "regression":
-            Y_col = "val"
-        return Y_col
 
     def _get_total_time_budget_sec(self):
         with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
@@ -65,7 +58,7 @@ class BaseEstimator(ZairaBase):
         print("Available time: {0}".format(available_time))
         return available_time
 
-class BaseEstimatorIndividual(BaseEstimator):
+class BaseEstimatorIndividual(BaseEstimator): #TODO MERGE WITH BASE
     def __init__(self, path, estimator, model_id):
         BaseEstimator.__init__(self, path=path)
         path_ = os.path.join(
@@ -102,7 +95,7 @@ class BaseEstimatorIndividual(BaseEstimator):
 
     def _get_y(self): 
         df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-        Y_col = self.get_Y_col()
+        Y_col = self._get_Y_col()
         return np.array(df[Y_col])
 
 class BaseOutcomeAssembler(ZairaBase):

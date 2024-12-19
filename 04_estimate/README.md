@@ -1,4 +1,4 @@
-# 03. Estimators
+# 04. Estimators
 
 ## Run from Docker
 
@@ -11,7 +11,7 @@
 
 ```bash
 conda create -n zairaestimate python=3.12
-cd 03_estimate
+cd 04_estimate
 python pip install -e .
 python zairaestimate/run.py
 ```
@@ -27,6 +27,7 @@ The estimators pipeline is composed of a few selected autoML techniques that wil
 - `performance.py` calculates the performance metrics (auc_roc, precision and recall for classifiers and r2 and mean_squared_error for the regressors) and saves a clf_report or reg_report as a .json file. Do not modify.
 
 ### Differences with ZairaChem v1
+We have reformatted the entire estimator pipeline. Previously, different descriptors were calculated with different methods, including AutoGluon, Flaml, KerasTuner and MolMap. Currently we are using both FLAML and KerasTuner with all descriptors. Fitting from the 2d descriptors (PCA, UMAP, LolP) is not currently being done.
 
 ## To Solve
 - Why the evaluate pipeline runs the evaluator twice if not_predict? it generates two files that are basically the same at this point. 

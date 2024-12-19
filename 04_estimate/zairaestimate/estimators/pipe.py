@@ -25,7 +25,7 @@ class EstimatorPipeline(ZairaBase):
         assert os.path.exists(self.output_dir)
         self.params = self._load_params()
         self.get_estimators()
-        self.data_size = self._get_data_size()
+        self.data_size = self._get_data_size() #TODO clean up if not needed
 
     def _get_data_size(self):
         data = pd.read_csv(
