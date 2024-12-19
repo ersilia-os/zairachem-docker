@@ -66,6 +66,7 @@ class Flusher(ZairaBase):
     def _remover(self, path):
         rm_dirs = []
         rm_files = []
+
         for root, dirs, files in os.walk(path):
             for filename in files:
                 if filename.endswith(".json") or filename.endswith(".csv"):
@@ -77,10 +78,14 @@ class Flusher(ZairaBase):
                     rm_dirs += [os.path.join(root, dirname)]
                 if dirname.startswith("kerastuner"):
                     rm_dirs += [os.path.join(root, dirname)]
+        print(rm_dirs)
+        print(rm_files)
         for f in rm_files:
-            os.remove(f)
+            if os.path.exists(f):
+                os.remove(f)
         for d in rm_dirs:
-            shutil.rmtree(d)
+            if os.path.exists(d):
+                shutil.rmtree(d)
 
     def _flush(self, path):
         self.logger.debug("Removing files descriptors folder in {0}".format(path))
