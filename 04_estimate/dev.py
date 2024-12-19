@@ -1,4 +1,5 @@
-from zairaestimate.estimators.kerastuner.pipe import KerasTunerPipeline
+from zairaestimate.estimators.flaml_automl.pipe import FlamlAutoMLPipeline
 
-ep = KerasTunerPipeline(path=None)
+
+ep = FlamlAutoMLPipeline(path=None)
 ep.run(time_budget_sec=None)

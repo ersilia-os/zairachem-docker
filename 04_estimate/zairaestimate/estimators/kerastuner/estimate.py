@@ -42,14 +42,12 @@ class Fitter(BaseEstimatorIndividual):
         save_path = os.path.join(self.trained_path, self.model_id,  TUNER_PROJECT_NAME)
         file_name = f"{t}.keras"
         if self.task == "regression":
-            model = KerasTunerRegressor()
+            model = KerasTunerRegressor(X[train_idxs],y[train_idxs])
             model.fit(
-                X[train_idxs],
-                y[train_idxs],
                 save_path
             )
             model.save(os.path.join(save_path, file_name))
-            model.clean(save_path)
+            model.clear()
             model = model.load(os.path.join(save_path,file_name))
             tasks[t] = model.run(X, y)
             _valid_task = model.run(X[valid_idxs], y[valid_idxs])

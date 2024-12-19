@@ -93,7 +93,8 @@ TREATED_DESCRIPTORS = [
 ]
 
 DEFAULT_ESTIMATORS = [
-    "flaml"
+    "flaml",
+    "kerastuner"
     #"baseline-classic",
     #"baseline-fingerprint",
     #"flaml-individual-descriptors",

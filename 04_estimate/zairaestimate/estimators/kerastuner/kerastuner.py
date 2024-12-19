@@ -97,7 +97,7 @@ class KerasTunerClassifier(object):
             os.path.join(save_path)
         )
     
-    def clean(self, save_path):
+    def clean(self, save_path): #TODO delete trials folder
         tuner_directory = os.path.join(save_path, 'trials')
         print(tuner_directory)
         if os.path.exists(tuner_directory):
