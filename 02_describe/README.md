@@ -12,8 +12,10 @@ python zairadescribe/run.py
 ```
 
 ## High level overview
-This module only contains only one steps:
+This module only contains only one step:
 1. Calculate Raw descriptors: Itt calculates the descriptors specified in the `data/parameters.json` file. Those come either from a config.json or are pulled from `vars.py`. If the reference descriptor is not already included in the list, it will be calculated additionally. Descriptors are stored in the `/descriptors` folder under their respective names. Slugs from the Ersilia Model Hub are used to identify the models.
+
+The describe step for the fit and predict are the same. If in between the setup and the describe the user wishes to change session, the symlink of the zairachem/session.json file to the session.json file of the desired output directory must be manually updated.
 
 ### Differences with ZairaChem v1
 

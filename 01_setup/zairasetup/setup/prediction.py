@@ -45,10 +45,8 @@ class PredictSetup(object):
         if not os.path.exists(self.model_dir):
             return False
         if not os.path.exists(os.path.join(self.model_dir, OUTPUT_FILENAME)):
-            print(OUTPUT_FILENAME)
             return False
         if not os.path.exists(os.path.join(self.model_dir, ESTIMATORS_SUBFOLDER)):
-            print(ESTIMATORS_SUBFOLDER)
             return False
         return True
 
