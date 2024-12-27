@@ -13,13 +13,13 @@ This step sets up the folder infrastructure required to run ZairaChem
 
 ```bash
 conda create -n zairasetup python=3.12
-cd 01_train_setup
-python pip install -e .
-python zairasetup/run.py --input_file $INPUT_FILE --model_dir $OUTPUT_DIR --cutoff 0.1 --direction low 
+cd 01_setup
+pip install -e .
+python zairasetup/run_fit.py --input_file $INPUT_FILE --model_dir $OUTPUT_DIR --cutoff 0.1 --direction low 
+python zairasetup/run_predict.py --input_file $INPUT_FILE --model_dir $MODEL_DIR --output_dir $OUTPUT_DIR 
 ```
-
-The cutoff and direction arguments are only required if the data is not already binarised.
-The task is expressely set at classification (see sections below) but an argument can be added to allow regression.
+For fitting, a `.csv` file with minimum a SMILES column and a values column is required. For predicting, only a `.csv` column is required, but if values are passed, the full report (AUC values, ROC curves, etc) will be generated at predict time as well. IF the model was trained on already binarised data, the data for prediction must also be binarised already. No direction or cut-off can be specified at predict time.
+The task is expressely set at classification (see sections below) but an argument can be added to allow regression. The cutoff and direction arguments are only required if the data is not already binarised.
 
 ## High level overview
 

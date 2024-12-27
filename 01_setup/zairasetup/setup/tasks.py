@@ -407,7 +407,7 @@ class SingleTasks(ZairaBase):
             df = self._get_data()
             params = self._get_params()
             if params["task"] == "regression":
-                reg_tasks = RegTasks(df, params, path=self.trained_path)
+                reg_tasks = RegTasks(df, params, path=self.trained_path) #TODO Keep only one column named val
                 reg = reg_tasks.as_dict()
                 for k, v in reg.items():
                     self.logger.debug("Setting {0}".format(k))
@@ -439,22 +439,25 @@ class SingleTasksForPrediction(SingleTasks):
             df = self._get_data()
             if self.task is not None:
                 assert self.task == "classification"
-            df["clf_ex1"] = [int(x) for x in list(df[VALUES_COLUMN])]
+            df["bin"] = [int(x) for x in list(df[VALUES_COLUMN])]
             self._task = "classification"
         else:
             self.logger.debug("Data is not simply a binary classification")
             df = self._get_data()
             params = self._get_params()
-            reg_tasks = RegTasksForPrediction(df, params, self.path)
-            reg_tasks.load(self.trained_path)
-            reg = reg_tasks.as_dict()
-            for k, v in reg.items():
-                df[k] = v
-            clf_tasks = ClfTasksForPrediction(df, params, self.path)
-            clf_tasks.load(self.trained_path)
-            clf = clf_tasks.as_dict()
-            for k, v in clf.items():
-                df[k] = v
-        df = df.drop(columns=[VALUES_COLUMN])
-        df = task_skipper(df, self._task)
+            if params["task"] == "regression":
+                reg_tasks = RegTasksForPrediction(df, params, self.path)
+                reg_tasks.load(self.trained_path)
+                reg = reg_tasks.as_dict()
+                for k, v in reg.items():
+                    df[k] = v
+            if params["task"] == "classification":
+                clf_tasks = ClfTasksForPrediction(df, params, self.path)
+                clf_tasks.load(self.trained_path)
+                clf = clf_tasks.as_dict()
+                for k, v in clf.items():
+                    df[k] = v
+                df = task_skipper(df, self._task)
+                keep_col_name = self._keep_one_clf_column(df)
+                df["bin"]=df[keep_col_name]
         df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)

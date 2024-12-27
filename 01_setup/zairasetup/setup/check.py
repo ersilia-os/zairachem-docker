@@ -80,10 +80,14 @@ class SetupChecker(object):
     def check_activity(self):
         self._get_input_schema()
         input_values_column = self.input_schema_dict["values_column"]
+        print("HERE", input_values_column)
         if input_values_column is None:
             return
         di = pd.read_csv(self.input_file)
         dd = pd.read_csv(self.data_file)
+        print("THERE", self.input_file, self.data_file)
+        print(di.columns)
+        print(dd.columns)
         ival = list(di[input_values_column])
         dval = list(dd[VALUES_COLUMN])
         mapping = pd.read_csv(self.mapping_file)

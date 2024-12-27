@@ -249,6 +249,7 @@ class SingleFileForPrediction(SingleFile):
 
     def normalize_dataframe(self):
         resolved_columns = self.resolve_columns()
+        print(resolved_columns)
         self.identifier_column = resolved_columns["identifier_column"]
         self.smiles_column = resolved_columns["smiles_column"]
         identifiers = self._make_identifiers()
@@ -305,8 +306,6 @@ class SingleFileForPrediction(SingleFile):
         dfc = self.dedupe(df, path)
         dfc.to_csv(os.path.join(path, COMPOUNDS_FILENAME), index=False)
         if self.has_tasks:
-            dfa = self.assays_table(df)
-            dfa.to_csv(os.path.join(path, ASSAYS_FILENAME), index=False)
             dfv = self.values_table(df)
             dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
         schema = self.input_schema()
