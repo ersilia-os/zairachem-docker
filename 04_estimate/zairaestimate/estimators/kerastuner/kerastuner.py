@@ -21,14 +21,11 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 
 class KerasTunerClassifier(object):
-    def __init__(self, X, y):
+    def __init__(self):
         self.loss = "binary_crossentropy"
         self.metrics = [keras.metrics.AUC()]
         self.objective = "val_auc"
-        self.X = X
-        self.y = y
-        self.input_shape = X.shape[1]
-        self.output_shape = 1 if len(y.shape) == 1 else y.shape[1:]
+
 
     def _model_builder(self, hp):
         model = keras.Sequential()
@@ -47,9 +44,10 @@ class KerasTunerClassifier(object):
         )
         return model
 
-    def _search(self, save_path):
+    def _search(self, save_path,X,y):
         tuner_directory = os.path.join(save_path, 'trials')
-        print(tuner_directory)
+        self.input_shape = X.shape[1]
+        self.output_shape = 1 if len(y.shape) == 1 else y.shape[1:]
         if os.path.exists(tuner_directory):
             shutil.rmtree(tuner_directory)  # Delete old trials directory
 
@@ -64,8 +62,8 @@ class KerasTunerClassifier(object):
         )
         stop_early = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=5)
         self.tuner.search(
-            self.X,
-            self.y,
+            X,
+            y,
             epochs=100,
             validation_split=VALIDATION_SPLIT,
             callbacks=[stop_early],
@@ -73,23 +71,23 @@ class KerasTunerClassifier(object):
         )
         self.best_hps = self.tuner.get_best_hyperparameters(num_trials=1)[0]
 
-    def _get_best_epoch(self):
+    def _get_best_epoch(self, X, y):
         model = self.tuner.hypermodel.build(self.best_hps)
-        history = model.fit(self.X, self.y, epochs=EPOCHS, validation_split=VALIDATION_SPLIT)
+        history = model.fit(X, y, epochs=EPOCHS, validation_split=VALIDATION_SPLIT)
         val_per_epoch = history.history[self.objective]
         self.best_epoch = val_per_epoch.index(max(val_per_epoch)) + 1
         print("Best epoch: %d" % (self.best_epoch,))
 
-    def _final_train(self):
+    def _final_train(self, X, y):
         self.hypermodel = self.tuner.hypermodel.build(self.best_hps)
         self.hypermodel.fit(
-            self.X, self.y, epochs=self.best_epoch, validation_split=VALIDATION_SPLIT
+            X, y, epochs=self.best_epoch, validation_split=VALIDATION_SPLIT
         )
 
-    def fit(self, save_path):
-        self._search(save_path)
-        self._get_best_epoch()
-        self._final_train()
+    def fit(self, save_path,X,y):
+        self._search(save_path,X,y)
+        self._get_best_epoch(X,y)
+        self._final_train(X,y)
 
     def save(self, save_path):
         print("Saving")

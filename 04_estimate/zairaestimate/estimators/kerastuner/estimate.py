@@ -53,9 +53,9 @@ class Fitter(BaseEstimatorIndividual):
             _valid_task = model.run(X[valid_idxs], y[valid_idxs])
             tasks[t]["valid"] = _valid_task["main"]
         if self.task == "classification":
-            model = KerasTunerClassifier(X[train_idxs], y[train_idxs])
+            model = KerasTunerClassifier()
             model.fit(
-                save_path
+                save_path, X[train_idxs], y[train_idxs]
             )
             model.save(os.path.join(save_path, file_name))
             model.clear()
@@ -77,17 +77,19 @@ class Predictor(BaseEstimatorIndividual):
         self.reset_time()
         tasks = collections.OrderedDict()
         X = self._get_X()
-        t = self.task
+        t = "reg" if self.task == "regression" else "clf"
+        save_path = os.path.join(self.trained_path, self.model_id,  TUNER_PROJECT_NAME)
+        file_name = f"{t}.keras"
         if self.task == "regression":
             y = self._get_y()
             model = KerasTunerRegressor()
-            file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
+            file_name = os.path.join(os.path.join(save_path,file_name))
             model = model.load(file_name)
             tasks[t] = model.run(X, y)
         if self.task == "classification":
             y = self._get_y()
             model = KerasTunerClassifier()
-            file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
+            file_name = os.path.join(os.path.join(save_path,file_name))
             model = model.load(file_name)
             tasks[t] = model.run(X, y)
         self.update_elapsed_time()

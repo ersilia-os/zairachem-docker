@@ -57,7 +57,7 @@ class Fitter(BasePooler):
         self.update_elapsed_time()
         return results
 
-class Predictor():
+class Predictor(BasePooler):
     def __init__(self, path):
         BasePooler.__init__(self, path=path)
         self.trained_path = os.path.join(
@@ -86,7 +86,7 @@ class Predictor():
                 Y_clf_hat = clf.predict(X_clf).reshape(-1, 1)
                 B_clf_hat = np.zeros(Y_clf_hat.shape, dtype=int)
                 B_clf_hat[Y_clf_hat > 0.5] = 1
-                results = pd.DataFrame({"clf": Y_clf_hat, "clf_bin": B_clf_hat})
+                results = pd.DataFrame({"clf": Y_clf_hat.flatten().tolist(), "clf_bin": B_clf_hat.flatten().tolist()})
             else:
                 clf = None
         columns = results.columns.tolist()

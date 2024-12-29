@@ -96,12 +96,10 @@ class XGetter(ZairaBase):
         prefixes = []
         dfs = []
         for rpath in ResultsIterator(path=self.path).iter_relpaths():
-            print(rpath)
             prefixes += ["-".join(rpath)]
             file_name = "/".join(
                 [self.path, ESTIMATORS_SUBFOLDER] + rpath + [RESULTS_UNMAPPED_FILENAME]
             )
-            print(file_name)
             dfs += [self._read_results_file(file_name)]
         for i in range(len(dfs)):
             df = dfs[i]

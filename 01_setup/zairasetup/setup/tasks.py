@@ -193,7 +193,7 @@ class ClfTasks(object):
             return False
         return True
 
-    def experts(self):
+    def experts(self): #TODO Only one threshold allowed
         cuts = []
         keys = sorted(self.thresholds.keys())
         for k in keys:
@@ -292,7 +292,7 @@ class AuxiliaryBinaryTask(object):
 def task_skipper(df, task):
     columns = list(df.columns)
     new_columns = []
-    if task == "regression":
+    if task == "regression": #TODO CLF tasks will never be present in regression and viceversa
         for c in columns:
             if c.startswith("clf"):
                 if "_skip" not in c and "_aux" not in c:
@@ -388,7 +388,7 @@ class SingleTasks(ZairaBase):
         
     def _keep_one_clf_column(self, df):
         clf_columns = [col for col in df.columns if "clf" in col]
-        keep_col_name = [col for col in clf_columns if "skip" not in col and "aux" not in col]
+        keep_col_name = [col for col in clf_columns if "skip" not in col and "aux" not in col] #This will always return one column, as skip is automatically added to the rest
         return keep_col_name
 
     def run(self):
@@ -420,11 +420,11 @@ class SingleTasks(ZairaBase):
                 for k, v in clf.items():
                     self.logger.debug("Setting {0}".format(k))
                     df[k] = v
-                auxiliary = AuxiliaryBinaryTask(df)
-                df[AUXILIARY_TASK_COLUMN] = auxiliary.get()
-                df = task_skipper(df, self._task)
+                #auxiliary = AuxiliaryBinaryTask(df)
+                #df[AUXILIARY_TASK_COLUMN] = auxiliary.get() #TODO REMOVE AS NOT NEEDED
+                df = task_skipper(df, self._task) #TODO remove as not needed
                 keep_col_name = self._keep_one_clf_column(df)
-                df["bin"]=df[keep_col_name]        
+                df["bin"]=df[keep_col_name]      
         df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)
 
 

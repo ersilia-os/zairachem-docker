@@ -95,7 +95,7 @@ class Fitter(BaseEstimatorIndividual):
                 time_budget=time_budget_sec,
                 estimators=ESTIMATORS,
             )
-            file_name = os.path.join(self.trained_path, self.model_id, self.task + ".joblib")
+            file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
             model.save(file_name)
             model = model.load(file_name)
             tasks[t] = model.run(X, y)
@@ -136,7 +136,7 @@ class Predictor(BaseEstimatorIndividual):
         self.reset_time()
         tasks = collections.OrderedDict()
         X = self._get_X()
-        t = self.task
+        t = "reg" if self.task == "regression" else "clf"
         if self.task == "regression":
             y = self._get_y()
             model = FlamlRegressor()

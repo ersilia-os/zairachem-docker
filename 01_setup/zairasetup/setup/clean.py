@@ -27,9 +27,8 @@ class SetupCleaner(object):
             if os.path.exists(path):
                 os.remove(path)
 
-    def _clean_data_file(self):
-        keep_cols = [col for col in list(self.data_file.columns) if "clf" not in col or "reg" not in col or "value" not in col] #TODO amend once Reg is added
-        keep_cols = [col for col in self.data_file.columns if not any(keyword in col for keyword in ["clf", "reg", "value"])]
+    def _clean_data_file(self): 
+        keep_cols = [col for col in self.data_file.columns if not any(keyword in col for keyword in ["clf", "reg", "value"])] #TODO Check cleaning once REG is added
         df = self.data_file[keep_cols]
         df.to_csv(os.path.join(self.path, DATA_FILENAME), index=False)
         
