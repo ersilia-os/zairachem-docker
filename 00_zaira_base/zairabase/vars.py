@@ -46,7 +46,6 @@ APPLICABILITY_SUBFOLDER = "applicability"
 DESCRIPTORS_SUBFOLDER = "descriptors"
 ESTIMATORS_SUBFOLDER = "estimators"
 POOL_SUBFOLDER = "pool"
-RESULTS_FILENAME = "results_unmapped.csv" #TODO CONSOLIDATE WITH RESULTS_MAPPED_FILENAME
 LITE_SUBFOLDER = "lite"
 REPORT_SUBFOLDER = "report"
 DISTILL_SUBFOLDER = "distill"
@@ -77,15 +76,14 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 ERSILIA_HUB_DEFAULT_MODELS = [
     "morgan-counts",
-    #"rdkit-fingerprint",
+    "rdkit-fingerprint",
     "mordred",
     "cc-signaturizer",
-    #"molfeat-chemgpt",
-    #"eosce",
+    "molfeat-chemgpt",
+    "eosce",
 ]
 
-#REFERENCE_DESCRIPTOR = "grover-embedding"
-REFERENCE_DESCRIPTOR = "cc-signaturizer"
+REFERENCE_DESCRIPTOR = "grover-embedding"
 
 TREATED_DESCRIPTORS = [
     "morgan-counts",
@@ -96,14 +94,6 @@ TREATED_DESCRIPTORS = [
 DEFAULT_ESTIMATORS = [
     "flaml",
     "kerastuner"
-    #"baseline-classic",
-    #"baseline-fingerprint",
-    #"flaml-individual-descriptors",
-    #"tabpfn-individual-descriptors",
-    #"autogluon-manifolds",
-    #"kerastuner-reference-embedding",
-    #"kerastuner-eosce-embedding",
-    #"molmap",
 ]
 
 ENSEMBLE_MODE = (

@@ -35,7 +35,6 @@ from zairabase.vars import (
     ESTIMATORS_SUBFOLDER,
     POOL_SUBFOLDER,
     APPLICABILITY_SUBFOLDER,
-    RESULTS_FILENAME,
     RESULTS_UNMAPPED_FILENAME
 )
 
@@ -66,7 +65,7 @@ class ResultsFetcher(ZairaBase):
     def _read_pooled_results(self, path=None):
         if path is None:
             path = self.path
-        df = pd.read_csv(os.path.join(path, POOL_SUBFOLDER, RESULTS_FILENAME))
+        df = pd.read_csv(os.path.join(path, POOL_SUBFOLDER, RESULTS_UNMAPPED_FILENAME))
         return df
 
     def _read_pooled_results_train(self):

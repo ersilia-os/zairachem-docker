@@ -1,6 +1,6 @@
 eval "$(conda shell.bash hook)"
 conda activate zairasetup
-python 01_setup/zairasetup/run_predict.py -i ../tests/osm_bin_ten.csv -m ../tests/fit -o ../tests/predict
+python 01_setup/zairasetup/run_predict.py -i "$1" -m "$2" -o "$3"
 
 conda activate zairadescribe
 python 02_describe/zairadescribe/run.py
