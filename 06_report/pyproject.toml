@@ -27,10 +27,10 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
-zairabase = { path = "../00_zaira_base" }
+python =  ">=3.8"
+zairabase = { path = "../00_base" }
 stylia = { git = "https://github.com/ersilia-os/stylia.git" }
-matplotlib = "*"
-scikit-learn = "*"
-seaborn = "*"
-rdkit = "*"
+matplotlib = "3.10.0"
+scikit-learn = "1.6.0"
+seaborn = "0.13.2"
+rdkit = "2024.3.6"

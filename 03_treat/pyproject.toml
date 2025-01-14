@@ -27,10 +27,9 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
-zairabase = { path = "../00_zaira_base" }
-joblib="1.4.2"
+python =  ">=3.8"
+zairabase = { path = "../00_base" }
 fpsim2="0.5.2"
 lolP = "0.0.4"
 umap-learn="0.5.7"
-scikit-learn="1.5.2"
+scikit-learn="1.6.0"

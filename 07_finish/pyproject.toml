@@ -28,6 +28,6 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python = ">=3.8"
-zairabase = { path = "../00_zaira_base" }
+zairabase = { path = "../00_base" }
 pandas = "*"
 openpyxl ="*"

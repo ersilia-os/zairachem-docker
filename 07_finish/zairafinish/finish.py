@@ -78,8 +78,6 @@ class Flusher(ZairaBase):
                     rm_dirs += [os.path.join(root, dirname)]
                 if dirname.startswith("kerastuner"):
                     rm_dirs += [os.path.join(root, dirname)]
-        print(rm_dirs)
-        print(rm_files)
         for f in rm_files:
             if os.path.exists(f):
                 os.remove(f)

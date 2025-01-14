@@ -10,9 +10,9 @@ do
   for i in {1..5}
   do
     # Run fit script for each dataset and fold
-    bash run_fit.sh ../zaira-chem-docker-tdc/data/"${dataset}"_train.csv ../zaira-chem-docker-tdc/models/"${dataset}"_fold$i
+    bash run_fit.sh -i ../zaira-chem-docker-tdc/data/"${dataset}"_train.csv -m ../zaira-chem-docker-tdc/models/"${dataset}"_fold$i
 
     # Run predict script for each dataset and fold
-    bash run_predict.sh ../zaira-chem-docker-tdc/data/"${dataset}"_test.csv ../zaira-chem-docker-tdc/models/"${dataset}"_fold$i ../zaira-chem-docker-tdc/predictions/"${dataset}"_pred_fold$i
+    bash run_predict.sh -i ../zaira-chem-docker-tdc/data/"${dataset}"_test.csv -m ../zaira-chem-docker-tdc/models/"${dataset}"_fold$i -o ../zaira-chem-docker-tdc/predictions/"${dataset}"_pred_fold$i --flush True
   done
 done

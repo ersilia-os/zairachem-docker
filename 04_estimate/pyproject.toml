@@ -27,13 +27,11 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.8"
-zairabase = { path = "../00_zaira_base" }
+python =  ">=3.8"
+zairabase = { path = "../00_base" }
 pandas = "2.2.3"
-joblib = "1.4.2"
-h5py = "*"
 scikit-learn = "1.6.0"
 "flaml[automl]" = "2.3.2"
-tensorflow = "*"
-keras = "*"
-autokeras = "*"
+tensorflow = "2.18.0"
+keras = "3.7.0"
+autokeras = "2.0.0"
