@@ -1,10 +1,6 @@
 from finish import Finisher
 import argparse
 
-r = Finisher(path=None, clean=False, flush=False, anonymize=False)
-r.run()
-
-
 def run(path=None, clean=False, flush=False, anonymize=False):
     r = Finisher(path, clean, flush, anonymize)
     r.run()

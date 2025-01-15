@@ -74,7 +74,7 @@ class Flusher(ZairaBase):
                 else:
                     rm_files += [os.path.join(root, filename)]
             for dirname in dirs:
-                if dirname.startswith("autogluon"):
+                if dirname.startswith("flaml"):
                     rm_dirs += [os.path.join(root, dirname)]
                 if dirname.startswith("kerastuner"):
                     rm_dirs += [os.path.join(root, dirname)]
