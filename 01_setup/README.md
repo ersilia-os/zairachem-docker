@@ -13,6 +13,7 @@ This step sets up the folder infrastructure required to run ZairaChem
 
 ```bash
 conda create -n zairasetup python=3.12
+conda activate zairasetup
 cd 01_setup
 pip install -e .
 python zairasetup/run_fit.py --input_file $INPUT_FILE --model_dir $OUTPUT_DIR --cutoff 0.1 --direction low 

@@ -14,7 +14,8 @@ from zairabase.vars import (
     ESTIMATORS_SUBFOLDER,
     RESULTS_UNMAPPED_FILENAME,
     SIMPLE_EVALUATION_FILENAME,
-    SIMPLE_EVALUATION_VALIDATION_FILENAME
+    SIMPLE_EVALUATION_VALIDATION_FILENAME,
+    INPUT_SCHEMA_FILENAME
 )
 
 
@@ -60,6 +61,13 @@ class SimpleEvaluator(ZairaBase):
             self.path = path
         self.results_iterator = ResultsIterator(path=self.path)
 
+    def _get_original_input_value(self):
+        with open(
+            os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r"
+        ) as f:
+            schema = json.load(f)
+        return schema["values_column"]
+    
     def _run(self, valid_idxs):
         df_true = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
         if valid_idxs is not None:
@@ -93,7 +101,12 @@ class SimpleEvaluator(ZairaBase):
                 json.dump(data, f, indent=4)
 
     def run(self): #TODO WHY RUN TWICE?
-        self._run(None)
-        if not self.is_predict():
-            valid_idxs = self.get_validation_indices(path=self.path)
-            self._run(valid_idxs)
+        value_col = self._get_original_input_value()
+        if value_col is not None:
+            print("val_col not None", value_col)
+            self._run(None)
+            if not self.is_predict():
+                valid_idxs = self.get_validation_indices(path=self.path)
+                self._run(valid_idxs)
+        else:
+            pass

@@ -11,6 +11,7 @@
 
 ```bash
 conda create -n zairareport python=3.12
+conda activate zairareport
 cd 06_report
 python pip install -e .
 python zairareport/run.py

@@ -12,10 +12,8 @@ class Imputer(ZairaBase):
         ZairaBase.__init__(self)
         if path is None:
             self.path = self.get_output_dir()
-            print(self.path)
         else:
             self.path = path
-            print(self.path)
         self.output_dir = os.path.abspath(self.path)
         assert os.path.exists(self.output_dir)
         self.logger.debug(self.path)

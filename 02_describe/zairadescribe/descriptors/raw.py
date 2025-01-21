@@ -78,13 +78,11 @@ class RawDescriptors(ZairaBase):
         output_h5 = self.output_h5_filename(eos_id)
         ma = ModelArtifact(eos_id)
         ma.run(self.input_csv, output_h5)
-        print("success")
         Hdf5(output_h5).save_summary_as_csv()
 
     def run(self):
         done_eos = []
         if self.is_predict():
-            print("HERE")
             eos_ids = self.done_eos_ids()
         else:
             eos_ids = self.eos_ids()

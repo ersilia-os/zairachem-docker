@@ -11,6 +11,7 @@
 
 ```bash
 conda create -n zairapool python=3.12
+conda activate zairapool
 cd 05_pool
 python pip install -e .
 python zairapool/run.py

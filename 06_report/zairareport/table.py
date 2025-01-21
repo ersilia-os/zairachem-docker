@@ -123,7 +123,6 @@ class OutputTable(BaseTable, ResultsFetcher):
     def _get_ensemble_predictions_columns(self):
         try:
             tasks = self.get_clf_tasks()
-            print(tasks)
         except:
             tasks = self.get_reg_tasks()
         task = tasks[0]

@@ -6,6 +6,7 @@ This step calculates several descriptors for the molecules using only Ersilia Mo
 
 ```bash
 conda create -n zairadescribe python=3.12
+conda activate zairadescribe
 cd 02_describe
 python pip install -e .
 python zairadescribe/run.py

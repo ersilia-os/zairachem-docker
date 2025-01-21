@@ -96,6 +96,9 @@ class BaseEstimatorIndividual(BaseEstimator): #TODO MERGE WITH BASE
     def _get_y(self): 
         df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
         Y_col = self._get_Y_col()
+        if self.is_predict():
+            if Y_col not in df.columns:
+                return None
         return np.array(df[Y_col])
 
 class BaseOutcomeAssembler(ZairaBase):

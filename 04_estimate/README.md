@@ -11,6 +11,7 @@
 
 ```bash
 conda create -n zairaestimate python=3.12
+conda activate zairaestimate
 cd 04_estimate
 python pip install -e .
 python zairaestimate/run.py

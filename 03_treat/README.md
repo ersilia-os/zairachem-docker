@@ -13,6 +13,7 @@ This step treats the descriptors that require it and applies dimensionality redu
 
 ```bash
 conda create -n zairatreat python=3.12
+conda activate zairatreat
 cd 03_treat
 python pip install -e .
 python zairatreat/run.py

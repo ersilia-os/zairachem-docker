@@ -15,12 +15,14 @@ This will create a conda environment for each step of the processing pipeline.
 bash run_fit.sh -i [INPUT_FILE] -m [MODEL_DIR]
 ```
 Optional flags for the fit command include:
--c|--cutoff
--d|--direction
--p|--parameters
---clean
---flush
---anonymize
+```
+-c|--cutoff <float>
+-d|--direction high/low
+-p|--parameters <parameters_file.json>
+--clean True/False
+--flush True/False
+--anonymize True/False
+```
 If no cut-off and direction is passed the file must contain a column with the data already binarized
 
 ## Model predicting
@@ -29,6 +31,8 @@ If no cut-off and direction is passed the file must contain a column with the da
 bash run_predict.sh -i [INPUT_FILE] -m [MODEL_DIR] -o [OUTPUT_DIR]
 ```
 Optional flags for the fit command include:
---clean
---flush
---anonymize
+```
+--clean True/False
+--flush True/False
+--anonymize True/False
+```

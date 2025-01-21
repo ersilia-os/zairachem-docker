@@ -75,20 +75,20 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 # Ersilia Model Hub
 
 ERSILIA_HUB_DEFAULT_MODELS = [
-    "morgan-counts",
-    "rdkit-fingerprint",
-    "mordred",
-    "cc-signaturizer",
-    "molfeat-chemgpt",
-    "eosce",
+    "eos5axz",
+    "eos7jio",
+    "eos78ao",
+    "eos4u6p",
+    "eos3cf4",
+    "eos2gw4",
 ]
 
-REFERENCE_DESCRIPTOR = "grover-embedding"
+REFERENCE_DESCRIPTOR = "eos7w6n"
 
 TREATED_DESCRIPTORS = [
-    "morgan-counts",
-    "rdkit-fingerprint",
-    "mordred",
+    "eos78ao",
+    "eos8a4x",
+    "eos4djh",
 ]
 
 DEFAULT_ESTIMATORS = [

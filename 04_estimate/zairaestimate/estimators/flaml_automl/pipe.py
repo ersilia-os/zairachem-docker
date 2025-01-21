@@ -2,7 +2,6 @@ from .estimate import Estimator
 from .assemble import OutcomeAssembler
 from .performance import PerformanceReporter
 
-
 class FlamlAutoMLPipeline(object):
     def __init__(self, path):
         self.e = Estimator(path=path)

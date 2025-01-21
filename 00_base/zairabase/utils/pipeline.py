@@ -1,6 +1,7 @@
 import os
 import json
 from time import time
+import sys
 
 from .. import ZairaBase
 from ..vars import SESSION_FILE
@@ -11,7 +12,6 @@ class SessionFile(ZairaBase):
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
         self.session_file = os.path.join(os.path.abspath(output_dir), SESSION_FILE)
-        print("Session file", self.session_file)
 
     def open_session(self, mode, output_dir, model_dir=None):
         self.mode = mode

@@ -11,6 +11,7 @@
 
 ```bash
 conda create -n zairafinish python=3.12
+conda activate zairafinish
 cd 07_finish
 python pip install -e .
 python zairafinish/run.py

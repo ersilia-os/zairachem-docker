@@ -6,7 +6,7 @@ import collections
 
 from sklearn import metrics
 
-from zairabase.vars import Y_HAT_FILE,DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER, ESTIMATORS_SUBFOLDER, DATA_FILENAME,CLF_REPORT_FILENAME, REG_REPORT_FILENAME, PARAMETERS_FILE
+from zairabase.vars import Y_HAT_FILE,DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER, ESTIMATORS_SUBFOLDER, CLF_REPORT_FILENAME, REG_REPORT_FILENAME, PARAMETERS_FILE
 from zairabase import ZairaBase
 
 from . import ESTIMATORS_FAMILY_SUBFOLDER
@@ -70,7 +70,7 @@ class ClassificationPerformance(BasePerformance):
             "tn": int(confu[0, 0]),
             "fp": int(confu[0, 1]),
             "fn": int(confu[1, 0]),
-            "y_true": [int(y) for y in y_true],
+            "y_true": [int(y) for y in y_true] if y_true.ndim>0 else 0,
             "y_pred": [float(y) for y in y_pred],
             "b_pred": [int(y) for y in b_pred],
         }

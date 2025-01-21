@@ -33,9 +33,8 @@ class PredictSetup(object):
             self.output_dir = os.path.abspath(self.input_file.split(".")[0])
         else:
             self.output_dir = os.path.abspath(output_dir)
-        if os.path.exists(self.output_dir):
-            shutil.rmtree(self.output_dir)
-        print(os.path.abspath(os.path.dirname(model_dir)))
+        #if os.path.exists(self.output_dir): # TODO add if wanted
+            #shutil.rmtree(self.output_dir)
         assert model_dir is not None, "Model directory not specified"
         self.model_dir = os.path.abspath(model_dir)
         assert self.model_is_ready(), "Model is not ready"
@@ -182,7 +181,6 @@ class ONNXPredictSetup(PredictSetup):
     def setup(self):
         self._initialize()
         self._normalize_input()
-        self._melloddy_tuner_run()
         self._standardize()
         if self.has_tasks:
             self._tasks()
