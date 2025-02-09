@@ -1,0 +1,35 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "zairadistill"
+version = "2.0.0"
+authors = ["Ersilia Open Source Initiative <hello@ersilia.io>"]
+description = "Automated QSAR modeling for chemistry"
+license = "GPLv3"
+requires-python = ">=3.8"
+keywords = [
+    "qsar",
+    "machine-learning",
+    "chemistry",
+    "computer-aided-drug-design"
+]
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+
+[tool.poetry.dependencies]
+python = ">=3.8"
+zairabase = { path = "../00_base" }
+pandas = "2.2.3"
+olinda = {git = "https://github.com/JHlozek/olinda.git", branch = "main"}
+ersilia = { git = "https://github.com/ersilia-os/ersilia.git" }
+
