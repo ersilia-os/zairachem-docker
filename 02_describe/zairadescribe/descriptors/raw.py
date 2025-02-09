@@ -87,11 +87,13 @@ class RawDescriptors(ZairaBase):
         else:
             eos_ids = self.eos_ids()
         for eos_id in eos_ids:
-            try:
-                self._run_eos(eos_id)
-                done_eos += [eos_id]
-            except:
-                continue
+            if not os.path.exists(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, RAW_DESC_FILENAME)):
+                try:
+                    self._run_eos(eos_id)
+                    done_eos += [eos_id]
+                except:
+                    continue
+        
         with open(
             os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "w"
         ) as f:
