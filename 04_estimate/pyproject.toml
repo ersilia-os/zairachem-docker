@@ -28,7 +28,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python =  ">=3.8"
-zairabase = { path = "../00_base" }
+zairabase = { path = "../00_base", develop=true }
 pandas = "2.2.3"
 scikit-learn = "1.6.0"
 "flaml[automl]" = "2.3.2"

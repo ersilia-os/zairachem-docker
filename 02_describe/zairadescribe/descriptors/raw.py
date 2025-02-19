@@ -32,6 +32,7 @@ class ModelArtifact(object):
             save_to_lake=False,
             service_class="pulled_docker",
             fetch_if_not_available=True,
+            verbose = True
         )
 
     def run(self,input_csv, output_h5):

@@ -28,5 +28,5 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python =  ">=3.8"
-zairabase = { path = "../00_base" }
+zairabase = { path = "../00_base", develop=true }
 ersilia = { git = "https://github.com/ersilia-os/ersilia.git" }

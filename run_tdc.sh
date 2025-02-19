@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the datasets
-datasets=("DILI")
+datasets=("AMES" "BBB_Martins" "Bioavailability" "hERG" "HIA_Hou" "Pgp_Broccatelli" "CYP2C9_Veith" "CYP2D6_Veith" "CYP3A4_Veith" "CYP2C9_Substrate_CarbonMangels" "CYP2D6_Substrate_CarbonMangels" "CYP3A4_Substrate_CarbonMangels")
 
 # Loop over datasets
 for dataset in "${datasets[@]}"
