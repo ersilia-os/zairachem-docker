@@ -25,7 +25,10 @@ class ChemblStandardize(object):
         for r in df.values:
             identifier = r[0]
             smi = r[1]
-            st_smi = standardize_molblock_from_smiles(smi, get_smiles=True)
+            try:
+                st_smi = standardize_molblock_from_smiles(smi, get_smiles=True)
+            except:
+                st_smi = smi
             if st_smi is not None:
                 R += [[identifier, smi, st_smi]]
         df = pd.DataFrame(R, columns = [COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN])
