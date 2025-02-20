@@ -29,10 +29,6 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.8"
 pandas = "2.2.3"
-<<<<<<< HEAD
-loguru = "0.7.0"
-=======
 loguru = "*"
->>>>>>> 8296163 (separate treat step)
 h5py = "3.12.1"
 joblib = "1.4.2"
