@@ -150,7 +150,6 @@ class Estimator(ZairaBase):
             os.path.join(path_trained, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r"
         ) as f:
             model_ids = list(json.load(f))
-        #TODO do we need to check that the descriptors that must be treated should be treated?
         return model_ids
 
     def run(self, time_budget_sec=None):

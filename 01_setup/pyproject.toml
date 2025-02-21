@@ -28,7 +28,7 @@ classifiers = [
 
 [tool.poetry.dependencies]
 python =  ">=3.8"
-zairabase = { path = "../00_base" }
+zairabase = { path = "../00_base", develop=true }
 pandas = "2.2.3"
 numpy = "2.1.3"
 rdkit = "2024.3.6"

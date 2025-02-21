@@ -20,6 +20,7 @@ PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
 RAW_DESC_FILENAME = "raw.h5"
+FILTERED_DESC_FILENAME = "filtered.h5"
 TREATED_DESC_FILENAME = "treated.h5"
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
@@ -76,16 +77,22 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 ERSILIA_HUB_DEFAULT_MODELS = [
     "eos5axz",
-    "eos7jio",
     "eos78ao",
     "eos4u6p",
     "eos3cf4",
     "eos2gw4",
+    "eos39co",
+    "eos4avb",
+    "eos4djh",
+    "eos8aa5",
+    "eos5guo",
+    "eos8a4x",
+    "eos3ae6",
 ]
 
 REFERENCE_DESCRIPTOR = "eos7w6n"
 
-TREATED_DESCRIPTORS = [
+SCALED_DESCRIPTORS = [
     "eos78ao",
     "eos8a4x",
     "eos4djh",

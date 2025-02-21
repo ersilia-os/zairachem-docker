@@ -14,7 +14,7 @@ from zairatreat.fpsim2.searcher import SimilaritySearcher
 
 from zairabase import ZairaBase
 from zairabase.utils.matrices import Hdf5
-from zairabase.vars import DESCRIPTORS_SUBFOLDER, RAW_DESC_FILENAME, TREATED_DESCRIPTORS, TREATED_DESC_FILENAME
+from zairabase.vars import DESCRIPTORS_SUBFOLDER, RAW_DESC_FILENAME, SCALED_DESCRIPTORS, TREATED_DESC_FILENAME
 
 MAX_NA = 0.2
 
@@ -226,12 +226,12 @@ class TreatedLoader(ZairaBase):
 class TreatedDescriptors(DescriptorBase):
     def __init__(self):
         DescriptorBase.__init__(self)
-        self.pipeline = [
+        self.common_pipeline = [
             (0, -1, NanFilter),
             (1, 0, Imputer),
-            (2, 1, VarianceFilter),
-            (3, 2, Scaler),
+            (2, 1, VarianceFilter)
         ]
+        self.scaled_pipeline = [(3, 2, Scaler)]
         self._name = TREATED_DESC_FILENAME
         self._is_predict = self.is_predict()
 
@@ -243,16 +243,16 @@ class TreatedDescriptors(DescriptorBase):
         for eos_id in data:
             yield eos_id
 
-    def keep_treated_eos_ids(self):
-        treated_eos_ids = []
+    def keep_scaled_eos_ids(self):
+        scaled_eos_ids = []
         for eos_id in self.done_eos_iter():
-            if eos_id in TREATED_DESCRIPTORS:
-                treated_eos_ids += [eos_id]
-        return treated_eos_ids
+            if eos_id in SCALED_DESCRIPTORS:
+                scaled_eos_ids += [eos_id]
+        return scaled_eos_ids
 
     def run(self):
         rl = RawLoader()
-        for eos_id in self.keep_treated_eos_ids():
+        for eos_id in self.done_eos_iter():
             path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
             if not self._is_predict:
                 trained_path = path
@@ -264,26 +264,39 @@ class TreatedDescriptors(DescriptorBase):
             data = data.load()
             X = {}
             X[-1] = data.values()
-            for step in self.pipeline:
+            for step in self.common_pipeline:
                 curr, prev = step[0], step[1]
                 algo = step[-1]()
-                if algo._name == "scaler":
-                    if data.is_sparse():
-                        print(
-                            "Skipping normalization of {0} as it is sparse".format(
-                                eos_id
-                            )
-                        )
-                        algo.set_skip()
                 if not self._is_predict:
                     algo.fit(X[prev])
                     algo.save(os.path.join(trained_path, algo._name + ".joblib"))
                 else:
                     algo = algo.load(os.path.join(trained_path, algo._name + ".joblib"))
                 X[curr] = algo.transform(X[prev])
+            final_idx = len(self.common_pipeline)-1
+            if eos_id in self.keep_scaled_eos_ids():
+                for step in self.scaled_pipeline:
+                    curr, prev = step[0], step[1]
+                    algo = step[-1]()
+                    if algo._name == "scaler":
+                        if data.is_sparse():
+                            print(
+                                "Skipping normalization of {0} as it is sparse".format(
+                                    eos_id
+                                )
+                            )
+                            algo.set_skip()
+                    if not self._is_predict:
+                        algo.fit(X[prev])
+                        algo.save(os.path.join(trained_path, algo._name + ".joblib"))
+                    else:
+                        algo = algo.load(os.path.join(trained_path, algo._name + ".joblib"))    
+                    X[curr] = algo.transform(X[prev])
+                final_idx = len(self.common_pipeline) + len(self.scaled_pipeline)-1
+
             file_name = os.path.join(
                 self.path, DESCRIPTORS_SUBFOLDER, eos_id, self._name
             )
-            data._values = X[len(self.pipeline) - 1]
+            data._values = X[final_idx]
             Hdf5(file_name).save(data)
             data.save_info(file_name.split(".")[0] + ".json")
