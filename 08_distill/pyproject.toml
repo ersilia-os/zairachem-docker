@@ -29,7 +29,5 @@ classifiers = [
 [tool.poetry.dependencies]
 python = ">=3.8"
 zairabase = { path = "../00_base" }
-pandas = "2.2.3"
-olinda = {git = "https://github.com/JHlozek/olinda.git", branch = "main"}
-ersilia = { git = "https://github.com/ersilia-os/ersilia.git" }
+olinda = {git = "https://github.com/ersilia-os/olinda.git", branch = "main", extras = ["ersilia"]}
 

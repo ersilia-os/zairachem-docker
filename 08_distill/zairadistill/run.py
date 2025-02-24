@@ -18,6 +18,7 @@ if __name__ == "__main__":
 
     # Access arguments
     model_dir = args.model_dir
+    output_path = args.output_path
     if output_path is not None:
         output_path = os.path.join(model_dir, "distill", "distilled_model.onnx")
 
