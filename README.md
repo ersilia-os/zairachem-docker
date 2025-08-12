@@ -1,5 +1,8 @@
-# zairachem-docker
-
+<div id="top"></div>
+<p align="center">
+  <img src="/asset/zairachem_logo.png" height="100" alt="Zairachem logo">
+</p>
+<h2 align="center"> Welcome to the Zairachem!</h2>
 To install ZairaChem v2 do the following:
 
 ``` 

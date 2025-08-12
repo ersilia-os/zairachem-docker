@@ -1,0 +1,57 @@
+version: "3.9"
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - ersilia_network
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - eos4u6p_api
+      - eos5axz_api
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_cache:/var/cache/nginx
+    restart: unless-stopped
+    networks:
+      - ersilia_network
+  eos4u6p_api:
+    image: ersiliaos/eos4u6p
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URI: "redis://redis:6379"
+      REDIS_EXPIRATION: "604800"
+    restart: unless-stopped
+    ports:
+      - "55013:80"
+    networks:
+      - ersilia_network
+    depends_on:
+      - redis
+  eos5axz_api:
+    image: ersiliaos/eos5axz
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URI: "redis://redis:6379"
+      REDIS_EXPIRATION: "604800"
+    restart: unless-stopped
+    ports:
+      - "37949:80"
+    networks:
+      - ersilia_network
+    depends_on:
+      - redis
+networks:
+  ersilia_network:
+
+volumes:
+  redis_data:
+  nginx_cache:
