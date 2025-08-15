@@ -28,7 +28,6 @@ class Describer(ZairaBase):
     if not os.path.exists(self.output_dir):
       os.makedirs(self.output_dir, exist_ok=True)
     assert os.path.exists(self.output_dir)
-    self.logger.debug(self.path)
 
   def create_config_files(self):
     if not os.path.exists(compose_yml_file) and not os.path.exists(nginx_config_file):

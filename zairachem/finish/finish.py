@@ -1,7 +1,5 @@
-import os
-import shutil
+import glob, os, shutil
 import pandas as pd
-import glob
 
 from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
@@ -303,6 +301,7 @@ class Finisher(ZairaBase):
   def run(self):
     step = PipelineStep("finish", self.path)
     if not step.is_done():
-      self.logger.debug("Finishing")
       self.run_all()
       step.update()
+    self.logger.info("[green]All zairachem successfully completed![/]")
+    

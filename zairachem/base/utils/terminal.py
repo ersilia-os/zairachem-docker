@@ -53,9 +53,9 @@ def run_command(cmd, quiet=None):
 
   if not quiet:
     if stdout_str:
-      print(stdout_str)
+      logger.error(stdout_str)
     if stderr_str:
-      print(stderr_str, file=sys.stderr)
+      logger.error(stderr_str, file=sys.stderr)
 
   return output
 

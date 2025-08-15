@@ -137,6 +137,6 @@ class Reporter(ZairaBase):
   def run(self):
     step = PipelineStep("report", self.output_dir)
     if not step.is_done():
-      self.logger.debug("Reporting")
       self.run_all()
       step.update()
+    self.logger.info("Reporting successfully completed!")

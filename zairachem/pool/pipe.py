@@ -1,4 +1,4 @@
-import importlib, json, os
+import json, os
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
@@ -30,13 +30,13 @@ class PoolerPipeline(ZairaBase):
     return params
 
   def get_estimators(self):
-    self.logger.debug("Getting estimators")
+    self.logger.debug("Getting individual estimators")
     self._estimators_used = set()
     for x in self.params["estimators"]:
       self._estimators_used.update([x])
 
   def get_descriptors(self):
-    self.logger.debug("Getting descriptors")
+    self.logger.debug("Getting individual descriptors")
     with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
       model_ids = list(json.load(f))
     return model_ids
@@ -44,7 +44,6 @@ class PoolerPipeline(ZairaBase):
   def _pool_pipeline(self, time_budget_sec):
     step = PipelineStep("pool", self.output_dir)
     if not step.is_done():
-      self.logger.debug("Pooling")
       if ENSEMBLE_MODE == "bagging":
         bagger = BaggerPipeline(self.path)
         bagger.run(time_budget_sec=time_budget_sec)

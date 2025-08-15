@@ -27,7 +27,7 @@ class BaseEstimator(ZairaBase):
       self.path = self.get_output_dir()
     else:
       self.path = path
-    self.logger.debug(self.path)
+    self.logger.info(f"Specified model directory: {self.path}")
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
     else:
@@ -46,14 +46,14 @@ class BaseEstimator(ZairaBase):
 
   def _estimate_time_budget(self):  # TODO CONFIRM TIME TO USE
     elapsed_time = self.get_elapsed_time()
-    self.logger.info("Elapsed time: {0}".format(elapsed_time))
+    self.logger.info("Elapsed time: {0} seconds".format(elapsed_time))
     total_time_budget = self._get_total_time_budget_sec()
-    self.logger.info("Total time budget: {0}".format(total_time_budget))
+    self.logger.info("Total time budget: {0} seconds".format(total_time_budget))
     available_time = total_time_budget - elapsed_time
     available_time = available_time / 2.0
     available_time = available_time * 0.8
     available_time = int(available_time) + 1
-    self.logger.info("Available time: {0}".format(available_time))
+    self.logger.info("Available time: {0} seconds".format(available_time))
     return available_time
 
 

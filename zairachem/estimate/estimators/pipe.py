@@ -41,12 +41,12 @@ class EstimatorPipeline(ZairaBase):
       self._estimators_to_use.update([x])
 
   def _lq_random_forest_estimator_pipeline(self, time_budget_sec):
-    self.logger.info(f"Estimators to use:{self._estimators_to_use}")
+    self.logger.info(f"Selected estimators to use:{self._estimators_to_use}")
     if "lazyqsar" not in self._estimators_to_use:
       return
     step = PipelineStep("random_forest", self.output_dir)
     if not step.is_done():
-      self.logger.debug("Running lazyqsar estimator pipeline")
+      self.logger.debug("Running lazyqsar pipeline for the selected estimators!")
       p = LazyQsarAutoMLPipeline(path=self.path)
       p.run(time_budget_sec=time_budget_sec)
       step.update()

@@ -104,7 +104,7 @@ class ZairaBase(object):
       idxs = idxs[fold == 1]
       return idxs
     else:
-      self.logger.debug("Validation set is equivalent to the training set. Interpret with caution!")
+      self.logger.warning("[yellow]Validation set is equivalent to the training set. Interpret with caution![/]")
       idxs = self._dummy_indices(path)
       return idxs
 

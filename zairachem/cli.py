@@ -7,6 +7,7 @@ from zairachem.estimate.estimators.pipe import EstimatorPipeline
 from zairachem.treat.imputers.impute import Imputer
 from zairachem.pool.pipe import PoolerPipeline
 from zairachem.report.report import Reporter
+from zairachem.finish.finish import Finisher
 
 
 click.rich_click.USE_RICH_MARKUP = True
@@ -63,28 +64,34 @@ def cli():
 @click.option("--flush", is_flag=True, help="Whether to flush any caches or temporary files.")
 @click.option("--anonymize", is_flag=True, help="Whether to anonymize outputs.")
 def fit(input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize):
-  logger.info("[bold cyan]Running the setup[/]")
+  logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
   run(input_file, model_dir, cutoff, direction, parameters)
 
   desc = Describer(path=None)
-  logger.info("[bold cyan]Running the descriptor computation pipeline[/]")
+  logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
   desc.run()
 
-  logger.info("[bold cyan]Running the treatment pipeline[/]")
+  logger.debug("[#ff69b4]Running the treatment pipeline[/]")
   impute = Imputer(path=None)
   impute.run()
 
-  logger.warning("[bold cyan]Running the estimator pipeline[/]")
+  logger.debug("[#ff69b4]Running the estimator pipeline[/]")
   ep = EstimatorPipeline(path=None)
   ep.run(time_budget_sec=None)
 
-  logger.info("[bold cyan]Running the pooling pipeline[/]")
+  logger.debug(
+    "[#ff69b4]Running the pooling pipeline to aggregate the result using bagging[/]"
+  )
   ep = PoolerPipeline(path=None)
   ep.run(time_budget_sec=None)
 
-  logger.info("[bold cyan]Running the reporting pipeline[/]")
+  logger.debug("[#ff69b4]Running the reporting pipeline[/]")
   r = Reporter(path=None, plot_name=None)
   r.run()
+
+  logger.debug("[#ff69b4]Running the finishing pipeline[/]")
+  f = Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize)
+  f.run()
 
 
 @cli.command()

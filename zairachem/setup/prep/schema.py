@@ -140,7 +140,7 @@ class InputSchema(ZairaBase):
     return cols
 
   def _is_identifier_column(self, col):
-    self.logger.debug("Inputs column {0}".format(col))
+    self.logger.debug("Identifying inputs column: {0}".format(col))
     if "identifier" in col.lower():
       return True
     elif "id" == col.lower():

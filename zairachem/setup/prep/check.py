@@ -1,24 +1,21 @@
-import os
-import json
+import csv, json, os
 import pandas as pd
-import csv
 from rdkit import DataStructs
 from rdkit import Chem
 from standardiser import standardise
-
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
   RAW_INPUT_FILENAME,
   MAPPING_FILENAME,
-)
-from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
   MAPPING_ORIGINAL_COLUMN,
   MAPPING_DEDUPE_COLUMN,
   VALUES_COLUMN,
   SMILES_COLUMN,
+  DATA_SUBFOLDER,
+  DATA_FILENAME,
 )
-from zairachem.base.vars import DATA_SUBFOLDER, DATA_FILENAME
+from zairachem.base.utils.logging import logger
 
 
 class SetupChecker(object):
@@ -86,7 +83,7 @@ class SetupChecker(object):
         ofp = Chem.RDKFingerprint(omol)
         sim = DataStructs.FingerprintSimilarity(ofp, ufp)
         if sim < 0.6:
-          print("Low similarity", sim, cid, ismi[oidx], dsmi[uidx])
+          logger.warning(f"[bold yellow]Low similarity[/]: {sim} {cid} {ismi[oidx]} {dsmi[uidx]}")
           discrepancies += 1
     assert discrepancies < mapping.shape[0] * 0.25
 
@@ -107,7 +104,9 @@ class SetupChecker(object):
       uidx = int(uidx)
       difference = ival[oidx] - dval[uidx]
       if difference > 0.01:
-        print("High activity difference", difference, cid, oidx, uidx)
+        logger.warning(
+          f"[bold yellow]High activity difference detected[/]: {difference} {cid} {oidx} {uidx}"
+        )
 
   def run(self):
     self.remap()

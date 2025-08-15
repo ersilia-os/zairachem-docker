@@ -69,6 +69,7 @@ class ResultsFetcher(ZairaBase):
 
   def _read_individual_estimator_results(self, task, path=None):
     if path is None:
+
       path = self.path
     prefixes = []
     R = []
@@ -258,12 +259,12 @@ class ResultsFetcher(ZairaBase):
       return 1
     else:
       return used_cuts[0]
-    for k, v in used_cuts["ecuts"].items():
-      if "_skip" not in k:
-        return v
-    for k, v in used_cuts["pcuts"].items():
-      if "_skip" not in k:
-        return v
+    # for k, v in used_cuts["ecuts"].items():
+    #   if "_skip" not in k:
+    #     return v
+    # for k, v in used_cuts["pcuts"].items():
+    #   if "_skip" not in k:
+    #     return v
 
   def get_tanimoto_similarities_to_training_set(self):
     tanimoto_file = os.path.join(

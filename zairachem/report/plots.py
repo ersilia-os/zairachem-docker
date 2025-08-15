@@ -1,17 +1,17 @@
 import numpy as np
+from matplotlib.patches import Rectangle
 
 from sklearn import metrics
 from sklearn.metrics import auc, roc_curve, r2_score, mean_absolute_error
 
 import matplotlib as plt
-from matplotlib.patches import Rectangle
 import seaborn as sns
 import pandas as pd
 
 from zairachem.report import BasePlot
 from zairachem.report.fetcher import ResultsFetcher
 from stylia import NamedColors, NamedColorMaps, ContinuousColorMap
-import logging  # import matplotlib so the logger exists
+import logging  
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 

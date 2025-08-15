@@ -3,8 +3,6 @@ from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_re
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
-  DATA_SUBFOLDER,
-  DATA_FILENAME,
   ESTIMATORS_SUBFOLDER,
   Y_HAT_FILE,
 )
@@ -24,50 +22,6 @@ class Fitter(BaseEstimatorIndividual):
       self.get_output_dir(), ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER
     )
     self.is_simple = is_simple
-
-  # def run_simple(self, time_budget_sec):
-  #   self.reset_time()
-  #   if time_budget_sec is None:
-  #     time_budget_sec = self._estimate_time_budget()
-  #   else:
-  #     time_budget_sec = time_budget_sec
-  #   tasks = collections.OrderedDict()
-  #   X = self._get_X()
-  #   train_idxs = self.get_train_indices(path=self.path)
-  #   valid_idxs = self.get_validation_indices(path=self.path)
-  #   y = self._get_y()
-  #   t = "reg" if self.task == "regression" else "clf"
-  #   if self.task == "regression":
-  #     model = FlamlRegressor()
-  #     model.fit_simple(
-  #       X[train_idxs],
-  #       y[train_idxs],
-  #       time_budget=time_budget_sec,
-  #       estimators=ESTIMATORS,
-  #     )
-  #     file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
-  #     model.save(file_name)
-  #     model = model.load(file_name)
-  #     tasks[t] = model.run(X, y)
-  #     _valid_task = model.run(X[valid_idxs], y[valid_idxs])
-  #     tasks[t]["valid"] = _valid_task["main"]
-  #   if self.task == "classification":
-  #     model = FlamlClassifier()
-  #     model.fit_simple(
-  #       X[train_idxs],
-  #       y[train_idxs],
-  #       time_budget=time_budget_sec,
-  #       estimators=ESTIMATORS,
-  #     )
-  #     file_name = os.path.join(self.trained_path, self.model_id, t + ".joblib")
-  #     model.save(file_name)
-  #     model = model.load(file_name)
-  #     train_metrics
-  #     tasks[t] = model.run(X, y)
-  #     _valid_task = model.run(X[valid_idxs], y[valid_idxs])
-  #     tasks[t]["valid"] = _valid_task["main"]
-  #   self.update_elapsed_time()
-  #   return tasks
 
   def run_simple(self, time_budget_sec):
     self.reset_time()
@@ -90,12 +44,10 @@ class Fitter(BaseEstimatorIndividual):
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model.save_model(model_folder)
       model = model.load_model(model_folder)
-      train_preds = model.predict_proba(X[train_idxs])
-      train_rep = make_classification_report(y[train_idxs], train_preds)
-      tasks[t] = train_rep
+      train_preds = model.predict_proba(X)
+      tasks[t] = make_classification_report(y, train_preds)
       valid_preds = model.predict_proba(X[valid_idxs])
-      valid_preds_rep = make_classification_report(y[valid_idxs], valid_preds)
-      tasks[t]["valid"] = valid_preds_rep["main"]
+      tasks[t]["valid"] = make_classification_report(y[valid_idxs], valid_preds)["main"]
 
     self.update_elapsed_time()
     return tasks

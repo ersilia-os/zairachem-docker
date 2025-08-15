@@ -15,7 +15,6 @@ class Imputer(ZairaBase):
       self.path = path
     self.output_dir = os.path.abspath(self.path)
     assert os.path.exists(self.output_dir)
-    self.logger.debug(self.path)
 
   def _treated_descriptions(self):
     step = PipelineStep("treated_descriptions", self.output_dir)
