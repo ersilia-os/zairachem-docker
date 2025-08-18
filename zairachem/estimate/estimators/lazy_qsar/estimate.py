@@ -46,8 +46,8 @@ class Fitter(BaseEstimatorIndividual):
       model = model.load_model(model_folder)
       train_preds = model.predict_proba(X)
       tasks[t] = make_classification_report(y, train_preds)
-      valid_preds = model.predict_proba(X[valid_idxs])
-      tasks[t]["valid"] = make_classification_report(y[valid_idxs], valid_preds)["main"]
+      # valid_preds = model.predict_proba(X[valid_idxs])
+      # tasks[t]["valid"] = make_classification_report(y[valid_idxs], valid_preds)["main"]
 
     self.update_elapsed_time()
     return tasks
@@ -69,12 +69,13 @@ class Predictor(BaseEstimatorIndividual):
     self.reset_time()
     tasks = collections.OrderedDict()
     X = self._get_X()
+    y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
       model = lazyqsar.LazyBinaryClassifier()
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model = model.load_model(model_folder)
-      tasks[t] = model.predict_proba(X)
+      tasks[t] = make_classification_report(y, model.predict_proba(X))
     self.update_elapsed_time()
     return tasks
 

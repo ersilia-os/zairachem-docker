@@ -10,6 +10,7 @@ from zairachem.setup.prep import (
 )
 
 from zairachem.base import ZairaBase, create_session_symlink
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   PARAMETERS_FILE,
   RAW_INPUT_FILENAME,
@@ -28,14 +29,18 @@ from zairachem.base.utils.pipeline import PipelineStep, SessionFile
 
 
 class PredictSetup(object):
-  def __init__(self, input_file, model_dir, output_dir, time_budget=120):
+  def __init__(self, input_file, model_dir, output_dir, override_dir, time_budget=120):
     self.input_file = os.path.abspath(input_file)
+    self.override_dir = override_dir
     if output_dir is None:
       self.output_dir = os.path.abspath(self.input_file.split(".")[0])
     else:
       self.output_dir = os.path.abspath(output_dir)
-    # if os.path.exists(self.output_dir): # TODO add if wanted
-    # shutil.rmtree(self.output_dir)
+    
+    if os.path.exists(self.output_dir): # TODO add if wanted
+      logger.warning(f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it.")
+      if self.override_dir:
+        shutil.rmtree(self.output_dir)
     assert model_dir is not None, "Model directory not specified"
     self.model_dir = os.path.abspath(model_dir)
     assert self.model_is_ready(), "Model is not ready"
@@ -58,9 +63,10 @@ class PredictSetup(object):
     )
 
   def _make_output_dir(self):
-    if os.path.exists(self.output_dir):
-      shutil.rmtree(self.output_dir)
-    os.makedirs(self.output_dir)
+    pass
+    # if os.path.exists(self.output_dir):
+    #   shutil.rmtree(self.output_dir)
+    # os.makedirs(self.output_dir)
 
   def _open_session(self):
     sf = SessionFile(self.output_dir)

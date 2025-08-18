@@ -34,7 +34,7 @@ class RawDescriptors(ZairaBase):
     self.input_csv = os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME)
     self.input_csv_ersilia = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
     self._process_ersilia_inputs()
-    self.api = BinaryStreamClient(csv_path=self.input_csv_ersilia, url="http://localhost:8001/run")
+    self.api = BinaryStreamClient(csv_path=self.input_csv_ersilia)
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
 
@@ -78,15 +78,11 @@ class RawDescriptors(ZairaBase):
       eos_ids = self.done_eos_ids()
     else:
       eos_ids = self.eos_ids()
-    # eos_ids = [
-    #   "eos5axz",
-    #   "eos4u6p",
-    # ]  # TODO: this needs to be removed and only used for testing purposes
     for i, eos_id in enumerate(eos_ids):
       self.api.url = get_model_url(
         eos_id
-      )  # TODO" this needs to be removed and should be replaced by the model-port dict
-      self.logger.debug(f"Model {eos_id} assigned url is {self.api.url}")
+      )  
+      self.logger.info(f"An api url {self.api.url} assigned for descriptor model [green]{eos_id}[/]")
       try:
         self._run_eos(eos_id)
         done_eos += [eos_id]

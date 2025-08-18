@@ -65,7 +65,6 @@ class XGetter(ZairaBase):
 
   def _get_manifolds(self):
     pca_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "pca.h5")
-    self.logger.info(f"Debug file:{pca_file}")
     if os.path.exists(pca_file):
       with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "pca.h5"), "r") as f:
         X_ = f["Values"][:]

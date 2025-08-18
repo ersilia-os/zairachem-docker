@@ -29,6 +29,7 @@ class IndividualOutcomeAssembler(BaseOutcomeAssembler):
     data = collections.OrderedDict()
     for c, r in results.items():
       r = r["main"]
+
       data[c] = r["y_hat"]
       if "b_hat" in r:
         data[c + "_bin"] = r["b_hat"]

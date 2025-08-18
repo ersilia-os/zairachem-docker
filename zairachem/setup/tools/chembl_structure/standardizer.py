@@ -7,13 +7,12 @@
 #  which is included in the file LICENSE, found at the root
 #  of the source tree.
 
-import os
+import math, os, rdkit
 from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem import rdMolTransforms
-from .exclude_flag import exclude_flag
-import rdkit
-import math
+from zairachem.setup.tools.chembl_structure.exclude_flag import exclude_flag
+from zairachem.base.utils.logging import logger
 
 rdkversion = rdkit.__version__.split(".")
 if rdkversion < ["2019", "09", "2"]:
@@ -313,7 +312,7 @@ def get_fragment_parent_mol(m, check_exclusion=False, neutralize=False, verbose=
       ):
         keep[i] = 0
         if verbose:
-          print(f"matched solvent {nm}")
+          logger.info(f"matched solvent {nm}")
     if not max(keep):
       break
   if not max(keep):
@@ -357,7 +356,7 @@ def get_fragment_parent_mol(m, check_exclusion=False, neutralize=False, verbose=
         and frag.HasSubstructMatch(salt)
       ):
         if verbose:
-          print(f"matched salt {nm}")
+          logger.info(f"matched salt {nm}")
         keep[i] = 0
     if not max(keep):
       break

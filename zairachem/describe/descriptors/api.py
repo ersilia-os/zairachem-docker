@@ -6,7 +6,7 @@ DEFAULT_BATCH_SIZE = 100_000
 
 
 class BinaryStreamClient:
-  def __init__(self, csv_path, url, batch_size=DEFAULT_BATCH_SIZE):
+  def __init__(self, csv_path, url=None, batch_size=DEFAULT_BATCH_SIZE):
     self.logger = logger
     self.batch_size = batch_size
     self.csv_path = csv_path
@@ -56,7 +56,7 @@ class BinaryStreamClient:
         batch = self.input_data[i : i + self.batch_size]
         params = {"output_type": "heavy"}
 
-        self.logger.info(f"Sending batch {i} to the api")
+        self.logger.debug(f"Sending batch {i} to the api")
         start_send = time.perf_counter()
         try:
           response = requests.post(self.url, json=batch, params=params, stream=True)
