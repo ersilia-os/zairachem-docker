@@ -19,9 +19,9 @@ zairachem [COMMAND] [OPTIONS]
 
 ---
 
-## Commands
+### Commands
 
-### 🔹 `fit`
+#### 🔹 `fit`
 
 Train a model on your input data.
 Runs preprocessing, descriptor computation, imputation, training, pooling, reporting, and finalization.
@@ -51,7 +51,7 @@ zairachem fit -i data.csv -m ./models --clean
 
 ---
 
-### 🔹 `predict`
+#### 🔹 `predict`
 
 Run predictions on new data using a trained model.
 Also executes the full post-processing and reporting pipeline.
