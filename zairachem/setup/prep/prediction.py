@@ -37,9 +37,13 @@ class PredictSetup(object):
     else:
       self.output_dir = os.path.abspath(output_dir)
 
-    if os.path.exists(self.output_dir):  # TODO add if wanted
+    if os.path.exists(self.output_dir) and not self.override_dir:  # TODO add if wanted
       logger.warning(
         f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it."
+      )
+    if os.path.exists(self.output_dir) and self.override_dir:  
+      logger.warning(
+        f"Specified output directory existed at {self.output_dir}. Removing the directory!."
       )
       if self.override_dir:
         shutil.rmtree(self.output_dir)
