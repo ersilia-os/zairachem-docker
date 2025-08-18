@@ -8,34 +8,67 @@ To install ZairaChem v2 do the following:
 ``` 
 git clone https://github.com/ersilia-os/zairachem-docker
 cd zairachem-docker
-bash install.sh
+conda create -n zairachem python=3.11 -y
+pip install -e .
 ```
-This will create a conda environment for each step of the processing pipeline.
+Once ZairaChem is installed in your environment, the CLI is available as:
 
-## Model fitting
+```bash
+zairachem [COMMAND] [OPTIONS]
+```
 
-```
-bash run_fit.sh -i [INPUT_FILE] -m [MODEL_DIR]
-```
-Optional flags for the fit command include:
-```
--c|--cutoff <float>
--d|--direction high/low
--p|--parameters <parameters_file.json>
---clean True/False
---flush True/False
---anonymize True/False
-```
-If no cut-off and direction is passed the file must contain a column with the data already binarized
+---
 
-## Model predicting
+## Commands
 
+### 🔹 `fit`
+
+Train a model on your input data.
+Runs preprocessing, descriptor computation, imputation, training, pooling, reporting, and finalization.
+
+**Usage:**
+
+```bash
+zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 ```
-bash run_predict.sh -i [INPUT_FILE] -m [MODEL_DIR] -o [OUTPUT_DIR]
+
+**Options:**
+
+* `-i, --input-file` **\[required]**: Path to the input file.
+* `-m, --model-dir`: Directory where the model is stored.
+* `-c, --cutoff`: Cutoff threshold (e.g., probability or value).
+* `-d, --direction`: Direction of processing (e.g., forward or backward).
+* `-p, --parameters`: Additional model parameters as a string.
+* `--clean`: Run in clean mode.
+* `--flush`: Flush caches and temporary files.
+* `--anonymize`: Anonymize outputs.
+
+**Example:**
+
+```bash
+zairachem fit -i data.csv -m ./models --clean
 ```
-Optional flags for the fit command include:
+
+---
+
+### 🔹 `predict`
+
+Run predictions on new data using a trained model.
+Also executes the full post-processing and reporting pipeline.
+
+**Usage:**
+
+```bash
+zairachem predict -i INPUT_FILE [-m MODEL_DIR] [-o OUTPUT_DIR] [OPTIONS]
 ```
---clean True/False
---flush True/False
---anonymize True/False
+
+**Options (in addition to `fit` options):**
+
+* `-o, --output-dir`: Directory to save outputs.
+* `--override-dir`: Overwrite the output directory if it already exists.
+
+**Example:**
+
+```bash
+zairachem predict -i new_data.csv -m ./models -o ./results --override-dir
 ```
