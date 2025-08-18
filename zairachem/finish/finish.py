@@ -303,5 +303,9 @@ class Finisher(ZairaBase):
     if not step.is_done():
       self.run_all()
       step.update()
+    else:
+      self.logger.warning(
+        "[yellow]Finishing setup for requested inferece is already done. Skippign this step![/]"
+      )
+
     self.logger.info("[green]All zairachem successfully completed![/]")
-    

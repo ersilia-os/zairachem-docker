@@ -11,7 +11,7 @@ import pandas as pd
 from zairachem.report import BasePlot
 from zairachem.report.fetcher import ResultsFetcher
 from stylia import NamedColors, NamedColorMaps, ContinuousColorMap
-import logging  
+import logging
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 

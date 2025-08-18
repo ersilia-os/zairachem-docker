@@ -69,7 +69,6 @@ class ResultsFetcher(ZairaBase):
 
   def _read_individual_estimator_results(self, task, path=None):
     if path is None:
-
       path = self.path
     prefixes = []
     R = []

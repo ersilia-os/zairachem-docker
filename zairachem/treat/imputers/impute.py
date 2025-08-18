@@ -1,6 +1,7 @@
 import os
 
 from zairachem.base import ZairaBase
+from zairachem.base.utils.logging import logger
 from zairachem.treat.imputers.manifolds import Manifolds
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.treat.imputers.treated import TreatedDescriptors
@@ -27,6 +28,10 @@ class Imputer(ZairaBase):
     if not step.is_done():
       Manifolds().run()
       step.update()
+    else:
+      logger.warning(
+        "[yellow]Imputation setup for requested inferece is already done. Skippign this step![/]"
+      )
 
   def run(self):
     self.reset_time()

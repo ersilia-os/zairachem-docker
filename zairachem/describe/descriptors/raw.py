@@ -79,10 +79,10 @@ class RawDescriptors(ZairaBase):
     else:
       eos_ids = self.eos_ids()
     for i, eos_id in enumerate(eos_ids):
-      self.api.url = get_model_url(
-        eos_id
-      )  
-      self.logger.info(f"An api url {self.api.url} assigned for descriptor model [green]{eos_id}[/]")
+      self.api.url = get_model_url(eos_id)
+      self.logger.info(
+        f"An api url {self.api.url} assigned for descriptor model [green]{eos_id}[/]"
+      )
       try:
         self._run_eos(eos_id)
         done_eos += [eos_id]

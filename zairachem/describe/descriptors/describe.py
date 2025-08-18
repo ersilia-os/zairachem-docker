@@ -48,6 +48,10 @@ class Describer(ZairaBase):
     if not step.is_done():
       RawDescriptors().run()
       step.update()
+    else:
+      self.logger.warning(
+        "[yellow]Descriptor setup for requested inferece is already done. Skippign this step![/]"
+      )
 
   def run(self):
     self.setup_model_servers()

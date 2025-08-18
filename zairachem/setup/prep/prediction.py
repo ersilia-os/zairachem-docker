@@ -36,9 +36,11 @@ class PredictSetup(object):
       self.output_dir = os.path.abspath(self.input_file.split(".")[0])
     else:
       self.output_dir = os.path.abspath(output_dir)
-    
-    if os.path.exists(self.output_dir): # TODO add if wanted
-      logger.warning(f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it.")
+
+    if os.path.exists(self.output_dir):  # TODO add if wanted
+      logger.warning(
+        f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it."
+      )
       if self.override_dir:
         shutil.rmtree(self.output_dir)
     assert model_dir is not None, "Model directory not specified"

@@ -57,6 +57,10 @@ class EstimatorPipeline(ZairaBase):
     if not step.is_done():
       SimpleEvaluator(path=self.path).run()
       step.update()
+    else:
+      logger.warning(
+        "[yellow]Estimation setup for requested inferece is already done. Skippign this step![/]"
+      )
 
   def run(self, time_budget_sec=None):
     self._lq_random_forest_estimator_pipeline(time_budget_sec)

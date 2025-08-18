@@ -1,4 +1,5 @@
 from zairachem.setup.prep.training import TrainSetup
+from zairachem.base.utils.logging import logger
 
 
 def run(input_file, output_dir=None, threshold=None, direction=None, parameters=None):
@@ -12,5 +13,9 @@ def run(input_file, output_dir=None, threshold=None, direction=None, parameters=
     parameters=parameters,
   )
   if ts.is_done():
+    logger.warning(
+      "[yellow]Fitting setup for requested inferece is already done. Skippign this step![/]"
+    )
+
     return
   ts.setup()

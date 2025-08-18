@@ -52,6 +52,10 @@ class PoolerPipeline(ZairaBase):
       # else:
       #   pooler = None
       # step.update()
+    else:
+      self.logger.warning(
+        "[yellow]Pooling setup for requested inferece is already done. Skippign this step![/]"
+      )
 
   def run(self, time_budget_sec=None):
     self._pool_pipeline(time_budget_sec)

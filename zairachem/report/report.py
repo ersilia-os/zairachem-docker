@@ -139,4 +139,9 @@ class Reporter(ZairaBase):
     if not step.is_done():
       self.run_all()
       step.update()
+    else:
+      self.logger.warning(
+        "[yellow]Reporting setup for requested inferece is already done. Skippign this step![/]"
+      )
+
     self.logger.info("Reporting successfully completed!")
