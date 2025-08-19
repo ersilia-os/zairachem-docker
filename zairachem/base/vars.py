@@ -26,6 +26,9 @@ if not os.path.exists(BASE_DIR):
 LOGGING_FILE = "console.log"
 SESSION_FILE = "session.json"
 
+NGINX_HOST_PORT = 80
+REDIS_IMAGE = "redis:latest"
+NETWORK_NAME = "ersilia_network"
 
 COMPOUNDS_FILENAME = "compounds.csv"
 STANDARD_COMPOUNDS_FILENAME = "compounds_std.csv"

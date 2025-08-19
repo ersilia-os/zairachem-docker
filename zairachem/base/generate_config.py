@@ -1,9 +1,6 @@
-import os
 import re
-from pathlib import Path
+from zairachem.base.vars import REDIS_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
 
-NETWORK_NAME = "ersilia_network"
-NGINX_HOST_PORT = 80
 
 
 def _sanitize(name: str) -> str:
@@ -77,7 +74,7 @@ def generate_compose_and_nginx(
 ) -> tuple[str, str]:
   header = 'version: "3.9"\nservices:\n'
   redis = f"""  redis:
-    image: redis:7-alpine
+    image: {REDIS_IMAGE}
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
     volumes:

@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   redis:
-    image: redis:7-alpine
+    image: redis:latest
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
     volumes:
@@ -30,7 +30,7 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "55013:80"
+      - "59815:80"
     networks:
       - ersilia_network
     depends_on:
@@ -44,7 +44,7 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "37949:80"
+      - "52569:80"
     networks:
       - ersilia_network
     depends_on:

@@ -41,7 +41,7 @@ class PredictSetup(object):
       logger.warning(
         f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it."
       )
-    if os.path.exists(self.output_dir) and self.override_dir:  
+    if os.path.exists(self.output_dir) and self.override_dir:
       logger.warning(
         f"Specified output directory existed at {self.output_dir}. Removing the directory!."
       )
