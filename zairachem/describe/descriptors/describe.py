@@ -31,6 +31,7 @@ class Describer(ZairaBase):
 
   def create_config_files(self):
     if not os.path.exists(compose_yml_file) and not os.path.exists(nginx_config_file):
+      os.makedirs(base_config_path, exist_ok=True)
       compose, nginx_conf = generate_compose_and_nginx(ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT)
       Path(compose_yml_file).write_text(compose)
       Path(nginx_config_file).write_text(nginx_conf)

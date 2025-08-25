@@ -1,9 +1,12 @@
 version: "3.9"
 services:
   redis:
+    container_name: redis
     image: redis:latest
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
+    ports:
+      - "6379:6379" 
     volumes:
       - redis_data:/data
     networks:
@@ -30,7 +33,7 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "59815:80"
+      - "39911:80"
     networks:
       - ersilia_network
     depends_on:
@@ -44,13 +47,15 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "52569:80"
+      - "55101:80"
     networks:
       - ersilia_network
     depends_on:
       - redis
 networks:
   ersilia_network:
+    name: ersilia_network
+    driver: bridge
 
 volumes:
   redis_data:

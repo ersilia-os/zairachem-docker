@@ -1,6 +1,6 @@
 import re
 from zairachem.base.vars import REDIS_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
-
+from typing import Dict
 
 
 def _sanitize(name: str) -> str:
@@ -8,7 +8,7 @@ def _sanitize(name: str) -> str:
   return s or "svc"
 
 
-def _service_block(model_id: str, host_port: int) -> str:
+def _service_block(model_id: str, host_port: int, network_name: str) -> str:
   service_name = f"{_sanitize(model_id)}_api"
   image_name = f"ersiliaos/{model_id.lower()}"
   return f"""  {service_name}:
@@ -22,7 +22,7 @@ def _service_block(model_id: str, host_port: int) -> str:
     ports:
       - "{host_port}:80"
     networks:
-      - {NETWORK_NAME}
+      - {network_name}
     depends_on:
       - redis
 """
@@ -67,21 +67,65 @@ def _nginx_upstream_and_location(model_id: str) -> str:
 """
 
 
+def _networks_block(
+  network_key: str,
+  *,
+  docker_network_name: str | None,
+  ipam_subnet: str | None,
+  driver: str = "bridge",
+  external: bool = False,
+) -> str:
+  """
+  Build the 'networks:' section. If external=True, Compose will attach to an existing
+  Docker network with 'name', and we must not specify driver/ipam here.
+  """
+  if external:
+    return f"""networks:
+  {network_key}:
+    external: true
+    name: {NETWORK_NAME}
+
+"""
+  ipam = (
+    f"""
+    ipam:
+      config:
+        - subnet: {ipam_subnet}"""
+    if ipam_subnet
+    else ""
+  )
+  return f"""networks:
+  {network_key}:
+    name: {NETWORK_NAME}
+    driver: {driver}{ipam}
+
+"""
+
+
 def generate_compose_and_nginx(
   models_with_ports: dict[str, int],
   nginx_host_port: int = NGINX_HOST_PORT,
   network_name: str = NETWORK_NAME,
+  *,
+  docker_network_name: str | None = None,  
+  ipam_subnet: str | None = None,         
+  external: bool = False,                 
 ) -> tuple[str, str]:
   header = 'version: "3.9"\nservices:\n'
+
   redis = f"""  redis:
+    container_name: redis
     image: {REDIS_IMAGE}
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
+    ports:
+      - "6379:6379" 
     volumes:
       - redis_data:/data
     networks:
       - {network_name}
 """
+
   nginx = f"""  nginx:
     image: nginx:alpine
     depends_on:
@@ -97,17 +141,27 @@ def generate_compose_and_nginx(
     networks:
       - {network_name}
 """
-  services = "".join(
-    _service_block(model_id, port) for model_id, port in sorted(models_with_ports.items())
-  )
-  networks = f"""networks:
-  {network_name}:
 
-volumes:
+  services = "".join(
+    _service_block(model_id, port, network_name)
+    for model_id, port in sorted(models_with_ports.items())
+  )
+
+  networks = _networks_block(
+    network_name,
+    docker_network_name=docker_network_name,
+    ipam_subnet=ipam_subnet,
+    driver="bridge",
+    external=external,
+  )
+
+  volumes = """volumes:
   redis_data:
   nginx_cache:
 """
-  compose_yaml = header + redis + nginx + services + networks
+
+  compose_yaml = header + redis + nginx + services + networks + volumes
+
   nginx_top = """worker_processes auto;
 
 events {
@@ -189,4 +243,5 @@ http {
   )
   nginx_bottom = "    }\n}\n"
   nginx_conf = nginx_top + nginx_blocks + nginx_bottom
+
   return compose_yaml, nginx_conf
