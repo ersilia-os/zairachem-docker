@@ -55,7 +55,7 @@ def run_command(cmd, quiet=None):
     if stdout_str:
       logger.error(stdout_str)
     if stderr_str:
-      logger.error(stderr_str, file=sys.stderr)
+      logger.error(stderr_str)
 
   return output
 
