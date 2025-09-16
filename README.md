@@ -9,6 +9,7 @@ To install ZairaChem v2 do the following:
 git clone https://github.com/ersilia-os/zairachem-docker
 cd zairachem-docker
 conda create -n zairachem python=3.11 -y
+conda activate zairachem
 pip install -e .
 ```
 Once ZairaChem is installed in your environment, the CLI is available as:

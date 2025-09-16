@@ -1,9 +1,9 @@
 [tool.poetry]
 name = "zairachem"
-version = "0.1.1"
-description = "ZairaChem is the first library of Ersilia's family of tools devoted to providing out-of-the-box machine learning solutions for biomedical problems"
+version = "1.0.0"
+description = "ZairaChem is an automated ML tool for building QSAR models"
 
-authors = ["Abel Legese abel@ersilia.io"]
+authors = ["Ersilia Open Source Initiative <hello@ersilia.io>", "Abel Legese <abel@ersilia.io>", "Miquel Duran-Frigola <miquel@ersilia.io>", "Gemma Turon <gemma@ersilia.io>"]
 
 [tool.poetry.dependencies]
 python        = ">=3.10"

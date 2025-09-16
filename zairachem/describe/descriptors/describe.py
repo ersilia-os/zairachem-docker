@@ -51,7 +51,7 @@ class Describer(ZairaBase):
       step.update()
     else:
       self.logger.warning(
-        "[yellow]Descriptor setup for requested inferece is already done. Skippign this step![/]"
+        "[yellow]Descriptor setup for requested inferece is already done. Skipping this step![/]"
       )
 
   def run(self):
