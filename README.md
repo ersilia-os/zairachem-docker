@@ -38,12 +38,12 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 
 * `-i, --input-file` **\[required]**: Path to the input file.
 * `-m, --model-dir`: Directory where the model is stored.
-* `-c, --cutoff`: Cutoff threshold (e.g., probability or value).
-* `-d, --direction`: Direction of processing (e.g., forward or backward).
-* `-p, --parameters`: Additional model parameters as a string.
-* `--clean`: Run in clean mode.
-* `--flush`: Flush caches and temporary files.
-* `--anonymize`: Anonymize outputs.
+* `-c, --cutoff`: Cutoff threshold  `<float>`.
+* `-d, --direction`: `high`/`low`.
+* `-p, --parameters`: `<parameters_file.json>`.
+* `--clean`: `True/False`.
+* `--flush`:` True/False`.
+* `--anonymize`: `True/False`.
 
 **Example:**
 
