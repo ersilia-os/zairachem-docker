@@ -12,6 +12,7 @@ conda create -n zairachem python=3.11 -y
 conda activate zairachem
 pip install -e .
 ```
+Since `zairachem` is depend in the `docker` and `docker-compose` we need to have them installed. Use this instruction for more detail (here)[https://docs.docker.com/engine/install/ubuntu/].
 Once ZairaChem is installed in your environment, the CLI is available as:
 
 ```bash
