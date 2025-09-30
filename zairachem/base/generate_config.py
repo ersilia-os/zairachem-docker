@@ -24,7 +24,7 @@ def _service_block(model_id: str, host_port: int, network_name: str) -> str:
     networks:
       - {network_name}
     depends_on:
-      - redis
+      - redis_zairachem
 """
 
 
@@ -96,6 +96,7 @@ def _networks_block(
   )
   return f"""networks:
   {network_key}:
+    external: true
     name: {NETWORK_NAME}
     driver: {driver}{ipam}
 
@@ -113,7 +114,7 @@ def generate_compose_and_nginx(
 ) -> tuple[str, str]:
   header = 'version: "3.9"\nservices:\n'
 
-  redis = f"""  redis:
+  redis = f"""  redis_zairachem:
     container_name: redis
     image: {REDIS_IMAGE}
     command: ["redis-server", "--appendonly", "yes"]
