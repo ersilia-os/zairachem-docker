@@ -1,6 +1,6 @@
 import os
 from zairachem.describe.descriptors.raw import RawDescriptors
-from zairachem.describe.descriptors.utils import service_exists
+from zairachem.describe.descriptors.utils import service_exists, write_service_file
 from zairachem.base.utils.utils import install_docker_compose
 from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
@@ -62,6 +62,7 @@ class Describer(ZairaBase):
 
   def run(self):
     self.setup_model_servers()
+    write_service_file(ERSILIA_HUB_DEFAULT_MODELS)
     self.reset_time()
     self._raw_descriptions()
     self.update_elapsed_time()

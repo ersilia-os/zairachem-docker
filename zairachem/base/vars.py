@@ -25,7 +25,7 @@ if not os.path.exists(BASE_DIR):
 
 LOGGING_FILE = "console.log"
 SESSION_FILE = "session.json"
-
+ORG = "ersiliaos"
 NGINX_HOST_PORT = 80
 REDIS_IMAGE = "redis:latest"
 NETWORK_NAME = "ersilia_network"
@@ -96,7 +96,7 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 # Ersilia Model Hub
 
-ERSILIA_HUB_DEFAULT_MODELS = ["eos5axz", "eos4u6p"]
+ERSILIA_HUB_DEFAULT_MODELS = ["eos5axz", "eos4u6p", "eos2gw4"]
 ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT = {
   k: v for k, v in zip(ERSILIA_HUB_DEFAULT_MODELS, get_free_ports(len(ERSILIA_HUB_DEFAULT_MODELS)))
 }
