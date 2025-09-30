@@ -58,6 +58,12 @@ def _service_name(model_id: str) -> str:
   s = re.sub(r"[^a-zA-Z0-9]+", "_", model_id.lower()).strip("_") or "svc"
   return f"{s}_api"
 
+def service_exists(compose_file, model_ids):
+    service_names = [_service_name(model_id) for model_id in model_ids]
+    with open(compose_file, "r") as f:
+        data = yaml.safe_load(f)
+    services = data.get("services", {})
+    return all(s in services for s in service_names)
 
 def _parse_cli_port(out: str) -> Optional[int]:
   for line in out.splitlines():

@@ -1,11 +1,12 @@
 import os
 from zairachem.describe.descriptors.raw import RawDescriptors
+from zairachem.describe.descriptors.utils import service_exists
 from zairachem.base.utils.utils import install_docker_compose
 from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
-from zairachem.base.vars import ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT
+from zairachem.base.vars import ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT, ERSILIA_HUB_DEFAULT_MODELS
 from pathlib import Path
 
 
@@ -30,6 +31,11 @@ class Describer(ZairaBase):
     assert os.path.exists(self.output_dir)
 
   def create_config_files(self):
+    all_service_exists = service_exists(compose_yml_file, ERSILIA_HUB_DEFAULT_MODELS)
+    if not all_service_exists:
+      os.remove(compose_yml_file)
+      os.remove(nginx_config_file)
+
     if not os.path.exists(compose_yml_file) and not os.path.exists(nginx_config_file):
       os.makedirs(base_config_path, exist_ok=True)
       compose, nginx_conf = generate_compose_and_nginx(ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT)
