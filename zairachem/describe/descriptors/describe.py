@@ -1,12 +1,21 @@
 import os
 from zairachem.describe.descriptors.raw import RawDescriptors
-from zairachem.describe.descriptors.utils import service_exists, write_service_file
+from zairachem.describe.descriptors.utils import (
+  service_exists,
+  write_service_file,
+  _ensure_network,
+  _recreate_container_if_exists,
+)
 from zairachem.base.utils.utils import install_docker_compose
 from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
-from zairachem.base.vars import ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT, ERSILIA_HUB_DEFAULT_MODELS
+from zairachem.base.vars import (
+  ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT,
+  ERSILIA_HUB_DEFAULT_MODELS,
+  NETWORK_NAME,
+)
 from pathlib import Path
 
 
@@ -32,11 +41,12 @@ class Describer(ZairaBase):
 
   def create_config_files(self):
     all_service_exists = service_exists(compose_yml_file, ERSILIA_HUB_DEFAULT_MODELS)
-    if not all_service_exists:
+
+    if isinstance(all_service_exists, bool) and not all_service_exists:
       os.remove(compose_yml_file)
       os.remove(nginx_config_file)
 
-    if not os.path.exists(compose_yml_file) and not os.path.exists(nginx_config_file):
+    if not os.path.exists(compose_yml_file) or not os.path.exists(nginx_config_file):
       os.makedirs(base_config_path, exist_ok=True)
       compose, nginx_conf = generate_compose_and_nginx(ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT)
       Path(compose_yml_file).write_text(compose)
@@ -44,6 +54,8 @@ class Describer(ZairaBase):
 
   def setup_model_servers(self):
     self.create_config_files()
+    _ensure_network(NETWORK_NAME)
+    _recreate_container_if_exists()
     install_docker_compose(install_file)
     try:
       run_command(["docker-compose", "-f", os.fspath(compose_yml_file), "up", "-d"], quiet=True)

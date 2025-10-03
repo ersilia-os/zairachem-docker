@@ -1,14 +1,13 @@
 import re
 from zairachem.base.vars import REDIS_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
-from typing import Dict
 
 
-def _sanitize(name: str) -> str:
+def _sanitize(name):
   s = re.sub(r"[^a-zA-Z0-9]+", "_", name.lower()).strip("_")
   return s or "svc"
 
 
-def _service_block(model_id: str, host_port: int, network_name: str) -> str:
+def _service_block(model_id, host_port, network_name):
   service_name = f"{_sanitize(model_id)}_api"
   image_name = f"ersiliaos/{model_id.lower()}"
   return f"""  {service_name}:
@@ -24,11 +23,11 @@ def _service_block(model_id: str, host_port: int, network_name: str) -> str:
     networks:
       - {network_name}
     depends_on:
-      - redis_zairachem
+      - redis
 """
 
 
-def _nginx_upstream_and_location(model_id: str) -> str:
+def _nginx_upstream_and_location(model_id):
   service_name = f"{_sanitize(model_id)}_api"
   public_path = f"/{model_id}/"
   return f"""    upstream {service_name} {{
@@ -68,22 +67,19 @@ def _nginx_upstream_and_location(model_id: str) -> str:
 
 
 def _networks_block(
-  network_key: str,
+  network_key,
   *,
-  docker_network_name: str | None,
-  ipam_subnet: str | None,
-  driver: str = "bridge",
-  external: bool = False,
-) -> str:
-  """
-  Build the 'networks:' section. If external=True, Compose will attach to an existing
-  Docker network with 'name', and we must not specify driver/ipam here.
-  """
+  docker_network_name=None,
+  ipam_subnet=None,
+  driver="bridge",
+  external=False,
+):
+  name = docker_network_name or network_key
   if external:
     return f"""networks:
   {network_key}:
     external: true
-    name: {NETWORK_NAME}
+    name: {name}
 
 """
   ipam = (
@@ -97,30 +93,27 @@ def _networks_block(
   return f"""networks:
   {network_key}:
     external: true
-    name: {NETWORK_NAME}
+    name: {name}
     driver: {driver}{ipam}
 
 """
 
 
 def generate_compose_and_nginx(
-  models_with_ports: dict[str, int],
-  nginx_host_port: int = NGINX_HOST_PORT,
-  network_name: str = NETWORK_NAME,
+  models_with_ports,
+  nginx_host_port=NGINX_HOST_PORT,
+  network_name=NETWORK_NAME,
   *,
-  docker_network_name: str | None = None,
-  ipam_subnet: str | None = None,
-  external: bool = False,
-) -> tuple[str, str]:
-  header = 'version: "3.9"\nservices:\n'
+  docker_network_name=None,
+  ipam_subnet=None,
+  external=False,
+):
+  header = "services:\n"
 
-  redis = f"""  redis_zairachem:
-    container_name: redis
+  redis = f"""  redis:
     image: {REDIS_IMAGE}
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
-    ports:
-      - "6379:6379" 
     volumes:
       - redis_data:/data
     networks:

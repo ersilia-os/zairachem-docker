@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 from zairachem.base.vars import ORG, BASE_DIR
+from zairachem.base.utils.terminal import run_command
 
 try:
   import yaml
@@ -56,6 +57,9 @@ class Hdf5DataLoader(object):
 
 
 def load_yml(file):
+  if not os.path.exists(file):
+    return None
+
   with open(file, "r") as f:
     data = yaml.safe_load(f)
   return data
@@ -78,12 +82,16 @@ def write_service_file(model_ids):
 
 def get_services(compose_file):
   data = load_yml(compose_file)
+  if not data:
+    return None
   return data.get("services", {})
 
 
 def service_exists(compose_file, model_ids):
   service_names = [_service_name(model_id) for model_id in model_ids]
   services = get_services(compose_file)
+  if not services:
+    return None
   return all(s in services for s in service_names)
 
 
@@ -148,3 +156,25 @@ def get_model_host_port(model_id: str) -> Optional[int]:
 def get_model_url(model_id: str, host: str = "localhost") -> Optional[str]:
   port = get_model_host_port(model_id)
   return f"http://{host}:{port}/run" if port else None
+
+
+def _ensure_network(name):
+  try:
+    out = subprocess.check_output(["docker", "network", "ls", "--format", "{{.Name}}"], text=True)
+  except Exception:
+    out = ""
+  if not re.search(rf"(?m)^{re.escape(name)}$", out):
+    try:
+      print("This happened")
+      run_command(["docker", "network", "create", name], quiet=True)
+    except Exception:
+      pass
+  out = subprocess.check_output(["docker", "network", "ls", "--format", "{{.Name}}"], text=True)
+  if not re.search(rf"(?m)^{re.escape(name)}$", out):
+    raise RuntimeError(f"docker network '{name}' not found")
+
+
+def _recreate_container_if_exists():
+  rc = run_command(["docker", "container", "inspect", "redis"], quiet=True)
+  if rc == 0:
+    s = run_command(["docker", "rm", "-f", "redis"], quiet=True)
