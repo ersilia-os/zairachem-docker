@@ -74,3 +74,16 @@ zairachem predict -i INPUT_FILE [-m MODEL_DIR] [-o OUTPUT_DIR] [OPTIONS]
 ```bash
 zairachem predict -i new_data.csv -m ./models -o ./results --override-dir
 ```
+
+## Commands for executing each step in zairachem
+
+| Command                                                     | What it does                                             |
+| ----------------------------------------------------------- | -------------------------------------------------------- |
+| `zairachem setup -i input.csv`                              | Preprocess input and prepare working artifacts.          |
+| `zairachem describe`                                        | Compute molecular descriptors for prepared inputs.       |
+| `zairachem treat`                                           | Impute/clean features produced by `describe`.            |
+| `zairachem estimate [--time-budget-sec N]`                  | Train/estimate models (supports a time budget).          |
+| `zairachem pool [--time-budget-sec N]`                      | Ensemble/bag results from `estimate`.                    |
+| `zairachem report [--plot-name NAME]`                       | Generate analysis report and plots.                      |
+| `zairachem finish [--clean --flush --anonymize]`            | Finalize: cleanup, flush caches, optional anonymization. |
+| `zairachem all -i input.csv [common flags]`                 | Run the entire end-to-end pipeline in one go.            |
