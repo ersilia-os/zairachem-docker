@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 from typing import Optional
 from zairachem.base.vars import ORG, BASE_DIR
+
 try:
   import yaml
 except Exception:
@@ -53,31 +54,38 @@ class Hdf5DataLoader(object):
       self.inputs = [x.decode("utf-8") for x in f["Inputs"][:]]
       self.features = [x.decode("utf-8") for x in f["Features"][:]]
 
+
 def load_yml(file):
-    with open(file, "r") as f:
-        data = yaml.safe_load(f)
-    return data
+  with open(file, "r") as f:
+    data = yaml.safe_load(f)
+  return data
+
 
 def _service_name(model_id: str) -> str:
   s = re.sub(r"[^a-zA-Z0-9]+", "_", model_id.lower()).strip("_") or "svc"
   return f"{s}_api"
 
+
 def get_model_docker_repo(model_ids):
   return [f"{ORG}/{model}" for model in model_ids]
+
 
 def write_service_file(model_ids):
   with open(f"{BASE_DIR}/service.txt", "w") as f:
     for m in model_ids:
       f.write(f"{m}\n")
 
+
 def get_services(compose_file):
-    data = load_yml(compose_file)
-    return data.get("services", {})
+  data = load_yml(compose_file)
+  return data.get("services", {})
+
 
 def service_exists(compose_file, model_ids):
-    service_names = [_service_name(model_id) for model_id in model_ids]
-    services = get_services(compose_file)
-    return all(s in services for s in service_names)
+  service_names = [_service_name(model_id) for model_id in model_ids]
+  services = get_services(compose_file)
+  return all(s in services for s in service_names)
+
 
 def _parse_cli_port(out: str) -> Optional[int]:
   for line in out.splitlines():

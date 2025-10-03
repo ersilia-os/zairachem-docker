@@ -108,9 +108,9 @@ def generate_compose_and_nginx(
   nginx_host_port: int = NGINX_HOST_PORT,
   network_name: str = NETWORK_NAME,
   *,
-  docker_network_name: str | None = None,  
-  ipam_subnet: str | None = None,         
-  external: bool = False,                 
+  docker_network_name: str | None = None,
+  ipam_subnet: str | None = None,
+  external: bool = False,
 ) -> tuple[str, str]:
   header = 'version: "3.9"\nservices:\n'
 
