@@ -1,6 +1,6 @@
 version: "3.9"
 services:
-  redis:
+  redis_zairachem:
     container_name: redis
     image: redis:latest
     command: ["redis-server", "--appendonly", "yes"]
@@ -14,6 +14,7 @@ services:
   nginx:
     image: nginx:alpine
     depends_on:
+      - eos2gw4_api
       - eos4u6p_api
       - eos5axz_api
     ports:
@@ -24,6 +25,20 @@ services:
     restart: unless-stopped
     networks:
       - ersilia_network
+  eos2gw4_api:
+    image: ersiliaos/eos2gw4
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URI: "redis://redis:6379"
+      REDIS_EXPIRATION: "604800"
+    restart: unless-stopped
+    ports:
+      - "46017:80"
+    networks:
+      - ersilia_network
+    depends_on:
+      - redis_zairachem
   eos4u6p_api:
     image: ersiliaos/eos4u6p
     environment:
@@ -33,11 +48,11 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "39911:80"
+      - "39071:80"
     networks:
       - ersilia_network
     depends_on:
-      - redis
+      - redis_zairachem
   eos5axz_api:
     image: ersiliaos/eos5axz
     environment:
@@ -47,13 +62,14 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "55101:80"
+      - "35445:80"
     networks:
       - ersilia_network
     depends_on:
-      - redis
+      - redis_zairachem
 networks:
   ersilia_network:
+    external: true
     name: ersilia_network
     driver: bridge
 
