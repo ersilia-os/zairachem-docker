@@ -5,7 +5,7 @@ import collections
 from collections import OrderedDict
 import joblib
 import json
-
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   COMPOUNDS_FILENAME,
   COMPOUND_IDENTIFIER_COLUMN,
@@ -187,7 +187,7 @@ class ClfTasks(object):
     for k in keys:
       v = self.thresholds[k]
       if v is not None:
-        cuts += [v]
+        cuts += [float(v)]
     return cuts
 
   def percentiles(self):

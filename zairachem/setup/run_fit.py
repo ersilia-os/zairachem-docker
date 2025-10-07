@@ -12,6 +12,7 @@ def run(input_file, output_dir=None, threshold=None, direction=None, parameters=
     direction=direction,
     parameters=parameters,
   )
+
   if ts.is_done():
     logger.warning(
       "[yellow]Fitting setup for requested inferece is already done. Skippign this step![/]"

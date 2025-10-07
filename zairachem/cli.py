@@ -60,6 +60,7 @@ def common_options(require_input: bool = True):
         "-c",
         required=False,
         default=None,
+        type=float,
         help="Cutoff threshold (e.g. probability or value).",
       ),
       click.option(
@@ -67,7 +68,7 @@ def common_options(require_input: bool = True):
         "-d",
         required=False,
         default=None,
-        help="Direction of processing (e.g. forward or backward).",
+        help="Direction of actives (e.g. high or low).",
       ),
       click.option(
         "--parameters",
@@ -76,9 +77,9 @@ def common_options(require_input: bool = True):
         default=None,
         help="Additional model parameters as a string.",
       ),
-      click.option("--clean", is_flag=True, help="Whether to run in clean mode."),
-      click.option("--flush", is_flag=True, help="Whether to flush caches or temporary files."),
-      click.option("--anonymize", is_flag=True, help="Whether to anonymize outputs."),
+      click.option("--clean", is_flag=True, help="Whether to clean the descriptors at the end of the run to save space."),
+      click.option("--flush", is_flag=True, help="Whether to flush the model checkpoints to save space for example in train-test crossvalidations)"),
+      click.option("--anonymize", is_flag=True, help="Whether to anonymize the inputs entirely."),
     ]
     for option in reversed(options):
       func = option(func)
