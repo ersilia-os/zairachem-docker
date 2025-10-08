@@ -18,8 +18,8 @@ scikit-learn  = "1.6.1"
 fpsim2        = "0.5.2"
 lolP          = "0.0.4"
 umap-learn    = "0.5.7"
-lazyqsar      = { git = "https://github.com/ersilia-os/lazy-qsar.git" }
-stylia = { git = "https://github.com/ersilia-os/stylia.git" }
+lazyqsar      = "2.0.0"
+stylia        = "0.0.1"
 openpyxl      = "3.1.5"
 rich-click    = "1.8.9"
 
