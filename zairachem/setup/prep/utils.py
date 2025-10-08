@@ -1,8 +1,9 @@
-import os
 import numpy as np
 import collections
 from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import QuantileTransformer
 
 ALPHA_DETECT_TAIL_CENTER = 0.05
 ALPHA_REPEATS = 0.01
@@ -100,9 +101,6 @@ class SmoothenY(object):
     return repeats_idxs
 
   def run(self):
-    from sklearn.preprocessing import QuantileTransformer
-    from flaml.automl.automl import AutoML  # TODO will require Flaml[automl]
-
     y = self.y
     smiles_list = self.smiles_list
     repeats = self.detect_repeats(y)
@@ -117,19 +115,8 @@ class SmoothenY(object):
     ranker = QuantileTransformer(output_distribution="uniform")
     ranker.fit(y_f.reshape(-1, 1))
     y_f = ranker.transform(y_f.reshape(-1, 1)).ravel()
-    estimator_list = ["rf"]
-    time_budget = 60
-    mdl = AutoML()
-    automl_settings = {
-      "time_budget": time_budget,
-      "task": "regression",
-      "log_file_name": "automl.log",
-      "early_stop": True,
-      "estimator_list": estimator_list,
-      "verbose": 2,
-    }
-    mdl.fit(X_f, y_f, **automl_settings)
-    os.remove("automl.log")
+    mdl = RandomForestRegressor()
+    mdl.fit(X_f, y_f)
     repeats_preds = {}
     for k, ridxs in repeats_idxs.items():
       X_r = X[ridxs]
