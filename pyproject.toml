@@ -2,7 +2,6 @@
 name = "zairachem"
 version = "1.0.0"
 description = "ZairaChem is an automated ML tool for building QSAR models"
-
 authors = ["Ersilia Open Source Initiative <hello@ersilia.io>", "Gemma Turon <gemma@ersilia.io>", "Abel Legese <abel@ersilia.io>", "Miquel Duran-Frigola <miquel@ersilia.io>"]
 
 [tool.poetry.dependencies]
@@ -19,7 +18,7 @@ fpsim2        = "0.5.2"
 lolP          = "0.0.4"
 umap-learn    = "0.5.7"
 lazyqsar      = "2.0.0"
-stylia        = "0.0.1"
+stylia        = "0.0.2"
 openpyxl      = "3.1.5"
 rich-click    = "1.8.9"
 
