@@ -1,4 +1,4 @@
-import lazyqsar, os, sys, time
+import lazyqsar, os, time
 import pandas as pd
 from sklearn.metrics import roc_curve, auc
 

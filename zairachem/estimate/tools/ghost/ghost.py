@@ -1,6 +1,5 @@
 import sys
 import os
-from sklearn import metrics
 import numpy as np
 
 ROOT = os.path.dirname(os.path.abspath(__file__))

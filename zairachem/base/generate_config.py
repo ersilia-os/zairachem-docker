@@ -120,7 +120,7 @@ def generate_compose_and_nginx(
       - {network_name}
 """
 
-  nginx = f"""  nginx:
+  nginx = """  nginx:
     image: nginx:alpine
     depends_on:
 """

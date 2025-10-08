@@ -5,7 +5,6 @@ import collections
 from collections import OrderedDict
 import joblib
 import json
-from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   COMPOUNDS_FILENAME,
   COMPOUND_IDENTIFIER_COLUMN,
@@ -15,7 +14,6 @@ from zairachem.base.vars import (
   VALUES_COLUMN,
   QUALIFIER_COLUMN,
   TASKS_FILENAME,
-  AUXILIARY_TASK_COLUMN,
 )
 from .files import ParametersFile
 from zairachem.base.vars import CLF_PERCENTILES, MIN_CLASS, DATA_SUBFOLDER

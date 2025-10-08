@@ -77,8 +77,16 @@ def common_options(require_input: bool = True):
         default=None,
         help="Additional model parameters as a string.",
       ),
-      click.option("--clean", is_flag=True, help="Whether to clean the descriptors at the end of the run to save space."),
-      click.option("--flush", is_flag=True, help="Whether to flush the model checkpoints to save space for example in train-test crossvalidations)"),
+      click.option(
+        "--clean",
+        is_flag=True,
+        help="Whether to clean the descriptors at the end of the run to save space.",
+      ),
+      click.option(
+        "--flush",
+        is_flag=True,
+        help="Whether to flush the model checkpoints to save space for example in train-test crossvalidations)",
+      ),
       click.option("--anonymize", is_flag=True, help="Whether to anonymize the inputs entirely."),
     ]
     for option in reversed(options):

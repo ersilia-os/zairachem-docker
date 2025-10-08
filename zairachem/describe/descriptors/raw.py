@@ -12,7 +12,6 @@ from zairachem.base.vars import (
   REFERENCE_DESCRIPTOR,
   RAW_DESC_FILENAME,
   ERSILIA_DATA_FILENAME,
-  MODELS_WITH_PORT,
 )
 
 

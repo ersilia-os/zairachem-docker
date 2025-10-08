@@ -1,5 +1,4 @@
 import collections
-from sklearn.metrics import roc_curve, auc
 
 
 def make_classification_report(y, y_proba, threshold=0.5):

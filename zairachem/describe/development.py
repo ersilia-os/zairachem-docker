@@ -1,4 +1,3 @@
-from zairachem.describe.descriptors.api import BinaryStreamClient
 from zairachem.describe.descriptors.utils import Hdf5DataLoader
 
 # api = BinaryStreamClient(csv_path="example_tiny.csv", url="http://localhost:8002/run")
