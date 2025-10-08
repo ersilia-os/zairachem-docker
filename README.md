@@ -86,4 +86,3 @@ zairachem predict -i new_data.csv -m ./models -o ./results --override-dir
 | `zairachem pool [--time-budget-sec N]`                      | Ensemble/bag results from `estimate`.                    |
 | `zairachem report [--plot-name NAME]`                       | Generate analysis report and plots.                      |
 | `zairachem finish [--clean --flush --anonymize]`            | Finalize: cleanup, flush caches, optional anonymization. |
-| `zairachem all -i input.csv [common flags]`                 | Run the entire end-to-end pipeline in one go.            |
