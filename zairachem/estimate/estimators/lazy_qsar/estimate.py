@@ -1,5 +1,5 @@
 import collections, joblib, json, os
-import lazyqsar
+from lazyqsar.agnostic import LazyBinaryClassifier
 from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
@@ -37,7 +37,7 @@ class Fitter(BaseEstimatorIndividual):
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      model = lazyqsar.agnostic.LazyBinaryClassifier(mode=LAZYQSAR_MODE)
+      model = LazyBinaryClassifier(mode=LAZYQSAR_MODE)
       model.fit(
         X[train_idxs],
         y[train_idxs],
@@ -73,7 +73,7 @@ class Predictor(BaseEstimatorIndividual):
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
       model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model = lazyqsar.agnostic.LazyBinaryClassifier.load(model_folder)
+      model = LazyBinaryClassifier.load(model_folder)
       tasks[t] = make_classification_report(y, model.predict_proba(X))
     self.update_elapsed_time()
     return tasks
