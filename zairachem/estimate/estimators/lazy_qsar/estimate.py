@@ -39,12 +39,12 @@ class Fitter(BaseEstimatorIndividual):
     if self.task == "classification":
       model = LazyBinaryClassifier(mode=LAZYQSAR_MODE)
       model.fit(
-        X[train_idxs],
-        y[train_idxs],
+        X=X[train_idxs],
+        y=y[train_idxs],
       )
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model.save(model_folder)
-      train_preds = model.predict_proba(X)[:, 1]
+      train_preds = model.predict_proba(X=X)[:, 1]
       tasks[t] = make_classification_report(y, train_preds)
       # valid_preds = model.predict_proba(X[valid_idxs])
       # tasks[t]["valid"] = make_classification_report(y[valid_idxs], valid_preds)["main"]
@@ -74,7 +74,7 @@ class Predictor(BaseEstimatorIndividual):
     if self.task == "classification":
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model = LazyBinaryClassifier.load(model_folder)
-      tasks[t] = make_classification_report(y, model.predict_proba(X))
+      tasks[t] = make_classification_report(y, model.predict_proba(X=X)[:,1])
     self.update_elapsed_time()
     return tasks
 
