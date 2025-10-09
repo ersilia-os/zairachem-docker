@@ -1,4 +1,4 @@
-import datetime, os, re, shlex, subprocess, sys
+import datetime, os, re, shlex, subprocess
 from collections import namedtuple
 from zairachem.base.vars import BASE_DIR, LOGGING_FILE
 

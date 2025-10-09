@@ -1,4 +1,5 @@
-import collections, joblib, json, lazyqsar, os
+import collections, joblib, json, os
+from lazyqsar.agnostic import LazyBinaryClassifier
 from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
@@ -10,7 +11,7 @@ from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
 
 
-ESTIMATORS = ["random_forest"]  # TODO CONFIRM THESE ONLY
+LAZYQSAR_MODE = "default"
 
 
 class Fitter(BaseEstimatorIndividual):
@@ -32,19 +33,18 @@ class Fitter(BaseEstimatorIndividual):
     tasks = collections.OrderedDict()
     X = self._get_X()
     train_idxs = self.get_train_indices(path=self.path)
-    valid_idxs = self.get_validation_indices(path=self.path)
+    # valid_idxs = self.get_validation_indices(path=self.path)
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      model = lazyqsar.LazyBinaryClassifier()
+      model = LazyBinaryClassifier(mode=LAZYQSAR_MODE)
       model.fit(
-        X[train_idxs],
-        y[train_idxs],
+        X=X[train_idxs],
+        y=y[train_idxs],
       )
       model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model.save_model(model_folder)
-      model = model.load_model(model_folder)
-      train_preds = model.predict_proba(X)
+      model.save(model_folder)
+      train_preds = model.predict_proba(X=X)[:, 1]
       tasks[t] = make_classification_report(y, train_preds)
       # valid_preds = model.predict_proba(X[valid_idxs])
       # tasks[t]["valid"] = make_classification_report(y[valid_idxs], valid_preds)["main"]
@@ -72,10 +72,9 @@ class Predictor(BaseEstimatorIndividual):
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      model = lazyqsar.LazyBinaryClassifier()
       model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model = model.load_model(model_folder)
-      tasks[t] = make_classification_report(y, model.predict_proba(X))
+      model = LazyBinaryClassifier.load(model_folder)
+      tasks[t] = make_classification_report(y, model.predict_proba(X=X)[:,1])
     self.update_elapsed_time()
     return tasks
 

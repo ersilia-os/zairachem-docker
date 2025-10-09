@@ -70,8 +70,7 @@ class Flusher(ZairaBase):
       for filename in files:
         if filename.endswith(".json") or filename.endswith(".csv"):
           continue
-        else:
-          rm_files += [os.path.join(root, filename)]
+        rm_files += [os.path.join(root, filename)]
       for dirname in dirs:
         if dirname.startswith("flaml"):
           rm_dirs += [os.path.join(root, dirname)]

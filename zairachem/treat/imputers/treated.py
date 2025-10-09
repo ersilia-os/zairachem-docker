@@ -35,8 +35,7 @@ class NanFilter(object):
       c = np.sum(np.isnan(X[:, j]))
       if c > max_na:
         continue
-      else:
-        idxs += [j]
+      idxs += [j]
     self.col_idxs = idxs
     self.logger.info(
       "Nan filtering, original columns {0}, final columns {1}".format(
@@ -109,8 +108,7 @@ class FullLineSimilarityImputer(object):
     for i in range(X.shape[0]):
       if np.all(np.isnan(X[i, :])):
         continue
-      else:
-        idxs += [i]
+      idxs += [i]
     X_ = X[idxs]
     smiles_list_ = [smiles_list[i] for i in idxs]
     tmp_dir = tempfile.mkdtemp(prefix="ersilia-")

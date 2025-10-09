@@ -223,18 +223,6 @@ files = [
     {file = "et_xmlfile-2.0.0.tar.gz", hash = "sha256:dab3f4764309081ce75662649be815c4c9081e88f0837825f90fd28317d4da54"},
 ]
 
-[[package]]
-name = "flaml"
-version = "2.3.5"
-description = "A fast library for automated machine learning and tuning"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "FLAML-2.3.5-py3-none-any.whl", hash = "sha256:e738c1b6c50feedfcc8709fb42c7a23b96fb9bfe83d138a6b29bcfb48b4c15c9"},
-    {file = "FLAML-2.3.5.tar.gz", hash = "sha256:78dc9de830411f1635d7f97b460dacf31cc2d7000b1a8a613d8e722a897d5669"},
-]
-
 [package.dependencies]
 NumPy = ">=1.17"
 
