@@ -139,6 +139,7 @@ def predict(
 ):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data for prediction[/]")
   run_predict(input_file, model_dir, output_dir, override_dir)
+  process_group(clean, flush, anonymize)
 
 
 @cli.command(name="describe", help="Compute molecular descriptors.")
