@@ -65,8 +65,9 @@ class RawDescriptors(ZairaBase):
 
   def _run_eos(self, eos_id):
     output_h5 = self.output_h5_filename(eos_id)
-    res = self.api.run()
+
     try:
+      res = self.api.run()
       Hdf5Data(res).save(output_h5)
     except Exception as e:
       self.logger.error(f"Exception in h5: {e}")
@@ -79,6 +80,8 @@ class RawDescriptors(ZairaBase):
       eos_ids = self.eos_ids()
     for i, eos_id in enumerate(eos_ids):
       self.api.url = get_model_url(eos_id)
+      self.api.model_id = eos_id
+      self.api.project_name = os.path.basename(self.path)
       self.logger.info(
         f"An api url {self.api.url} assigned for descriptor model [green]{eos_id}[/]"
       )
