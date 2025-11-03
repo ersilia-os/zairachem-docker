@@ -1,4 +1,5 @@
 import joblib, os, random
+import json
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
@@ -17,7 +18,7 @@ from zairachem.base.vars import (
   DATA_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
   RAW_DESC_FILENAME,
-  REFERENCE_DESCRIPTOR,
+  PARAMETERS_FILE
 )
 
 
@@ -108,6 +109,10 @@ class Manifolds(DescriptorBase):
   def __init__(self):
     DescriptorBase.__init__(self)
     self.y = self._get_y_aux()
+    params_file = os.path.join(self.trained_path, "data", PARAMETERS_FILE)
+    with open(params_file, "r") as f:
+      self.reference_eos_id = json.load(f)["featurizer_ids"][0]
+
 
   def _get_y_aux(self):  # TODO USE REAL BIN not AUX
     if not self.is_predict():
@@ -131,8 +136,9 @@ class Manifolds(DescriptorBase):
     data.save_info(file_name.split(".")[0] + ".json")
 
   def run(self):
+    print("REF: ", self.reference_eos_id)
     file_name = os.path.join(
-      self.path, DESCRIPTORS_SUBFOLDER, REFERENCE_DESCRIPTOR, RAW_DESC_FILENAME
+      self.path, DESCRIPTORS_SUBFOLDER, self.reference_eos_id, RAW_DESC_FILENAME
     )
     data = Hdf5(file_name).load()
     self.inputs = data.inputs()

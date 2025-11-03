@@ -167,24 +167,6 @@ class BasePooler(ZairaBase):
     df = self._filter_out_bin(df)
     return df
 
-  def _get_total_time_budget_sec(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-      time_budget = json.load(f)["time_budget"]
-    return int(time_budget) * 60 + 1
-
-  def _estimate_time_budget(self):  # TODO CONFIRM TIME TO USE
-    elapsed_time = self.get_elapsed_time()
-    self.logger.info("Elapsed time: {0} seconds".format(elapsed_time))
-    total_time_budget = self._get_total_time_budget_sec()
-    self.logger.info("Total time budget: {0} seconds".format(total_time_budget))
-    available_time = total_time_budget - elapsed_time
-    available_time = available_time / 2.0
-    available_time = available_time * 0.8
-    available_time = int(available_time) + 1
-    self.logger.info("Available time: {0} seconds".format(available_time))
-    return available_time
-
-
 class BaseOutcomeAssembler(ZairaBase):
   def __init__(self, path=None):
     ZairaBase.__init__(self)

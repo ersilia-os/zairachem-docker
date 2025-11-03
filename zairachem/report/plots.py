@@ -56,13 +56,8 @@ class ActivesInactivesPlot(BasePlot):
         ha="center",
         color=named_colors.blue,
       )
-      direction = rf.get_direction()
-      cut = rf.get_used_cut()
       ax.set_ylabel("Number of compounds")
-      if cut == 1:
-        ax.set_xlabel("")
-      else:
-        ax.set_xlabel("Activity direction: {0}, Threshold: {1}".format(direction, round(cut, 3)))
+      ax.set_xlabel("")
       p = np.round(actives / len(y) * 100, 1)
       q = np.round(100 - p, 1)
       ax.set_title("Actives = {0}%, Inactives = {1}%".format(p, q))

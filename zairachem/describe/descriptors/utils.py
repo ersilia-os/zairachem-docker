@@ -165,7 +165,6 @@ def _ensure_network(name):
     out = ""
   if not re.search(rf"(?m)^{re.escape(name)}$", out):
     try:
-      print("This happened")
       run_command(["docker", "network", "create", name], quiet=True)
     except Exception:
       pass

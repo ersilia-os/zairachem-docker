@@ -11,9 +11,6 @@ from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
 
 
-LAZYQSAR_MODE = "default"
-
-
 class Fitter(BaseEstimatorIndividual):
   def __init__(self, path, model_id, is_simple):
     BaseEstimatorIndividual.__init__(
@@ -24,36 +21,25 @@ class Fitter(BaseEstimatorIndividual):
     )
     self.is_simple = is_simple
 
-  def run_simple(self, time_budget_sec):
+  def run(self):
     self.reset_time()
-    if time_budget_sec is None:
-      time_budget_sec = self._estimate_time_budget()
-    else:
-      time_budget_sec = time_budget_sec
     tasks = collections.OrderedDict()
     X = self._get_X()
     train_idxs = self.get_train_indices(path=self.path)
-    # valid_idxs = self.get_validation_indices(path=self.path)
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      model = LazyBinaryClassifier(mode=LAZYQSAR_MODE)
+      model = LazyBinaryClassifier()
       model.fit(
         X=X[train_idxs],
         y=y[train_idxs],
       )
       model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model.save(model_folder)
+      model.save(model_folder, onnx=True)
       train_preds = model.predict_proba(X=X)[:, 1]
       tasks[t] = make_classification_report(y, train_preds)
-      # valid_preds = model.predict_proba(X[valid_idxs])
-      # tasks[t]["valid"] = make_classification_report(y[valid_idxs], valid_preds)["main"]
-
     self.update_elapsed_time()
     return tasks
-
-  def run(self, time_budget_sec=None):
-    return self.run_simple(time_budget_sec=time_budget_sec)
 
 
 class Predictor(BaseEstimatorIndividual):
@@ -92,13 +78,9 @@ class IndividualEstimator(ZairaBase):
     else:
       self.estimator = Predictor(path=self.path, model_id=self.model_id)
 
-  def run(self, time_budget_sec=None):
-    if time_budget_sec is not None:
-      self.time_budget_sec = int(time_budget_sec)
-    else:
-      self.time_budget_sec = None
+  def run(self):
     if not self.is_predict():
-      results = self.estimator.run(time_budget_sec=self.time_budget_sec)
+      results = self.estimator.run()
     else:
       results = self.estimator.run()
     joblib.dump(
@@ -131,12 +113,8 @@ class Estimator(ZairaBase):
       model_ids = list(json.load(f))
     return model_ids
 
-  def run(self, time_budget_sec=None):
+  def run(self):
     model_ids = self._get_model_ids()
-    if time_budget_sec is not None:
-      tbs = max(int(time_budget_sec / len(model_ids)), 1)
-    else:
-      tbs = None
     for model_id in model_ids:
       estimator = IndividualEstimator(path=self.path, model_id=model_id)
-      estimator.run(time_budget_sec=tbs)
+      estimator.run()

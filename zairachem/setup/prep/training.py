@@ -2,7 +2,7 @@ import json, os, shutil
 
 from zairachem.base import ZairaBase, create_session_symlink
 from zairachem.setup.prep import (
-  ParametersFile,
+  ModelIdsFile,
   SingleFile,
   ChemblStandardize,
   FoldEnsemble,
@@ -14,55 +14,50 @@ from zairachem.setup.prep import (
   SessionFile,
 )
 from zairachem.base.vars import (
+  DEFAULT_FEATURIZERS,
+  DEFAULT_PROJECTIONS,
   PARAMETERS_FILE,
   RAW_INPUT_FILENAME,
   DATA_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
-  LITE_SUBFOLDER,
-  INTERPRETABILITY_SUBFOLDER,
-  APPLICABILITY_SUBFOLDER,
   REPORT_SUBFOLDER,
-  DISTILL_SUBFOLDER,
   OUTPUT_FILENAME,
 )
 
-
 from rdkit import RDLogger
-
 RDLogger.logger().setLevel(RDLogger.CRITICAL)
-
 
 class TrainSetup(object):
   def __init__(
     self,
     input_file,
     output_dir,
-    time_budget,
     task,
-    threshold,
-    direction,
-    parameters,
+    model_ids,
   ):
     if output_dir is None:
       output_dir = input_file.split(".")[0]
-    if task is None and threshold is not None:
-      task = "classification"
-    else:
-      if task is None:
-        task = "regression"
-    assert task in ["regression", "classification"]
-    passed_params = {
-      "time_budget": time_budget,
-      "threshold": threshold,
-      "direction": direction,
-      "task": task,
-    }
-    self.params = self._load_params(parameters, passed_params)
+    if model_ids is not None:
+      self.model_ids = ModelIdsFile(model_ids).load()
+      if "featurizer_ids" in self.model_ids.keys():
+        self.featurizer_ids = self.model_ids["featurizer_ids"]
+      else:
+        self.featurizer_ids = DEFAULT_FEATURIZERS
+      if "projection_ids" in self.model_ids.keys():
+        self.projection_ids = self.model_ids["projection_ids"]
+      else:
+        self.projection_ids = DEFAULT_PROJECTIONS
     self.input_file = os.path.abspath(input_file)
     self.output_dir = os.path.abspath(output_dir)
-    self.time_budget = time_budget  # TODO
+    self.task = task
+    assert self.task in ["classification", "regression"]
+    self.params = {
+      "task": self.task,
+      "featurizer_ids": self.featurizer_ids,
+      "projection_ids": self.projection_ids
+    }
 
   def _copy_input_file(self):
     extension = self.input_file.split(".")[-1]
@@ -70,9 +65,6 @@ class TrainSetup(object):
       self.input_file,
       os.path.join(self.output_dir, RAW_INPUT_FILENAME + "." + extension),
     )
-
-  def _load_params(self, params, passed_params):
-    return ParametersFile(full_path=params, passed_params=passed_params).load()
 
   def _save_params(self):
     with open(os.path.join(self.output_dir, DATA_SUBFOLDER, PARAMETERS_FILE), "w") as f:
@@ -96,11 +88,7 @@ class TrainSetup(object):
     self._make_subfolder(DESCRIPTORS_SUBFOLDER)
     self._make_subfolder(ESTIMATORS_SUBFOLDER)
     self._make_subfolder(POOL_SUBFOLDER)
-    self._make_subfolder(LITE_SUBFOLDER)
-    self._make_subfolder(INTERPRETABILITY_SUBFOLDER)
-    self._make_subfolder(APPLICABILITY_SUBFOLDER)
     self._make_subfolder(REPORT_SUBFOLDER)
-    self._make_subfolder(DISTILL_SUBFOLDER)
 
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)

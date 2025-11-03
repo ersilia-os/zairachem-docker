@@ -15,7 +15,7 @@ from sklearn.metrics import (
 )
 
 from zairachem.report.utils import ResultsIterator
-from zairachem.report.ghost.ghost import GhostLight
+from zairachem.estimate.tools.ghost.ghost import GhostLight
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
   MAPPING_FILENAME,
@@ -30,7 +30,6 @@ from zairachem.base.vars import (
   DATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
-  APPLICABILITY_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
 )
 
@@ -98,7 +97,7 @@ class ResultsFetcher(ZairaBase):
     tasks = [
       c
       for c in list(df.columns)
-      if ("clf" in c or "reg" in c) and "_skip" not in c and "_aux" not in c
+      if ("clf" in c or "reg" in c)
     ]
     return tasks
 
@@ -112,7 +111,7 @@ class ResultsFetcher(ZairaBase):
       df = self._read_data()
     else:
       df = data
-    tasks = [c for c in list(df.columns) if "clf" in c and "_skip" not in c and "_aux" not in c]
+    tasks = [c for c in list(df.columns) if "clf" in c]
     if len(tasks) == 0:
       df = self._read_pooled_results()
       return self.get_clf_tasks(data=df)
@@ -133,7 +132,7 @@ class ResultsFetcher(ZairaBase):
   def get_transformed(self):  # TODO adapt for REG final
     df = self._read_data()
     for c in list(df.columns):
-      if "reg" in c and "_skip" not in c and "_aux" not in c:
+      if "reg" in c:
         return list(df[c])
 
   def get_true_clf(self):
@@ -142,49 +141,49 @@ class ResultsFetcher(ZairaBase):
   def get_pred_binary_clf(self):
     df = self._read_pooled_results()
     for c in list(df.columns):
-      if "clf" in c and "bin" in c and "_skip" not in c:
+      if "clf" in c and "bin" in c:
         return list(df[c])
 
   def get_pred_binary_clf_trained(self):
     df = self._read_pooled_results_train()
     for c in list(df.columns):
-      if "clf" in c and "bin" in c and "_skip" not in c:
+      if "clf" in c and "bin" in c:
         return list(df[c])
 
   def get_pred_proba_clf(self):
     df = self._read_pooled_results()
     for c in list(df.columns):
-      if "clf" in c and "bin" not in c and "_skip" not in c:
+      if "clf" in c and "bin" not in c:
         return list(df[c])
 
   def get_pred_proba_clf_trained(self):
     df = self._read_pooled_results_train()
     for c in list(df.columns):
-      if "clf" in c and "bin" not in c and "_skip" not in c:
+      if "clf" in c and "bin" not in c:
         return list(df[c])
 
   def get_pred_reg_trans(self):  # TODO ADAPT FOR REG
     df = self._read_pooled_results()
     for c in list(df.columns):
-      if "reg" in c and "raw" not in c and "_skip" not in c:
+      if "reg" in c and "raw" not in c:
         return list(df[c])
 
   def get_pred_reg_trans_trained(self):  # TODO Adapt for Reg
     df = self._read_pooled_results_train()
     for c in list(df.columns):
-      if "reg" in c and "raw" not in c and "_skip" not in c:
+      if "reg" in c and "raw" not in c:
         return list(df[c])
 
   def get_pred_reg_raw(self):
     df = self._read_pooled_results()
     for c in list(df.columns):
-      if "reg" in c and "raw" in c and "_skip" not in c:
+      if "reg" in c and "raw" in c:
         return list(df[c])
 
   def get_pred_reg_raw_trained(self):
     df = self._read_pooled_results_train()
     for c in list(df.columns):
-      if "reg" in c and "raw" in c and "_skip" not in c:
+      if "reg" in c and "raw" in c:
         return list(df[c])
 
   def get_projections_umap(self):
@@ -241,63 +240,9 @@ class ResultsFetcher(ZairaBase):
     with open(os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       return json.load(f)
 
-  def get_direction(self):
-    return self.get_parameters()["direction"]
-
-  def _get_used_cuts(self):  # TODO revise if params change
-    cuts_dict = self.params["thresholds"]
-    cuts = []
-    for k, v in cuts_dict.items():
-      if v is not None:
-        cuts += [v]
-    return cuts
-
-  def get_used_cut(self):
-    used_cuts = self._get_used_cuts()
-    if not used_cuts:
-      return 1
-    else:
-      return used_cuts[0]
-    # for k, v in used_cuts["ecuts"].items():
-    #   if "_skip" not in k:
-    #     return v
-    # for k, v in used_cuts["pcuts"].items():
-    #   if "_skip" not in k:
-    #     return v
-
-  def get_tanimoto_similarities_to_training_set(self):
-    tanimoto_file = os.path.join(
-      self.path,
-      APPLICABILITY_SUBFOLDER,
-      TANIMOTO_SIMILARITY_NEAREST_NEIGHBORS_FILENAME,
-    )
-    if os.path.exists(tanimoto_file):
-      df = pd.read_csv(tanimoto_file)
-      return df
-    else:
-      return None
-
-  def get_basic_properties(self):
-    if not os.listdir(os.path.join(self.trained_path, APPLICABILITY_SUBFOLDER)):
-      return None
-    else:
-      df = pd.read_csv(os.path.join(self.path, APPLICABILITY_SUBFOLDER, BASIC_PROPERTIES_FILENAME))
-      return df
-
   def get_smiles(self):
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
     return list(df[SMILES_COLUMN])
-
-  def get_original_identifiers(self):
-    raw_data = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME))
-    with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
-      schema = json.load(f)
-    n = raw_data.shape[0]
-    if schema["identifier_column"] is None:
-      identifiers = ["entry-{0}".format(str(i).zfill(7)) for i in range(n)]
-    else:
-      identifiers = list(raw_data[schema["identifier_column"]])
-    return identifiers
 
   def get_original_smiles(self):
     raw_data = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME))

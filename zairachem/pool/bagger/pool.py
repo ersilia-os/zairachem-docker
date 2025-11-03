@@ -14,12 +14,8 @@ class Fitter(BasePooler):
     BasePooler.__init__(self, path=path)
     self.trained_path = os.path.join(self.get_output_dir(), POOL_SUBFOLDER)
 
-  def run(self, time_budget_sec=None):
+  def run(self):
     self.reset_time()
-    if time_budget_sec is None:
-      time_budget_sec = self._estimate_time_budget()
-    else:
-      time_budget_sec = time_budget_sec
     valid_idxs = self.get_validation_indices(path=self.path)
     cids = self._get_compound_ids()
     df_X = self._get_X()
@@ -110,13 +106,9 @@ class Bagger(ZairaBase):
     else:
       self.estimator = Predictor(path=self.path)
 
-  def run(self, time_budget_sec=None):
-    if time_budget_sec is not None:
-      self.time_budget_sec = int(time_budget_sec)
-    else:
-      self.time_budget_sec = None
+  def run(self):
     if not self.is_predict():
-      results = self.estimator.run(time_budget_sec=self.time_budget_sec)
+      results = self.estimator.run()
     else:
       results = self.estimator.run()
     return results

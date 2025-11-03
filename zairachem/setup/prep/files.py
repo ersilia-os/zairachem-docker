@@ -5,8 +5,6 @@ from rdkit import Chem
 from zairachem.setup.prep.schema import InputSchema
 from zairachem.base.vars import (
   DATA_SUBFOLDER,
-  ERSILIA_HUB_DEFAULT_MODELS,
-  DEFAULT_ESTIMATORS,
   COMPOUNDS_FILENAME,
   VALUES_FILENAME,
   MAPPING_FILENAME,
@@ -14,58 +12,39 @@ from zairachem.base.vars import (
   MAPPING_ORIGINAL_COLUMN,
   MAPPING_DEDUPE_COLUMN,
   COMPOUND_IDENTIFIER_COLUMN,
-  USER_COMPOUND_IDENTIFIER_COLUMN,
   SMILES_COLUMN,
-  DATE_COLUMN,
-  QUALIFIER_COLUMN,
   VALUES_COLUMN,
-  GROUP_COLUMN,
-  PARAMETERS_FILE,
 )
 
 
-class ParametersFile(object):
-  def __init__(self, path=None, full_path=None, passed_params=None):
-    if passed_params is not None:
-      self.params = dict((k, v) for k, v in passed_params.items() if v is not None)
-
-    else:
-      self.params = {}
-    if path is None and full_path is None:
-      self.filename = None
-    else:
-      if full_path is None:
-        self.filename = os.path.join(path, PARAMETERS_FILE)
-      else:
-        self.filename = full_path
-      self.params = self.load()
+class ModelIdsFile(object):
+  def __init__(self, path):
+    self.path = os.path.abspath(path)
+    self.data = None
 
   def load(self):
-    if self.filename is not None:
-      with open(self.filename, "r") as f:
-        data = json.load(f)
-    else:
-      data = {}
-    for k, v in self.params.items():
-      data[k] = v
-    if "credibility_range" not in data:
-      data["credibility_range"] = {"min": None, "max": None}
-    if "threshold" not in data:
-      if "thresholds" in data:
-        pass
-      else:
-        data["thresholds"] = {"expert_1": None}
-    else:
-      data["thresholds"] = {"expert_1": data["threshold"]}
-      del data["threshold"]
-    if "direction" not in data:
-      data["direction"] = "high"
-    if "ersilia_hub" not in data:
-      data["ersilia_hub"] = ERSILIA_HUB_DEFAULT_MODELS
-    if "estimators" not in data:
-      data["estimators"] = DEFAULT_ESTIMATORS
-    return data
+    if self.data is None:
+      with open(self.path, "r") as f:
+        self.data = json.load(f)
+    return self.data
+  
+  def get_featurizer_ids(self):
+    return self.load()["featurizer_ids"]
+  
+  def get_projection_ids(self):
+    return self.load()["projection_ids"]
 
+
+class ParametersFile(object):
+  def __init__(self, path):
+    self.path = os.path.abspath(path)
+    self.params = None
+
+  def load(self):
+    if self.params is None:
+      with open(self.path, "r") as f:
+        self.params = json.load(f)
+    return self.params
 
 class SingleFile(InputSchema):
   def __init__(self, input_file, params):
@@ -88,51 +67,14 @@ class SingleFile(InputSchema):
         identifiers += [None]
     return identifiers
 
-  def _impute_qualifiers(self):
-    qualifiers = []
-    for qual in list(self.df[self.qualifier_column]):
-      qual = str(qual).lower()
-      if qual == "" or qual == "nan" or qual == "none":
-        qualifiers += ["="]
-      else:
-        qualifiers += [qual]
-    return qualifiers
-
   def normalize_dataframe(self):
     resolved_columns = self.resolve_columns()
-    self.identifier_column = resolved_columns["identifier_column"]
     self.smiles_column = resolved_columns["smiles_column"]
-    self.qualifier_column = resolved_columns["qualifier_column"]
     self.values_column = resolved_columns["values_column"]
-    self.date_column = resolved_columns["date_column"]
-    self.group_column = resolved_columns["group_column"]
     identifiers = self._make_identifiers()
-    if self.identifier_column is None:
-      df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
-    else:
-      df = pd.DataFrame({
-        COMPOUND_IDENTIFIER_COLUMN: identifiers,
-        USER_COMPOUND_IDENTIFIER_COLUMN: self.df[self.identifier_column],
-      })
+    df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
     df[SMILES_COLUMN] = self.df[self.smiles_column]
-
-    if self.qualifier_column is None:
-      qualifiers = ["="] * self.df.shape[0]
-    else:
-      qualifiers = self._impute_qualifiers()
-    df[QUALIFIER_COLUMN] = qualifiers
-
     df[VALUES_COLUMN] = self.df[self.values_column]
-
-    if self.date_column:
-      df[DATE_COLUMN] = self.df[self.date_column]
-    else:
-      df[DATE_COLUMN] = None
-
-    if self.group_column:
-      df[GROUP_COLUMN] = self.df[self.group_column]
-    else:
-      df[GROUP_COLUMN] = None
     assert df.shape[0] == self.df.shape[0]
     return df
 
@@ -165,8 +107,6 @@ class SingleFile(InputSchema):
         COMPOUND_IDENTIFIER_COLUMN,
       ],
     )
-    if USER_COMPOUND_IDENTIFIER_COLUMN in df.columns:
-      dfm[USER_COMPOUND_IDENTIFIER_COLUMN] = df[USER_COMPOUND_IDENTIFIER_COLUMN]
     dfm.to_csv(os.path.join(path, MAPPING_FILENAME), index=False)
     R = []
     for cid in unique_cids:
@@ -180,26 +120,24 @@ class SingleFile(InputSchema):
 
   def values_table(self, df):
     dfv = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: df[COMPOUND_IDENTIFIER_COLUMN]})
-    dfv[QUALIFIER_COLUMN] = df[QUALIFIER_COLUMN]
     dfv[VALUES_COLUMN] = df[VALUES_COLUMN]
+    print(dfv.head())
     dedupe = collections.defaultdict(list)
     for r in dfv[
       [
         COMPOUND_IDENTIFIER_COLUMN,
-        QUALIFIER_COLUMN,
         VALUES_COLUMN,
       ]
     ].values:
-      dedupe[r[0]] += [(r[1], r[2])]
+      dedupe[r[0]] += [(r[1])]
     R = []
     for k, v in dedupe.items():
-      v = np.median([x[1] for x in v])
-      R += [[k, "=", v]]
+      v = np.median([x for x in v])
+      R += [[k,v]]
     dfv = pd.DataFrame(
       R,
       columns=[
         COMPOUND_IDENTIFIER_COLUMN,
-        QUALIFIER_COLUMN,
         VALUES_COLUMN,
       ],
     )
@@ -208,12 +146,8 @@ class SingleFile(InputSchema):
   def input_schema(self):
     sc = {
       "input_file": self.input_file,
-      "identifier_column": self.identifier_column,
       "smiles_column": self.smiles_column,
-      "qualifier_column": self.qualifier_column,
       "values_column": self.values_column,
-      "date_column": self.date_column,
-      "group_column": self.group_column,
     }
     return sc
 
@@ -243,15 +177,7 @@ class SingleFileForPrediction(SingleFile):
     self.identifier_column = resolved_columns["identifier_column"]
     self.smiles_column = resolved_columns["smiles_column"]
     identifiers = self._make_identifiers()
-    if self.identifier_column is None:
-      df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
-    else:
-      identifiers_skip = list(self.df[self.identifier_column])
-      df = pd.DataFrame({
-        COMPOUND_IDENTIFIER_COLUMN: identifiers,
-        COMPOUND_IDENTIFIER_COLUMN + "_skip": identifiers_skip,
-      })
-    self.qualifier_column = resolved_columns["qualifier_column"]
+    df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
     self.values_column = resolved_columns["values_column"]
     if self.values_column is not None and self.params is not None:
       trained_values_column = self.get_trained_values_column()
@@ -264,11 +190,6 @@ class SingleFileForPrediction(SingleFile):
     assert df.shape[0] == self.df.shape[0]
 
     if self.values_column is not None and self.params is not None:
-      if self.qualifier_column is None:
-        qualifiers = ["="] * self.df.shape[0]
-      else:
-        qualifiers = self._impute_qualifiers()
-      df[QUALIFIER_COLUMN] = qualifiers
       df[VALUES_COLUMN] = self.df[self.values_column]
       self.has_tasks = True
     else:
@@ -281,7 +202,6 @@ class SingleFileForPrediction(SingleFile):
       "input_file": self.input_file,
       "identifier_column": self.identifier_column,
       "smiles_column": self.smiles_column,
-      "qualifier_column": self.qualifier_column,
       "values_column": self.values_column,
     }
     return sc

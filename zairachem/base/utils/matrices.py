@@ -73,6 +73,7 @@ class Hdf5(object):
   def is_sparse(self):
     V = self._sniff_ravel()
     n_zeroes = np.sum(V == 0)
+    print("IS SPARSE: ", n_zeroes)
     if n_zeroes / len(V) > 0.8:
       return True
     return False

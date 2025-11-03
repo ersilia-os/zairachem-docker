@@ -94,9 +94,6 @@ class OutputTable(BaseTable, ResultsFetcher):
     inchikey = Chem.rdinchi.InchiToInchiKey(inchi)
     return inchikey
 
-  def _get_identifier_column(self):
-    return self.get_original_identifiers()
-
   def _get_input_smiles_column(self):
     return self.get_original_smiles()
 
@@ -167,7 +164,6 @@ class OutputTable(BaseTable, ResultsFetcher):
 
   def run(self):
     data = {}
-    data["identifier"] = self._get_identifier_column()
     data["input-smiles"] = self._get_input_smiles_column()
     data["inchikey"] = self._get_inchikey_column()
     data["smiles"] = self._get_smiles_column()
@@ -177,13 +173,6 @@ class OutputTable(BaseTable, ResultsFetcher):
       data[k] = v
     for k, v in self._get_manifolds_columns():
       data[k] = v
-    """
-        if not os.listdir(os.path.join(self.trained_path, APPLICABILITY_SUBFOLDER)):
-            for k, v in self._get_basic_properties_columns():
-                data[k] = v
-            for k, v in self._get_similarity_to_training_set_columns():
-                data[k] = v
-        """
     data = pd.DataFrame(data)
     data.to_csv(
       os.path.join(self.path, REPORT_SUBFOLDER, OUTPUT_TABLE_FILENAME),
