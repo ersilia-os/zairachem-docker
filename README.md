@@ -95,10 +95,10 @@ zairachem predict -i new_data.csv -m ./models -o ./results --clean --override-di
 
 | Command                                                     | What it does                                             |
 | ----------------------------------------------------------- | -------------------------------------------------------- |
-| `zairachem setup -i input.csv -c`                              | Preprocess input and prepare working artifacts.          |
+| `zairachem setup -i input.csv -c`                           | Preprocess input and prepare working artifacts.          |
 | `zairachem describe`                                        | Compute molecular descriptors for prepared inputs.       |
 | `zairachem treat`                                           | Impute/clean features produced by `describe`.            |
-| `zairachem estimate [--time-budget-sec N]`                  | Train/estimate models (supports a time budget).          |
-| `zairachem pool [--time-budget-sec N]`                      | Ensemble/bag results from `estimate`.                    |
+| `zairachem estimate`                                        | Train/estimate models.                                    |
+| `zairachem pool`                                            | Bag results from `estimate`.                             |
 | `zairachem report [--plot-name NAME]`                       | Generate analysis report and plots.                      |
 | `zairachem finish [--clean --flush --anonymize]`            | Finalize: cleanup, flush caches, optional anonymization. |
