@@ -42,17 +42,29 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 
 * `-i, --input-file` **\[required]**: Path to the input file.
 * `-m, --model-dir`: Directory where the model is stored.
-* `-c, --cutoff`: Cutoff threshold  `<float>`.
-* `-d, --direction`: `high`/`low`.
-* `-p, --parameters`: `<parameters_file.json>`.
+* `-c/-r, --classification/--regression`: type of model
+* `-e, --eos-ids`: Ersilia models to use for featurization and projection.
 * `--clean`: `True/False`.
 * `--flush`:` True/False`.
 * `--anonymize`: `True/False`.
 
+The eos-ids file must be a .json file with the following structure:
+```bash
+{
+    "featurizer_ids": [
+        "eos5axz",
+        "eos4u6p"
+    ],
+    "projection_ids": [
+        "eos2db3"
+    ]
+}
+```
+
 **Example:**
 
 ```bash
-zairachem fit -i data.csv -m ./models --clean
+zairachem fit -i data.csv -m ./models -c -e ./descriptors.json --clean
 ```
 
 ---
@@ -65,7 +77,7 @@ Also executes the full post-processing and reporting pipeline.
 **Usage:**
 
 ```bash
-zairachem predict -i INPUT_FILE [-m MODEL_DIR] [-o OUTPUT_DIR] [OPTIONS]
+zairachem predict -i INPUT_FILE -m MODEL_DIR [-o OUTPUT_DIR] [OPTIONS]
 ```
 
 **Options (in addition to `fit` options):**
@@ -76,14 +88,14 @@ zairachem predict -i INPUT_FILE [-m MODEL_DIR] [-o OUTPUT_DIR] [OPTIONS]
 **Example:**
 
 ```bash
-zairachem predict -i new_data.csv -m ./models -o ./results --override-dir
+zairachem predict -i new_data.csv -m ./models -o ./results --clean --override-dir
 ```
 
 ## Commands for executing each step in zairachem
 
 | Command                                                     | What it does                                             |
 | ----------------------------------------------------------- | -------------------------------------------------------- |
-| `zairachem setup -i input.csv`                              | Preprocess input and prepare working artifacts.          |
+| `zairachem setup -i input.csv -c`                              | Preprocess input and prepare working artifacts.          |
 | `zairachem describe`                                        | Compute molecular descriptors for prepared inputs.       |
 | `zairachem treat`                                           | Impute/clean features produced by `describe`.            |
 | `zairachem estimate [--time-budget-sec N]`                  | Train/estimate models (supports a time budget).          |

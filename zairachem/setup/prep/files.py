@@ -121,7 +121,6 @@ class SingleFile(InputSchema):
   def values_table(self, df):
     dfv = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: df[COMPOUND_IDENTIFIER_COLUMN]})
     dfv[VALUES_COLUMN] = df[VALUES_COLUMN]
-    print(dfv.head())
     dedupe = collections.defaultdict(list)
     for r in dfv[
       [
@@ -174,7 +173,6 @@ class SingleFileForPrediction(SingleFile):
 
   def normalize_dataframe(self):
     resolved_columns = self.resolve_columns()
-    self.identifier_column = resolved_columns["identifier_column"]
     self.smiles_column = resolved_columns["smiles_column"]
     identifiers = self._make_identifiers()
     df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
@@ -200,7 +198,6 @@ class SingleFileForPrediction(SingleFile):
   def input_schema(self):
     sc = {
       "input_file": self.input_file,
-      "identifier_column": self.identifier_column,
       "smiles_column": self.smiles_column,
       "values_column": self.values_column,
     }

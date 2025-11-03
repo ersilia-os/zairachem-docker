@@ -169,10 +169,11 @@ class ClfTasksForPrediction(object):
     self.values = self.binarize(np.array(data[VALUES_COLUMN]))
 
   def binarize(self, values):
-    accepted = set([0, 1])
+    accepted = set([0,0.5, 1])
     bin_values = []
     for v in values:
       if v not in accepted:
+        print("NOT ACCEPTED", v)
         raise Exception("Data is not binary. Cannot do classification")
       else:
         if v > 0:

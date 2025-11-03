@@ -136,7 +136,6 @@ class Manifolds(DescriptorBase):
     data.save_info(file_name.split(".")[0] + ".json")
 
   def run(self):
-    print("REF: ", self.reference_eos_id)
     file_name = os.path.join(
       self.path, DESCRIPTORS_SUBFOLDER, self.reference_eos_id, RAW_DESC_FILENAME
     )

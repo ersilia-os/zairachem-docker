@@ -103,7 +103,7 @@ class PredictSetup(object):
     step = PipelineStep("normalize_input", self.output_dir)
     if not step.is_done():
       params = ParametersFile(
-        full_path=os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE)
+        path=os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE)
       ).load()
       f = SingleFileForPrediction(self.input_file, params)
       f.process()

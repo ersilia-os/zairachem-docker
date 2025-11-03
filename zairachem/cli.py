@@ -44,7 +44,7 @@ def process_group(clean, flush, anonymize):
   Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize).run()
 
 
-def common_options(require_input: bool = True):
+def common_options(require_input: bool = True, include_task: bool = False, include_eos: bool = False):
   def _decorator(func):
     options = [
       click.option(
@@ -53,24 +53,11 @@ def common_options(require_input: bool = True):
         required=require_input, help="Path to the input file."
       ),
       click.option(
-        "--classification/--regression", 
-        "-c/-r",
-        default = True,
-        help="Type of model, classification or regression."
-      ),
-      click.option(
         "--model-dir",
         "-m",
         required=False,
         default=None,
         help="Directory where the model is stored.",
-      ),
-      click.option(
-        "--eos-ids",
-        "-e",
-        required=False,
-        default=None,
-        help="Featurizer and Projection model ids from the Ersilia Model Hub",
       ),
       click.option(
         "--clean",
@@ -87,6 +74,22 @@ def common_options(require_input: bool = True):
         is_flag=True, 
         help="Whether to anonymize the inputs entirely."),
     ]
+    if include_task:
+        options.insert(1,
+            click.option(
+                "--classification/--regression",
+                "-c/-r",
+                default=True,
+                help="Type of model, classification or regression.",
+            )
+        )
+    if include_eos:
+            options.insert(2, 
+              click.option(
+                  "--eos-ids","-e", 
+                  required=False, default=None,
+                  help="Featurizer and Projection model ids from the Ersilia Model Hub"))
+
     for option in reversed(options):
       func = option(func)
     return func
@@ -99,7 +102,7 @@ def cli():
   pass
 
 @cli.command(name="fit", help="Fit a model using ZairaChem")
-@common_options(require_input=True)
+@common_options(require_input=True,include_task=True, include_eos=True)
 def fit(input_file, classification, model_dir, eos_ids, clean, flush, anonymize):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
   if classification:
@@ -110,7 +113,7 @@ def fit(input_file, classification, model_dir, eos_ids, clean, flush, anonymize)
   process_group(clean, flush, anonymize)
 
 @cli.command(name="predict", help="Prepare artifacts for prediction (setup for inference).")
-@common_options(require_input=True)
+@common_options(require_input=True, include_task=False, include_eos=False)
 @click.option("--output-dir", "-o", required=False, help="Path to the output model dir.")
 @click.option(
   "--override-dir",
@@ -132,39 +135,39 @@ def predict(
   process_group(clean, flush, anonymize)
 
 @cli.command(name="setup", help="Preprocess input data and create working artifacts.")
-@common_options(require_input=True)
-def setup_cmd(input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize):
+@common_options(require_input=True, include_task=True, include_eos=True)
+def setup_cmd(input_file, classification, model_dir, eos_ids):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
-  run_fit(input_file, model_dir, cutoff, direction, parameters)
+  if classification:
+    task = "classification"
+  else:
+    task = "regression"
+  run_fit(input_file, task, output_dir=model_dir, model_ids_file=eos_ids)
 
 @cli.command(name="describe", help="Compute molecular descriptors.")
 @common_options(require_input=False)
-def describe_cmd(input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize):
+def describe_cmd():
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
   Describer(path=None).run()
 
 
 @cli.command(name="treat", help="Impute/clean treated features.")
 @common_options(require_input=False)
-def treat_cmd(input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize):
+def treat_cmd():
   logger.debug("[#ff69b4]Running the treatment pipeline[/]")
   Imputer(path=None).run()
 
 
 @cli.command(name="estimate", help="Train/estimate models.")
 @common_options(require_input=False)
-def estimate_cmd(
-  input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize, 
-):
+def estimate_cmd():
   logger.debug("[#ff69b4]Running the estimator pipeline[/]")
   EstimatorPipeline(path=None).run()
 
 
 @cli.command(name="pool", help="Aggregate results via bagging.")
 @common_options(require_input=False)
-def pool_cmd(
-  input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize, 
-):
+def pool_cmd():
   logger.debug("[#ff69b4]Running the pooling pipeline[/]")
   PoolerPipeline(path=None).run()
 
@@ -172,16 +175,14 @@ def pool_cmd(
 @cli.command(name="report", help="Generate analysis report and plots.")
 @common_options(require_input=False)
 @click.option("--plot-name", default=None, help="Optional name for the generated plot.")
-def report_cmd(
-  input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize, plot_name
-):
+def report_cmd(plot_name):
   logger.debug("[#ff69b4]Running the reporting pipeline[/]")
   Reporter(path=None, plot_name=plot_name).run()
 
 
 @cli.command(name="finish", help="Finalize run: clean, flush caches, and/or anonymize outputs.")
 @common_options(require_input=False)
-def finish_cmd(input_file, model_dir, cutoff, direction, parameters, clean, flush, anonymize):
+def finish_cmd( clean, flush, anonymize):
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
   Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize).run()
 
