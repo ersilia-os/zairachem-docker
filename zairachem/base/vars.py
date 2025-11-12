@@ -85,12 +85,11 @@ PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 # Ersilia Model Hub
-
-DEFAULT_FEATURIZERS = ["eos5axz", "eos4u6p", "eos2gw4"]
-DEFAULT_FEATURIZERS_DTYPE = {"eos5axz":"int32", "eos4u6p":"float", "eos2gw4":"float"}
-DEFAULT_FEATURIZERS_DIMS = {"eos5axz":2048, "eos4u6p":3200, "eos2gw4":1024}
-DEFAULT_FEATURIZERS_WITH_PORT = {
-  k: v for k, v in zip(DEFAULT_FEATURIZERS, get_free_ports(len(DEFAULT_FEATURIZERS)))
+ERSILIA_HUB_DEFAULT_MODELS = ["eos5axz", "eos4u6p", "eos2gw4", "eos8aa5"]
+ERSILIA_HUB_DEFAULT_MODELS_DTYPE = {"eos5axz":"int32", "eos4u6p":"float", "eos2gw4":"float", "eos8aa5": "float"}
+ERSILIA_HUB_DEFAULT_MODELS_DIMS = {"eos5axz":2048, "eos4u6p":3200, "eos2gw4":1024, "eos8aa5": 2304}
+ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT = {
+  k: v for k, v in zip(ERSILIA_HUB_DEFAULT_MODELS, get_free_ports(len(ERSILIA_HUB_DEFAULT_MODELS)))
 }
 
 DEFAULT_PROJECTIONS = ["eos2db3"]
