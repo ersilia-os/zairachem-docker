@@ -9,7 +9,6 @@ from zairachem.base.vars import (
   DATA_SUBFOLDER,
   DATA_FILENAME,
   DESCRIPTORS_SUBFOLDER,
-  REFERENCE_DESCRIPTOR,
   RAW_DESC_FILENAME,
   ERSILIA_DATA_FILENAME,
 )
@@ -48,9 +47,7 @@ class RawDescriptors(ZairaBase):
     df.to_csv(self.input_csv_ersilia, index=False)
 
   def eos_ids(self):
-    eos_ids = list(set(self.params["ersilia_hub"]))
-    if REFERENCE_DESCRIPTOR not in eos_ids:
-      eos_ids += [REFERENCE_DESCRIPTOR]
+    eos_ids = list(set(self.params["featurizer_ids"]))
     return eos_ids
 
   def done_eos_ids(self):
@@ -89,6 +86,6 @@ class RawDescriptors(ZairaBase):
         self._run_eos(eos_id)
         done_eos += [eos_id]
       except:
-        continue
+        raise Exception(f"Raw descriptor calculations failed for model {eos_id}")
     with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "w") as f:
       json.dump(done_eos, f, indent=4)

@@ -12,8 +12,8 @@ from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
 from zairachem.base.vars import (
-  ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT,
-  ERSILIA_HUB_DEFAULT_MODELS,
+  DEFAULT_FEATURIZERS_WITH_PORT,
+  ALL_FEATURIZER,
   NETWORK_NAME,
 )
 from pathlib import Path
@@ -40,7 +40,7 @@ class Describer(ZairaBase):
     assert os.path.exists(self.output_dir)
 
   def create_config_files(self):
-    all_service_exists = service_exists(compose_yml_file, ERSILIA_HUB_DEFAULT_MODELS)
+    all_service_exists = service_exists(compose_yml_file, ALL_FEATURIZER)
 
     if isinstance(all_service_exists, bool) and not all_service_exists:
       os.remove(compose_yml_file)
@@ -48,7 +48,7 @@ class Describer(ZairaBase):
 
     if not os.path.exists(compose_yml_file) or not os.path.exists(nginx_config_file):
       os.makedirs(base_config_path, exist_ok=True)
-      compose, nginx_conf = generate_compose_and_nginx(ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT)
+      compose, nginx_conf = generate_compose_and_nginx(DEFAULT_FEATURIZERS_WITH_PORT)
       Path(compose_yml_file).write_text(compose)
       Path(nginx_config_file).write_text(nginx_conf)
 
@@ -74,7 +74,7 @@ class Describer(ZairaBase):
 
   def run(self):
     self.setup_model_servers()
-    write_service_file(ERSILIA_HUB_DEFAULT_MODELS)
+    write_service_file(ALL_FEATURIZER)
     self.reset_time()
     self._raw_descriptions()
     self.update_elapsed_time()

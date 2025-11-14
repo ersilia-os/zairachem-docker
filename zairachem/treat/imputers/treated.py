@@ -11,7 +11,6 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
   RAW_DESC_FILENAME,
-  SCALED_DESCRIPTORS,
   TREATED_DESC_FILENAME,
 )
 
@@ -241,13 +240,6 @@ class TreatedDescriptors(DescriptorBase):
     for eos_id in data:
       yield eos_id
 
-  def keep_scaled_eos_ids(self):
-    scaled_eos_ids = []
-    for eos_id in self.done_eos_iter():
-      if eos_id in SCALED_DESCRIPTORS:
-        scaled_eos_ids += [eos_id]
-    return scaled_eos_ids
-
   def run(self):
     rl = RawLoader()
     for eos_id in self.done_eos_iter():
@@ -270,22 +262,21 @@ class TreatedDescriptors(DescriptorBase):
           algo = algo.load(os.path.join(trained_path, algo._name + ".joblib"))
         X[curr] = algo.transform(X[prev])
       final_idx = len(self.common_pipeline) - 1
-      if eos_id in self.keep_scaled_eos_ids():
-        for step in self.scaled_pipeline:
-          curr, prev = step[0], step[1]
-          algo = step[-1]()
-          if algo._name == "scaler":
-            if data.is_sparse():
-              self.logger.info("Skipping normalization of {0} as it is sparse".format(eos_id))
-              algo.set_skip()
-          if not self._is_predict:
-            algo.fit(X[prev])
-            algo.save(os.path.join(trained_path, algo._name + ".joblib"))
+      for step in self.scaled_pipeline:
+        curr, prev = step[0], step[1]
+        algo = step[-1]()
+        if algo._name == "scaler":
+          if data.is_sparse():
+            self.logger.info("Skipping normalization of {0} as it is sparse".format(eos_id))
+            algo.set_skip()
           else:
-            algo = algo.load(os.path.join(trained_path, algo._name + ".joblib"))
-          X[curr] = algo.transform(X[prev])
-        final_idx = len(self.common_pipeline) + len(self.scaled_pipeline) - 1
-
+            if not self._is_predict:
+              algo.fit(X[prev])
+              algo.save(os.path.join(trained_path, algo._name + ".joblib"))
+            else:
+              algo = algo.load(os.path.join(trained_path, algo._name + ".joblib"))
+        X[curr] = algo.transform(X[prev])
+      final_idx = len(self.common_pipeline) + len(self.scaled_pipeline) - 1
       file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, self._name)
       data._values = X[final_idx]
       Hdf5(file_name).save(data)

@@ -1,4 +1,4 @@
-from .files import ParametersFile, SingleFile, SingleFileForPrediction
+from .files import ModelIdsFile, ParametersFile, SingleFile, SingleFileForPrediction
 from .standardize import ChemblStandardize
 from .folding import FoldEnsemble
 from .tasks import SingleTasks, SingleTasksForPrediction
@@ -9,6 +9,7 @@ from .check import SetupChecker
 from zairachem.base.utils.pipeline import PipelineStep, SessionFile
 
 __all__ = [
+  "ModelIdsFile",
   "ParametersFile",
   "SingleFile",
   "SingleFileForPrediction",

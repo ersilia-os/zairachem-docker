@@ -58,13 +58,7 @@ class InputSchema(ZairaBase):
       else:
         continue
     if len(cols) > 1:
-      can_cols = []
-      for c in cols:
-        # prioritise canonical smiles column
-        if "can" in c.lower():
-          can_cols += [c]
-      if len(can_cols) > 0:
-        cols = can_cols
+      raise Exception("More than one column contains smiles as header")
     return [cols[0]]
 
   def _is_values_column(self, col):
@@ -103,100 +97,10 @@ class InputSchema(ZairaBase):
         continue
     return cols
 
-  def _is_qualifier_column(self, col):
-    # TODO
-    if "qualifier" in col.lower():
-      return True
-    else:
-      return False
-
-  def find_qualifier_column(self):
-    cols = []
-    for col in cols:
-      if self._is_qualifier_column(col):
-        cols += [col]
-    return cols
-
-  def _is_date_column(self, col):
-    if "date" in col.lower():
-      return True
-    else:
-      return False
-    # TODO
-    n = self.df_[self.df_[col].notnull()].shape[0]
-    df_ = self.df_.copy()
-    df_[col] = pd.to_datetime(df_[col], errors="coerce")
-    m = df_[df_[col].notnull()].shape[0]
-    if m / n > _MIN_CORRECT:
-      return True
-    else:
-      return False
-
-  def find_date_column(self):
-    cols = []
-    for col in self.columns:
-      if self._is_date_column(col):
-        cols += [col]
-    return cols
-
-  def _is_identifier_column(self, col):
-    self.logger.debug("Identifying inputs column: {0}".format(col))
-    if "identifier" in col.lower():
-      return True
-    elif "id" == col.lower():
-      return True
-    elif col == "Unnamed: 0":
-      return True
-    else:
-      values = list(self.df_[self.df_[col].notnull()][col])
-      for v in values:
-        try:
-          float(v)
-          return False
-        except:
-          continue
-      if len(set(values)) / len(values) > 0.8:
-        return True
-      else:
-        return False
-
-  def find_identifier_column(self):
-    cols = []
-    for col in self.columns:
-      if self._is_identifier_column(col):
-        cols += [col]
-    return cols
-
-  def _is_group_column(self, col):
-    # TODO
-    if "series" in col.lower() or "group" in col.lower():
-      return True
-    else:
-      return False
-
-  def find_group_column(self):
-    cols = []
-    for col in self.columns:
-      if self._is_group_column(col):
-        cols += [col]
-    return cols
-
   def resolve_columns(self):
     smiles_column = self.find_smiles_column()
-    assert len(smiles_column) > 0, "No SMILES column found!"
+    assert len(smiles_column) == 1, "No SMILES column found!"
     smiles_column = smiles_column[0]
-    identifier_column = [x for x in self.find_identifier_column() if x != smiles_column]
-    if len(identifier_column) == 0:
-      identifier_column = None
-    else:
-      identifier_column = identifier_column[0]
-      self.add_explored_column(identifier_column)
-    data = {"smiles_column": smiles_column, "identifier_column": identifier_column}
-    qualifier_column = self.find_qualifier_column()
-    if len(qualifier_column) == 0:
-      qualifier_column = None
-    else:
-      qualifier_column = qualifier_column[0]
     values_column = self.find_values_column()
     self.logger.debug("Values column {0}".format(values_column))
     if not values_column:
@@ -204,18 +108,7 @@ class InputSchema(ZairaBase):
     else:
       assert len(values_column) == 1, "More than one values column found! {0}".format(values_column)
       values_column = values_column[0]
-    group_column = self.find_group_column()
-    if len(group_column) == 0:
-      group_column = None
-    else:
-      group_column = group_column[0]
-    date_column = self.find_date_column()
-    if len(date_column) == 0:
-      date_column = None
-    else:
-      date_column = date_column[0]
-    data["qualifier_column"] = qualifier_column
+    data = {}
+    data["smiles_column"] = smiles_column
     data["values_column"] = values_column
-    data["group_column"] = group_column
-    data["date_column"] = date_column
     return data

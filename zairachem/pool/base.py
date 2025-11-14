@@ -79,6 +79,14 @@ class XGetter(ZairaBase):
         for i in range(X_.shape[1]):
           self.columns += ["umap-{0}".format(i)]
 
+    tsne_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5")
+    if os.path.exists(umap_file):
+      with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5"), "r") as f:
+        X_ = f["Values"][:]
+        self.X += [X_]
+        for i in range(X_.shape[1]):
+          self.columns += ["tsne-{0}".format(i)]
+
   def _get_results(self):
     prefixes = []
     dfs = []
@@ -159,30 +167,13 @@ class BasePooler(ZairaBase):
 
   def _filter_out_manifolds(self, df):
     columns = list(df.columns)
-    columns = [c for c in columns if "umap-" not in c and "pca-" not in c]
+    columns = [c for c in columns if "umap-" not in c and "pca-" not in c and "tsne-" not in c]
     return df[columns]
 
   def _filter_out_unwanted_columns(self, df):
     df = self._filter_out_manifolds(df)
     df = self._filter_out_bin(df)
     return df
-
-  def _get_total_time_budget_sec(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-      time_budget = json.load(f)["time_budget"]
-    return int(time_budget) * 60 + 1
-
-  def _estimate_time_budget(self):  # TODO CONFIRM TIME TO USE
-    elapsed_time = self.get_elapsed_time()
-    self.logger.info("Elapsed time: {0} seconds".format(elapsed_time))
-    total_time_budget = self._get_total_time_budget_sec()
-    self.logger.info("Total time budget: {0} seconds".format(total_time_budget))
-    available_time = total_time_budget - elapsed_time
-    available_time = available_time / 2.0
-    available_time = available_time * 0.8
-    available_time = int(available_time) + 1
-    self.logger.info("Available time: {0} seconds".format(available_time))
-    return available_time
 
 
 class BaseOutcomeAssembler(ZairaBase):

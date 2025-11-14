@@ -8,6 +8,6 @@ class BaggerPipeline:
     self.bagger = Bagger(path)
     self.assembler = BaggerAssembler(path)
 
-  def run(self, time_budget_sec=None):
-    results = self.bagger.run(time_budget_sec=time_budget_sec)
+  def run(self):
+    results = self.bagger.run()
     self.assembler.run(results)

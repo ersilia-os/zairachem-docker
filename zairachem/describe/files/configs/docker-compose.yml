@@ -1,12 +1,8 @@
-version: "3.9"
 services:
-  redis_zairachem:
-    container_name: redis
+  redis:
     image: redis:latest
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
-    ports:
-      - "6379:6379" 
     volumes:
       - redis_data:/data
     networks:
@@ -14,9 +10,11 @@ services:
   nginx:
     image: nginx:alpine
     depends_on:
+      - eos2db3_api
       - eos2gw4_api
       - eos4u6p_api
       - eos5axz_api
+      - eos8aa5_api
     ports:
       - "80:80"
     volumes:
@@ -25,6 +23,20 @@ services:
     restart: unless-stopped
     networks:
       - ersilia_network
+  eos2db3_api:
+    image: ersiliaos/eos2db3
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URI: "redis://redis:6379"
+      REDIS_EXPIRATION: "604800"
+    restart: unless-stopped
+    ports:
+      - "36595:80"
+    networks:
+      - ersilia_network
+    depends_on:
+      - redis
   eos2gw4_api:
     image: ersiliaos/eos2gw4
     environment:
@@ -34,11 +46,11 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "46017:80"
+      - "57727:80"
     networks:
       - ersilia_network
     depends_on:
-      - redis_zairachem
+      - redis
   eos4u6p_api:
     image: ersiliaos/eos4u6p
     environment:
@@ -48,11 +60,11 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "39071:80"
+      - "45213:80"
     networks:
       - ersilia_network
     depends_on:
-      - redis_zairachem
+      - redis
   eos5axz_api:
     image: ersiliaos/eos5axz
     environment:
@@ -62,11 +74,25 @@ services:
       REDIS_EXPIRATION: "604800"
     restart: unless-stopped
     ports:
-      - "35445:80"
+      - "33221:80"
     networks:
       - ersilia_network
     depends_on:
-      - redis_zairachem
+      - redis
+  eos8aa5_api:
+    image: ersiliaos/eos8aa5
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_URI: "redis://redis:6379"
+      REDIS_EXPIRATION: "604800"
+    restart: unless-stopped
+    ports:
+      - "53099:80"
+    networks:
+      - ersilia_network
+    depends_on:
+      - redis
 networks:
   ersilia_network:
     external: true

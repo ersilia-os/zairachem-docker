@@ -22,7 +22,6 @@ class EstimatorPipeline(ZairaBase):
     self.output_dir = os.path.abspath(self.path)
     assert os.path.exists(self.output_dir)
     self.params = self._load_params()
-    self.get_estimators()
     self.data_size = self._get_data_size()  # TODO clean up if not needed
 
   def _get_data_size(self):
@@ -34,21 +33,12 @@ class EstimatorPipeline(ZairaBase):
       params = json.load(f)
     return params
 
-  def get_estimators(self):
-    self.logger.debug("Getting estimators")
-    self._estimators_to_use = set()
-    for x in self.params["estimators"]:
-      self._estimators_to_use.update([x])
-
-  def _lq_random_forest_estimator_pipeline(self, time_budget_sec):
-    self.logger.info(f"Selected estimators to use:{self._estimators_to_use}")
-    if "lazyqsar" not in self._estimators_to_use:
-      return
-    step = PipelineStep("random_forest", self.output_dir)
+  def _lazyqsar_estimator_pipeline(self):
+    step = PipelineStep("lazy-qsar", self.output_dir)
     if not step.is_done():
-      self.logger.debug("Running lazyqsar pipeline for the selected estimators!")
+      self.logger.debug("Running lazyqsar pipeline")
       p = LazyQsarAutoMLPipeline(path=self.path)
-      p.run(time_budget_sec=time_budget_sec)
+      p.run()
       step.update()
 
   def _simple_evaluation(self):
@@ -62,6 +52,6 @@ class EstimatorPipeline(ZairaBase):
         "[yellow]Estimation setup for requested inferece is already done. Skippign this step![/]"
       )
 
-  def run(self, time_budget_sec=None):
-    self._lq_random_forest_estimator_pipeline(time_budget_sec)
+  def run(self):
+    self._lazyqsar_estimator_pipeline()
     self._simple_evaluation()

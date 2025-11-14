@@ -2,21 +2,21 @@ from zairachem.setup.prep.training import TrainSetup
 from zairachem.base.utils.logging import logger
 
 
-def run(input_file, output_dir=None, threshold=None, direction=None, parameters=None):
+def run(
+  input_file, task, enable_cache, access, nn, contribute_cache, output_dir=None, model_ids_file=None
+):
   ts = TrainSetup(
     input_file,
     output_dir,
-    time_budget=120,
-    task="classification",
-    threshold=threshold,
-    direction=direction,
-    parameters=parameters,
+    model_ids=model_ids_file,
+    task=task,
+    enable_cache=enable_cache,
+    access=access,
+    nn=nn,
+    contribute_cache=contribute_cache,
   )
 
   if ts.is_done():
-    logger.warning(
-      "[yellow]Fitting setup for requested inferece is already done. Skippign this step![/]"
-    )
-
+    logger.warning("[yellow]Setup for requested inference is already done. Skipping this step![/]")
     return
   ts.setup()

@@ -29,7 +29,10 @@ ORG = "ersiliaos"
 NGINX_HOST_PORT = 80
 REDIS_IMAGE = "redis:latest"
 NETWORK_NAME = "ersilia_network"
-
+GITHUB_ORG = "ersilia-os"
+GITHUB_CONTENT_URL = f"https://raw.githubusercontent.com/{GITHUB_ORG}"
+GITHUB_ERSILIA_REPO = "ersilia"
+PREDEFINED_COLUMN_FILE = "model/framework/columns/run_columns.csv"
 COMPOUNDS_FILENAME = "compounds.csv"
 STANDARD_COMPOUNDS_FILENAME = "compounds_std.csv"
 MAPPING_FILENAME = "mapping.csv"
@@ -45,32 +48,25 @@ TREATED_DESC_FILENAME = "treated.h5"
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 
+DEFAULT_PUBLIC_BUCKET = ["isaura-public"]
+DEFAULT_PRIVATE_BUCKET = ["isaura-private"]
+DEFAULT_ = ["isaura-private"]
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"
 COMPOUND_IDENTIFIER_COLUMN = "compound_id"
-USER_COMPOUND_IDENTIFIER_COLUMN = "orig_compound_id"
 SMILES_COLUMN = "smiles"
 STANDARD_SMILES_COLUMN = "standard_smiles"
-DATE_COLUMN = "date"
-QUALIFIER_COLUMN = "qualifier"
 VALUES_COLUMN = "value"
-GROUP_COLUMN = "group"
-DIRECTION_COLUMN = "direction"
-AUXILIARY_TASK_COLUMN = "clf_aux"
 
 DATA_SUBFOLDER = "data"
 DATA_FILENAME = "data.csv"
 ERSILIA_DATA_FILENAME = "ersilia_data.csv"
 REFERENCE_FILENAME = "reference.csv"
-INTERPRETABILITY_SUBFOLDER = "interpretability"
-APPLICABILITY_SUBFOLDER = "applicability"
 DESCRIPTORS_SUBFOLDER = "descriptors"
 ESTIMATORS_SUBFOLDER = "estimators"
 POOL_SUBFOLDER = "pool"
-LITE_SUBFOLDER = "lite"
 REPORT_SUBFOLDER = "report"
-DISTILL_SUBFOLDER = "distill"
 OUTPUT_FILENAME = "output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
@@ -96,25 +92,9 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 # Ersilia Model Hub
 
-ERSILIA_HUB_DEFAULT_MODELS = ["eos5axz", "eos4u6p", "eos2gw4"]
-ERSILIA_HUB_DEFAULT_MODELS_DTYPE = {"eos5axz":"int32", "eos4u6p":"float", "eos2gw4":"float"}
-ERSILIA_HUB_DEFAULT_MODELS_DIMS = {"eos5axz":2048, "eos4u6p":3200, "eos2gw4":1024}
-ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT = {
-  k: v for k, v in zip(ERSILIA_HUB_DEFAULT_MODELS, get_free_ports(len(ERSILIA_HUB_DEFAULT_MODELS)))
+DEFAULT_FEATURIZERS = ["eos5axz", "eos2gw4"]
+DEFAULT_PROJECTIONS = ["eos2db3"]
+ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
+DEFAULT_FEATURIZERS_WITH_PORT = {
+  k: v for k, v in zip(ALL_FEATURIZER, get_free_ports(len(ALL_FEATURIZER)))
 }
-
-REFERENCE_DESCRIPTOR = "eos5axz"  # eos7w6n
-
-SCALED_DESCRIPTORS = [
-  "eos5axz",
-  "eos4djh",
-]
-SCALED_DESCRIPTORS_WITH_PORT = {
-  k: v for k, v in zip(SCALED_DESCRIPTORS, get_free_ports(len(SCALED_DESCRIPTORS)))
-}
-MODELS_WITH_PORT = {**ERSILIA_HUB_DEFAULT_MODELS_WITH_PORT, **SCALED_DESCRIPTORS_WITH_PORT}
-DEFAULT_ESTIMATORS = ["lazyqsar"]
-
-ENSEMBLE_MODE = "bagging"  # bagging, blending, stacking / at the moment only bagging is available
-
-DEFAULT_PRESETS = "standard"  # the other option is lazy

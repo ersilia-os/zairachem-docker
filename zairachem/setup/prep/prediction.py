@@ -18,9 +18,6 @@ from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
-  LITE_SUBFOLDER,
-  INTERPRETABILITY_SUBFOLDER,
-  APPLICABILITY_SUBFOLDER,
   REPORT_SUBFOLDER,
   OUTPUT_FILENAME,
 )
@@ -87,9 +84,6 @@ class PredictSetup(object):
     self._make_subfolder(DESCRIPTORS_SUBFOLDER)
     self._make_subfolder(ESTIMATORS_SUBFOLDER)
     self._make_subfolder(POOL_SUBFOLDER)
-    self._make_subfolder(LITE_SUBFOLDER)
-    self._make_subfolder(INTERPRETABILITY_SUBFOLDER)
-    self._make_subfolder(APPLICABILITY_SUBFOLDER)
     self._make_subfolder(REPORT_SUBFOLDER)
     shutil.copyfile(
       os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE),
@@ -109,7 +103,7 @@ class PredictSetup(object):
     step = PipelineStep("normalize_input", self.output_dir)
     if not step.is_done():
       params = ParametersFile(
-        full_path=os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE)
+        path=os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE)
       ).load()
       f = SingleFileForPrediction(self.input_file, params)
       f.process()
@@ -174,8 +168,6 @@ class ONNXPredictSetup(PredictSetup):
 
   def _make_subfolders(self):
     self._make_subfolder(DATA_SUBFOLDER)
-    self._make_subfolder(INTERPRETABILITY_SUBFOLDER)
-    self._make_subfolder(APPLICABILITY_SUBFOLDER)
     self._make_subfolder(REPORT_SUBFOLDER)
 
   def _normalize_input(self):

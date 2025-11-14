@@ -10,6 +10,7 @@ from zairachem.report.plots import (
   ScoreViolinPlot,
   ScoreStripPlot,
   ProjectionUmapPlot,
+  ProjectionTSNEPlot,
   ProjectionPcaPlot,
   RegressionPlotRaw,
   HistogramPlotRaw,
@@ -68,6 +69,10 @@ class Reporter(ZairaBase):
     if not self.__skip("projection-umap"):
       ProjectionUmapPlot(ax=None, path=self.path).save()
 
+  def _projection_tsne_plot(self):
+    if not self.__skip("projection-tsne"):
+      ProjectionTSNEPlot(ax=None, path=self.path).save()
+
   def _projection_pca_plot(self):
     if not self.__skip("projection-pca"):
       ProjectionPcaPlot(ax=None, path=self.path).save()
@@ -123,6 +128,7 @@ class Reporter(ZairaBase):
     self._score_violin_plot()
     self._score_strip_plot()
     self._projection_umap_plot()
+    self._projection_tsne_plot()
     self._projection_pca_plot()
     self._regression_plot_transf()
     self._histogram_plot_transf()
