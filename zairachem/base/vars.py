@@ -48,6 +48,9 @@ TREATED_DESC_FILENAME = "treated.h5"
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 
+DEFAULT_PUBLIC_BUCKET = ["isaura-public"]
+DEFAULT_PRIVATE_BUCKET = ["isaura-private"]
+DEFAULT_ = ["isaura-private"]
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"
@@ -92,11 +95,6 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 DEFAULT_FEATURIZERS = ["eos5axz", "eos2gw4"]
 DEFAULT_PROJECTIONS = ["eos2db3"]
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
-DEFAULT_FEATURIZERS_DTYPE = {
-  "eos5axz": "int32",
-  "eos2gw4": "float",
-}
-DEFAULT_FEATURIZERS_DIMS = {"eos5axz": 2048, "eos2gw4": 1024}
 DEFAULT_FEATURIZERS_WITH_PORT = {
   k: v for k, v in zip(ALL_FEATURIZER, get_free_ports(len(ALL_FEATURIZER)))
 }

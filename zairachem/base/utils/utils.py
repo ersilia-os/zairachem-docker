@@ -2,7 +2,14 @@ import csv, shutil, subprocess, requests, sys, time
 from io import StringIO
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.terminal import run_command
-from zairachem.base.vars import DEFAULT_PROJECTIONS, GITHUB_CONTENT_URL, PREDEFINED_COLUMN_FILE
+from zairachem.base.vars import (
+  DEFAULT_PROJECTIONS,
+  GITHUB_CONTENT_URL,
+  PREDEFINED_COLUMN_FILE,
+  DEFAULT_PUBLIC_BUCKET,
+  DEFAULT_PRIVATE_BUCKET,
+)
+from isaura.manage import IsauraInspect
 
 
 def install_docker_compose(install_file):
@@ -55,3 +62,26 @@ def post(data, url):
     return res.json()
   except requests.RequestException as e:
     logger.critical(f"Error occured when computing the projection -> {e}")
+
+
+def resolve_default_bucket(access):
+  return DEFAULT_PUBLIC_BUCKET[0] if access in "public" else DEFAULT_PRIVATE_BUCKET[0]
+
+
+def get_bucket_records(bucket):
+  insp = IsauraInspect(model_id="_", model_version="_", cloud=False)
+  return insp.inspect_models(bucket, prefix_filter="")
+
+
+def latest_version(model, bucket):
+  if model is None:
+    return None
+  records = get_bucket_records(bucket)
+  versions = []
+  for r in records:
+    name = r["model"]
+    if name.startswith(model + "/"):
+      v = name.split("/")[1]
+      if v[1:].isdigit():
+        versions.append(int(v[1:]))
+  return "v" + str(max(versions)) if versions else "v1"

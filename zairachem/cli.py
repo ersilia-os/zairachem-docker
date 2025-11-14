@@ -105,13 +105,58 @@ def cli():
 
 @cli.command(name="fit", help="Fit a model using ZairaChem")
 @common_options(require_input=True, include_task=True, include_eos=True)
-def fit(input_file, classification, model_dir, eos_ids, clean, flush, anonymize):
+@click.option(
+  "--enable-store",
+  "-es",
+  is_flag=True,
+  default=False,
+  help="Enables cache fetching and saving from isaura",
+)
+@click.option(
+  "--access", "-a", default="public", help="Cache reading access level [either public or private]"
+)
+@click.option(
+  "--nearest-neighbors",
+  "-nn",
+  is_flag=True,
+  default=False,
+  help="Enables nearest neighbor search for fetching calculations!",
+)
+@click.option(
+  "--contribute-store",
+  "-cs",
+  is_flag=True,
+  default=False,
+  help="Enables to copy or contribute caches to the default buckets!",
+)
+def fit(
+  input_file,
+  classification,
+  model_dir,
+  eos_ids,
+  clean,
+  flush,
+  anonymize,
+  enable_store,
+  access,
+  nearest_neighbors,
+  contribute_store,
+):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
   if classification:
     task = "classification"
   else:
     task = "regression"
-  run_fit(input_file, task, output_dir=model_dir, model_ids_file=eos_ids)
+  run_fit(
+    input_file,
+    task,
+    enable_store,
+    access,
+    nearest_neighbors,
+    contribute_store,
+    output_dir=model_dir,
+    model_ids_file=eos_ids,
+  )
   process_group(clean, flush, anonymize)
 
 

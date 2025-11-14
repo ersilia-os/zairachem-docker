@@ -1,7 +1,14 @@
-import csv, json, hashlib, time, requests, re
+import csv, json, hashlib, os, time, requests, re
 import pandas as pd
 from zairachem.base.utils.logging import logger
-from isaura.manage import IsauraReader, IsauraWriter
+from zairachem.base import ZairaBase
+from zairachem.base.utils.utils import (
+  fetch_schema_from_github,
+  resolve_default_bucket,
+  latest_version,
+)
+from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
+from isaura.manage import IsauraCopy, IsauraReader, IsauraWriter
 import numpy as np
 
 _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
@@ -11,20 +18,33 @@ _ALLOWED_RE = re.compile(
 DEFAULT_BATCH_SIZE = 100_000
 
 
-class BinaryStreamClient:
+class BinaryStreamClient(ZairaBase):
   def __init__(
     self, csv_path, model_id=None, url=None, project_name=None, batch_size=DEFAULT_BATCH_SIZE
   ):
+    super(ZairaBase, self).__init__()
     self.logger = logger
     self.batch_size = batch_size
     self.csv_path = csv_path
     self.url = url
-    self.input_data, self.input_header = self._load_data()
-    self._feature_len = None
-    self.project_name = project_name
     self.model_id = model_id
 
-  def _load_data(self) -> list:
+    self.path = self.get_output_dir()
+    self.input_data, self.input_header = self._load_data()
+    self.params = self._load_params()
+    self.enable_cache = bool(self.params["enable_cache"])
+    self.default_bucket = resolve_default_bucket(self.params["access"])
+    self.nns = bool(self.params["enable_nns"])
+    self.contribute_cache = bool(self.params["contribute_cache"])
+    self._feature_len = None
+    self.project_name = project_name
+
+  def _load_params(self):
+    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+      params = json.load(f)
+    return params
+
+  def _load_data(self):
     with open(self.csv_path, "r") as f:
       reader = csv.reader(f)
       h = next(reader)
@@ -134,22 +154,28 @@ class BinaryStreamClient:
       return left_arrays + right_arrays, left_mask + right_mask, right_res or left_res
 
   def run(self):
+    if not self.enable_cache:
+      logger.warning("Isaura store operation is disabled globally!")
+      return self._run()
     try:
+      self.version = latest_version(self.model_id, self.default_bucket)
       df = pd.DataFrame(columns=["input"], data=self.input_data)
       r = IsauraReader(
         model_id=self.model_id,
-        model_version="v1",
+        model_version=self.version,
         input_csv=None,
-        approximate=False,
-        bucket=self.project_name,
+        approximate=self.nns,
+        bucket=self.default_bucket,
       )
       df = r.read(df=df)
       values = df[df.columns.difference(["key", "input"])].values
       values = values.astype("float")
       cols = df.columns.difference(["key", "input"]).tolist()
+      self.schema = fetch_schema_from_github(self.model_id)
+      dtype = "float" if "float" in set(self.schema[1]) else "int"
       any_results = {
         "shape": values.shape,
-        "dtype": "float",
+        "dtype": dtype,
         "data": values,
         "dims": cols,
         "inputs": self.input_data,
@@ -214,12 +240,20 @@ class BinaryStreamClient:
       "inputs": self.input_data,
     })
     df = self._get_ersilia_df(any_results)
-    try:
-      w = IsauraWriter(
-        input_csv=None, model_id=self.model_id, model_version="v1", bucket=self.project_name
-      )
-      w.write(df=df)
-      time.sleep(10)
-    except Exception as e:
-      logger.error(e)
+    if self.enable_cache:
+      try:
+        w = IsauraWriter(
+          input_csv=None,
+          model_id=self.model_id,
+          model_version=self.version,
+          bucket=self.project_name,
+        )
+        w.write(df=df)
+        if self.contribute_cache:
+          c = IsauraCopy(
+            model_id=self.model_id, model_version=self.version, bucket=self.project_name
+          )
+          c.copy()
+      except Exception as e:
+        logger.error(e)
     return any_results

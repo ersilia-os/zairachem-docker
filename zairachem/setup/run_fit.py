@@ -2,12 +2,18 @@ from zairachem.setup.prep.training import TrainSetup
 from zairachem.base.utils.logging import logger
 
 
-def run(input_file, task, output_dir=None, model_ids_file=None):
+def run(
+  input_file, task, enable_cache, access, nn, contribute_cache, output_dir=None, model_ids_file=None
+):
   ts = TrainSetup(
     input_file,
     output_dir,
     model_ids=model_ids_file,
     task=task,
+    enable_cache=enable_cache,
+    access=access,
+    nn=nn,
+    contribute_cache=contribute_cache,
   )
 
   if ts.is_done():
