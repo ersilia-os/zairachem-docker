@@ -27,10 +27,10 @@ class ModelIdsFile(object):
       with open(self.path, "r") as f:
         self.data = json.load(f)
     return self.data
-  
+
   def get_featurizer_ids(self):
     return self.load()["featurizer_ids"]
-  
+
   def get_projection_ids(self):
     return self.load()["projection_ids"]
 
@@ -45,6 +45,7 @@ class ParametersFile(object):
       with open(self.path, "r") as f:
         self.params = json.load(f)
     return self.params
+
 
 class SingleFile(InputSchema):
   def __init__(self, input_file, params):
@@ -132,7 +133,7 @@ class SingleFile(InputSchema):
     R = []
     for k, v in dedupe.items():
       v = np.median([x for x in v])
-      R += [[k,v]]
+      R += [[k, v]]
     dfv = pd.DataFrame(
       R,
       columns=[

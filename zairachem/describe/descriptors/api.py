@@ -1,5 +1,7 @@
-import csv, json, time, requests, re
+import csv, json, hashlib, time, requests, re
+import pandas as pd
 from zairachem.base.utils.logging import logger
+from isaura.manage import IsauraReader, IsauraWriter
 import numpy as np
 
 _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
@@ -10,19 +12,23 @@ DEFAULT_BATCH_SIZE = 100_000
 
 
 class BinaryStreamClient:
-  def __init__(self, csv_path, url=None, batch_size=DEFAULT_BATCH_SIZE):
+  def __init__(
+    self, csv_path, model_id=None, url=None, project_name=None, batch_size=DEFAULT_BATCH_SIZE
+  ):
     self.logger = logger
     self.batch_size = batch_size
     self.csv_path = csv_path
     self.url = url
-    self.input_data = self._load_data()
+    self.input_data, self.input_header = self._load_data()
     self._feature_len = None
+    self.project_name = project_name
+    self.model_id = model_id
 
   def _load_data(self) -> list:
     with open(self.csv_path, "r") as f:
       reader = csv.reader(f)
-      next(reader)
-      return [row[0] for row in reader]
+      h = next(reader)
+      return ([row[0] for row in reader], h)
 
   def decode_binary_stream(self, response, chunk_size=8192):
     it = response.iter_content(chunk_size=chunk_size)
@@ -128,25 +134,58 @@ class BinaryStreamClient:
       return left_arrays + right_arrays, left_mask + right_mask, right_res or left_res
 
   def run(self):
+    try:
+      df = pd.DataFrame(columns=["input"], data=self.input_data)
+      r = IsauraReader(
+        model_id=self.model_id,
+        model_version="v1",
+        input_csv=None,
+        approximate=False,
+        bucket=self.project_name,
+      )
+      df = r.read(df=df)
+      values = df[df.columns.difference(["key", "input"])].values
+      values = values.astype("float")
+      cols = df.columns.difference(["key", "input"]).tolist()
+      any_results = {
+        "shape": values.shape,
+        "dtype": "float",
+        "data": values,
+        "dims": cols,
+        "inputs": self.input_data,
+      }
+      return any_results
+    except SystemExit as e:
+      logger.info("Fall back to the api for calculating the descriptors!")
+      return self._run()
+
+  def _get_ersilia_df(self, res):
+    keys = [hashlib.md5(inp.encode()).hexdigest() for inp in res["inputs"]]
+    return pd.DataFrame({"key": keys, "input": res["inputs"]}).join(
+      pd.DataFrame(res["data"], columns=res["dims"], dtype=str)
+    )
+
+  def _run(self):
     total_time = 0.0
     n = len(self.input_data)
     per_item_rows = [None] * n
     valid_mask_input = [False] * n
     good_idx = []
-    good_smiles = []
+    checked_input = []
     for i, s in enumerate(self.input_data):
       ok = self._is_smiles(s)
       valid_mask_input[i] = ok
       if ok:
         good_idx.append(i)
-        good_smiles.append(s)
+        checked_input.append(s)
 
     any_results = None
     try:
-      for start in range(0, len(good_smiles), self.batch_size):
-        batch = good_smiles[start : start + self.batch_size]
+      for start in range(0, len(checked_input), self.batch_size):
+        batch = checked_input[start : start + self.batch_size]
         batch_abs_offset = good_idx[start]
         t0 = time.perf_counter()
+
         arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
         total_time += time.perf_counter() - t0
         if results is not None:
@@ -173,7 +212,14 @@ class BinaryStreamClient:
       "shape": stacked.shape,
       "data": stacked,
       "inputs": self.input_data,
-      "valid_mask": [r is not None for r in per_item_rows],
-      "prefilter_mask": valid_mask_input,
     })
+    df = self._get_ersilia_df(any_results)
+    try:
+      w = IsauraWriter(
+        input_csv=None, model_id=self.model_id, model_version="v1", bucket=self.project_name
+      )
+      w.write(df=df)
+      time.sleep(10)
+    except Exception as e:
+      logger.error(e)
     return any_results

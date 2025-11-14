@@ -79,6 +79,14 @@ class XGetter(ZairaBase):
         for i in range(X_.shape[1]):
           self.columns += ["umap-{0}".format(i)]
 
+    tsne_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5")
+    if os.path.exists(umap_file):
+      with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5"), "r") as f:
+        X_ = f["Values"][:]
+        self.X += [X_]
+        for i in range(X_.shape[1]):
+          self.columns += ["tsne-{0}".format(i)]
+
   def _get_results(self):
     prefixes = []
     dfs = []
@@ -159,13 +167,14 @@ class BasePooler(ZairaBase):
 
   def _filter_out_manifolds(self, df):
     columns = list(df.columns)
-    columns = [c for c in columns if "umap-" not in c and "pca-" not in c]
+    columns = [c for c in columns if "umap-" not in c and "pca-" not in c and "tsne-" not in c]
     return df[columns]
 
   def _filter_out_unwanted_columns(self, df):
     df = self._filter_out_manifolds(df)
     df = self._filter_out_bin(df)
     return df
+
 
 class BaseOutcomeAssembler(ZairaBase):
   def __init__(self, path=None):

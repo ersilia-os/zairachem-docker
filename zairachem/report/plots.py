@@ -408,6 +408,89 @@ class ProjectionUmapPlot(BasePlot):
       self.is_available = False
 
 
+class ProjectionTSNEPlot(BasePlot):
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path)
+    self.name = "projection-tsne"
+    ax = self.ax
+    if self.has_clf_data():
+      if self.is_predict() and ResultsFetcher(path=path).get_projections_tsne_trained() is not None:
+        bp = ResultsFetcher(path=path).get_actives_inactives_trained()
+        bp_a = []
+        bp_i = []
+        for i, v in enumerate(bp):
+          if v == 1:
+            bp_a += [i]
+          if v == 0:
+            bp_i += [i]
+        red0, red1 = ResultsFetcher(path=path).get_projections_tsne_trained()
+        ax.scatter(
+          [red0[i] for i in bp_i],
+          [red1[i] for i in bp_i],
+          color=named_colors.blue,
+          s=5,
+          label="Train known inactives",
+          edgecolors="none",
+        )
+        ax.scatter(
+          [red0[i] for i in bp_a],
+          [red1[i] for i in bp_a],
+          color=named_colors.red,
+          s=5,
+          label="Train known actives",
+          edgecolors="none",
+        )
+      bp = ResultsFetcher(path=path).get_actives_inactives()
+      bp_a = []
+      bp_i = []
+      for i, v in enumerate(bp):
+        if v == 1:
+          bp_a += [i]
+        if v == 0:
+          bp_i += [i]
+      red0, red1 = ResultsFetcher(path=path).get_projections_tsne()
+      ax.scatter(
+        [red0[i] for i in bp_i],
+        [red1[i] for i in bp_i],
+        facecolor="none",
+        edgecolors=named_colors.blue,
+        s=15,
+        label="Known inactives",
+        zorder=1000000,
+        lw=0.5,
+      )
+      ax.scatter(
+        [red0[i] for i in bp_a],
+        [red1[i] for i in bp_a],
+        facecolor="none",
+        edgecolors=named_colors.red,
+        s=15,
+        label="Known actives",
+        zorder=100000000,
+        lw=0.5,
+      )
+      y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
+      cmap = ContinuousColorMap(cmap=named_cmaps.coolwarm)
+      cmap.fit(y_pred)
+      colors = cmap.transform(y_pred)
+      ax.scatter(
+        red0,
+        red1,
+        color=colors,
+        alpha=0.7,
+        s=15,
+        zorder=100000,
+        edgecolors="none",
+      )
+      self.is_available = True
+      ax.set_title("TSNE 2D Projection")
+      ax.set_xlabel("Dimension 1")
+      ax.set_ylabel("Dimension 2")
+      ax.legend()
+    else:
+      self.is_available = False
+
+
 class ProjectionPcaPlot(BasePlot):
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)

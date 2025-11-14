@@ -27,7 +27,9 @@ from zairachem.base.vars import (
 )
 
 from rdkit import RDLogger
+
 RDLogger.logger().setLevel(RDLogger.CRITICAL)
+
 
 class TrainSetup(object):
   def __init__(
@@ -56,7 +58,7 @@ class TrainSetup(object):
     self.params = {
       "task": self.task,
       "featurizer_ids": self.featurizer_ids,
-      "projection_ids": self.projection_ids
+      "projection_ids": self.projection_ids,
     }
 
   def _copy_input_file(self):

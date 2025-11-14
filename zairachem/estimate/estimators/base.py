@@ -39,6 +39,7 @@ class BaseEstimator(ZairaBase):
       task = json.load(f)["task"]
     return task
 
+
 class BaseEstimatorIndividual(BaseEstimator):  # TODO MERGE WITH BASE
   def __init__(self, path, estimator, model_id):
     BaseEstimator.__init__(self, path=path)

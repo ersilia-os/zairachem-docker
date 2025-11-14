@@ -33,7 +33,9 @@ class PoolerPipeline(ZairaBase):
       model_ids = list(json.load(f))
     return model_ids
 
-  def _pool_pipeline(self, ):
+  def _pool_pipeline(
+    self,
+  ):
     step = PipelineStep("pool", self.output_dir)
     if not step.is_done():
       bagger = BaggerPipeline(self.path)

@@ -94,11 +94,7 @@ class ResultsFetcher(ZairaBase):
 
   def get_tasks(self):
     df = self._read_data()
-    tasks = [
-      c
-      for c in list(df.columns)
-      if ("clf" in c or "reg" in c)
-    ]
+    tasks = [c for c in list(df.columns) if ("clf" in c or "reg" in c)]
     return tasks
 
   def get_reg_tasks(self):
@@ -197,6 +193,17 @@ class ResultsFetcher(ZairaBase):
         umap1 = list(df["umap-1"])
     return umap0, umap1
 
+  def get_projections_tsne(self):
+    df = self._read_processed_data()
+    tsne0 = [0] * df.shape[0]
+    tsne1 = [0] * df.shape[0]
+    for c in list(df.columns):
+      if "tsne-0" in c:
+        tsne0 = list(df["tsne-0"])
+      if "tsne-1" in c:
+        tsne1 = list(df["tsne-1"])
+    return tsne0, tsne1
+
   def get_projections_pca(self):
     df = self._read_processed_data()
     pca0 = [0] * df.shape[0]
@@ -221,6 +228,20 @@ class ResultsFetcher(ZairaBase):
         if "umap-1" in c:
           umap1 = list(df["umap-1"])
       return umap0, umap1
+
+  def get_projections_tsne_trained(self):
+    df = self._read_processed_data_train()
+    tsne0 = [0] * df.shape[0]
+    tsne1 = [0] * df.shape[0]
+    if "tsne-0" not in df.columns or "tsne-1" not in df.columns:
+      return None
+    else:
+      for c in list(df.columns):
+        if "tsne-0" in c:
+          tsne0 = list(df["tsne-0"])
+        if "tsne-1" in c:
+          tsne1 = list(df["tsne-1"])
+      return tsne0, tsne1
 
   def get_projections_pca_trained(self):
     df = self._read_processed_data_train()

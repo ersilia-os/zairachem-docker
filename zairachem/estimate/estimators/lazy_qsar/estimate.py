@@ -60,7 +60,7 @@ class Predictor(BaseEstimatorIndividual):
     if self.task == "classification":
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model = LazyBinaryClassifier.load(model_folder)
-      tasks[t] = make_classification_report(y, model.predict_proba(X=X)[:,1])
+      tasks[t] = make_classification_report(y, model.predict_proba(X=X)[:, 1])
     self.update_elapsed_time()
     return tasks
 

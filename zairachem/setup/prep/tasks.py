@@ -162,14 +162,14 @@ class ClfTasks(object):
           bin_values += [0]
     self._has_enough_min_class(bin_values)
     return bin_values
-  
+
 
 class ClfTasksForPrediction(object):
   def __init__(self, data):
     self.values = self.binarize(np.array(data[VALUES_COLUMN]))
 
   def binarize(self, values):
-    accepted = set([0,0.5, 1])
+    accepted = set([0, 0.5, 1])
     bin_values = []
     for v in values:
       if v not in accepted:
@@ -212,7 +212,7 @@ class SingleTasks(ZairaBase):
       df["bin"] = ct.values
     elif self._task == "regression":
       self.logger.debug("Data is not simply a binary")
-     # TODO Keep only one column named val
+    # TODO Keep only one column named val
     else:
       raise Exception("Task is not classification or regression, cannot proceed")
     df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)

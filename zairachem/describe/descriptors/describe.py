@@ -13,7 +13,7 @@ from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
 from zairachem.base.vars import (
   DEFAULT_FEATURIZERS_WITH_PORT,
-  DEFAULT_FEATURIZERS,
+  ALL_FEATURIZER,
   NETWORK_NAME,
 )
 from pathlib import Path
@@ -40,7 +40,7 @@ class Describer(ZairaBase):
     assert os.path.exists(self.output_dir)
 
   def create_config_files(self):
-    all_service_exists = service_exists(compose_yml_file, DEFAULT_FEATURIZERS)
+    all_service_exists = service_exists(compose_yml_file, ALL_FEATURIZER)
 
     if isinstance(all_service_exists, bool) and not all_service_exists:
       os.remove(compose_yml_file)
@@ -74,7 +74,7 @@ class Describer(ZairaBase):
 
   def run(self):
     self.setup_model_servers()
-    write_service_file(DEFAULT_FEATURIZERS)
+    write_service_file(ALL_FEATURIZER)
     self.reset_time()
     self._raw_descriptions()
     self.update_elapsed_time()

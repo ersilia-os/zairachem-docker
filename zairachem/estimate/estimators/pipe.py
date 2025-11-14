@@ -33,7 +33,6 @@ class EstimatorPipeline(ZairaBase):
       params = json.load(f)
     return params
 
-
   def _lazyqsar_estimator_pipeline(self):
     step = PipelineStep("lazy-qsar", self.output_dir)
     if not step.is_done():

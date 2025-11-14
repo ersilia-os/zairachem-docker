@@ -44,14 +44,12 @@ def process_group(clean, flush, anonymize):
   Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize).run()
 
 
-def common_options(require_input: bool = True, include_task: bool = False, include_eos: bool = False):
+def common_options(
+  require_input: bool = True, include_task: bool = False, include_eos: bool = False
+):
   def _decorator(func):
     options = [
-      click.option(
-        "--input-file", 
-        "-i",
-        required=require_input, help="Path to the input file."
-      ),
+      click.option("--input-file", "-i", required=require_input, help="Path to the input file."),
       click.option(
         "--model-dir",
         "-m",
@@ -69,26 +67,29 @@ def common_options(require_input: bool = True, include_task: bool = False, inclu
         is_flag=True,
         help="Whether to flush the model checkpoints to save space for example in train-test crossvalidations)",
       ),
-      click.option(
-        "--anonymize", 
-        is_flag=True, 
-        help="Whether to anonymize the inputs entirely."),
+      click.option("--anonymize", is_flag=True, help="Whether to anonymize the inputs entirely."),
     ]
     if include_task:
-        options.insert(1,
-            click.option(
-                "--classification/--regression",
-                "-c/-r",
-                default=True,
-                help="Type of model, classification or regression.",
-            )
-        )
+      options.insert(
+        1,
+        click.option(
+          "--classification/--regression",
+          "-c/-r",
+          default=True,
+          help="Type of model, classification or regression.",
+        ),
+      )
     if include_eos:
-            options.insert(2, 
-              click.option(
-                  "--eos-ids","-e", 
-                  required=False, default=None,
-                  help="Featurizer and Projection model ids from the Ersilia Model Hub"))
+      options.insert(
+        2,
+        click.option(
+          "--eos-ids",
+          "-e",
+          required=False,
+          default=None,
+          help="Featurizer and Projection model ids from the Ersilia Model Hub",
+        ),
+      )
 
     for option in reversed(options):
       func = option(func)
@@ -101,8 +102,9 @@ def common_options(require_input: bool = True, include_task: bool = False, inclu
 def cli():
   pass
 
+
 @cli.command(name="fit", help="Fit a model using ZairaChem")
-@common_options(require_input=True,include_task=True, include_eos=True)
+@common_options(require_input=True, include_task=True, include_eos=True)
 def fit(input_file, classification, model_dir, eos_ids, clean, flush, anonymize):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
   if classification:
@@ -111,6 +113,7 @@ def fit(input_file, classification, model_dir, eos_ids, clean, flush, anonymize)
     task = "regression"
   run_fit(input_file, task, output_dir=model_dir, model_ids_file=eos_ids)
   process_group(clean, flush, anonymize)
+
 
 @cli.command(name="predict", help="Prepare artifacts for prediction (setup for inference).")
 @common_options(require_input=True, include_task=False, include_eos=False)
@@ -134,6 +137,7 @@ def predict(
   run_predict(input_file, model_dir, output_dir, override_dir)
   process_group(clean, flush, anonymize)
 
+
 @cli.command(name="setup", help="Preprocess input data and create working artifacts.")
 @common_options(require_input=True, include_task=True, include_eos=True)
 def setup_cmd(input_file, classification, model_dir, eos_ids):
@@ -143,6 +147,7 @@ def setup_cmd(input_file, classification, model_dir, eos_ids):
   else:
     task = "regression"
   run_fit(input_file, task, output_dir=model_dir, model_ids_file=eos_ids)
+
 
 @cli.command(name="describe", help="Compute molecular descriptors.")
 @common_options(require_input=False)
@@ -182,7 +187,7 @@ def report_cmd(plot_name):
 
 @cli.command(name="finish", help="Finalize run: clean, flush caches, and/or anonymize outputs.")
 @common_options(require_input=False)
-def finish_cmd( clean, flush, anonymize):
+def finish_cmd(clean, flush, anonymize):
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
   Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize).run()
 

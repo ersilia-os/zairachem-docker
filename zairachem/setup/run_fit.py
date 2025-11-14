@@ -11,8 +11,6 @@ def run(input_file, task, output_dir=None, model_ids_file=None):
   )
 
   if ts.is_done():
-    logger.warning(
-      "[yellow]Setup for requested inference is already done. Skipping this step![/]"
-    )
+    logger.warning("[yellow]Setup for requested inference is already done. Skipping this step![/]")
     return
   ts.setup()

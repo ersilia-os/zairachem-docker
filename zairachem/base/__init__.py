@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from time import time
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import BASE_DIR, DATA_FILENAME, DATA_SUBFOLDER,  SESSION_FILE
+from zairachem.base.vars import BASE_DIR, DATA_FILENAME, DATA_SUBFOLDER, SESSION_FILE
 
 warnings.filterwarnings("ignore")
 
