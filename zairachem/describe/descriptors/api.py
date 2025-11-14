@@ -32,8 +32,9 @@ class BinaryStreamClient(ZairaBase):
     self.path = self.get_output_dir()
     self.input_data, self.input_header = self._load_data()
     self.params = self._load_params()
+    self.access = self.params["access"]
     self.enable_cache = bool(self.params["enable_cache"])
-    self.default_bucket = resolve_default_bucket(self.params["access"])
+    self.default_bucket = resolve_default_bucket(self.access)
     self.nns = bool(self.params["enable_nns"])
     self.contribute_cache = bool(self.params["contribute_cache"])
     self._feature_len = None
@@ -247,6 +248,7 @@ class BinaryStreamClient(ZairaBase):
           model_id=self.model_id,
           model_version=self.version,
           bucket=self.project_name,
+          access=self.access
         )
         w.write(df=df)
         if self.contribute_cache:

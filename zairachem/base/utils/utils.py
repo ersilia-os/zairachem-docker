@@ -65,7 +65,7 @@ def post(data, url):
 
 
 def resolve_default_bucket(access):
-  return DEFAULT_PUBLIC_BUCKET[0] if access in "public" else DEFAULT_PRIVATE_BUCKET[0]
+  return DEFAULT_PUBLIC_BUCKET[0] if access == "public" else DEFAULT_PRIVATE_BUCKET[0]
 
 
 def get_bucket_records(bucket):
