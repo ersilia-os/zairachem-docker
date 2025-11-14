@@ -63,6 +63,27 @@ The eos-ids file must be a .json file with the following structure:
     ]
 }
 ```
+`parameter.json`
+```json
+{
+  "task": "classification",
+  "featurizer_ids": [
+    "eos5axz",
+    "eos2gw4"
+  ],
+  "projection_ids": [
+    "eos2db3"
+  ],
+  "enable_cache": true,
+  "access": "public",
+  "enable_nns": false,
+  "contribute_cache": true,
+  "latest_featurizer_version": {
+    "eos5axz": "v1",
+    "eos2gw4": "v2"
+  }
+}%
+```
 
 **Example:**
 
