@@ -82,7 +82,7 @@ The eos-ids file must be a .json file with the following structure:
     "eos5axz": "v1",
     "eos2gw4": "v2"
   }
-}%
+}
 ```
 
 **Example:**
