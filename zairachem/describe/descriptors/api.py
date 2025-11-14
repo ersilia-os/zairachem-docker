@@ -32,12 +32,29 @@ class BinaryStreamClient(ZairaBase):
     self.path = self.get_output_dir()
     self.input_data, self.input_header = self._load_data()
     self.params = self._load_params()
+    self.access = self.params["access"]
     self.enable_cache = bool(self.params["enable_cache"])
-    self.default_bucket = resolve_default_bucket(self.params["access"])
+    self.default_bucket = resolve_default_bucket(self.access)
     self.nns = bool(self.params["enable_nns"])
     self.contribute_cache = bool(self.params["contribute_cache"])
     self._feature_len = None
     self.project_name = project_name
+
+  def resolve_version(self, model_id, bucket):
+      if "latest_featurizer_version" not in self.params:
+          self.params["latest_featurizer_version"] = {}
+
+      if model_id in self.params["latest_featurizer_version"]:
+          return self.params["latest_featurizer_version"][model_id]
+
+      version = latest_version(model_id, bucket)
+      self.params["latest_featurizer_version"][model_id] = version
+      self._save_params(self.params)
+      return version
+
+  def _save_params(self, params):
+      with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "w") as f:
+          json.dump(params, f, indent=2)
 
   def _load_params(self):
     with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
@@ -157,8 +174,8 @@ class BinaryStreamClient(ZairaBase):
     if not self.enable_cache:
       logger.warning("Isaura store operation is disabled globally!")
       return self._run()
-    try:
-      self.version = latest_version(self.model_id, self.default_bucket)
+    try: 
+      self.version = self.resolve_version(self.model_id, self.default_bucket)
       df = pd.DataFrame(columns=["input"], data=self.input_data)
       r = IsauraReader(
         model_id=self.model_id,
@@ -247,6 +264,7 @@ class BinaryStreamClient(ZairaBase):
           model_id=self.model_id,
           model_version=self.version,
           bucket=self.project_name,
+          access=self.access
         )
         w.write(df=df)
         if self.contribute_cache:
