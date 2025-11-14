@@ -47,7 +47,10 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 * `--clean`: `True/False`.
 * `--flush`:` True/False`.
 * `--anonymize`: `True/False`.
-
+* `--enable-store/-es`: `True/False`: enables fetching or storing precalculation from isaura store
+* `--nearest-neighbor/-nn`: `True/False`: enables nearest search neighbor search to find similar compounds
+* `--contribute-store/-cs`: `True/False`: enables contributing precalculations stored in custom isaura projects to the default projects [isaura-public/isaura-private]
+* `--access/-a`: `public/private`: defines where to read the precalculation store [public -> isaura-public and private -> isaura-private]
 The eos-ids file must be a .json file with the following structure:
 ```bash
 {
