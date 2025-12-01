@@ -1,4 +1,4 @@
-import os
+import json, os
 from zairachem.describe.descriptors.raw import RawDescriptors
 from zairachem.describe.descriptors.utils import (
   service_exists,
@@ -12,9 +12,10 @@ from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
 from zairachem.base.vars import (
-  DEFAULT_FEATURIZERS_WITH_PORT,
-  ALL_FEATURIZER,
   NETWORK_NAME,
+  DATA_SUBFOLDER,
+  PARAMETERS_FILE,
+  get_free_ports
 )
 from pathlib import Path
 
@@ -37,10 +38,22 @@ class Describer(ZairaBase):
     self.output_dir = os.path.abspath(self.path)
     if not os.path.exists(self.output_dir):
       os.makedirs(self.output_dir, exist_ok=True)
+    self.models = self._get_models()
     assert os.path.exists(self.output_dir)
 
+  def _get_models_ports(self):
+    return {
+      k: v for k, v in zip(self.models, get_free_ports(len(self.models)))
+    }
+
+  def _get_models(self):
+    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+      data = json.load(f)
+    models = data["featurizer_ids"] + data["projection_ids"]
+    return models
+  
   def create_config_files(self):
-    all_service_exists = service_exists(compose_yml_file, ALL_FEATURIZER)
+    all_service_exists = service_exists(compose_yml_file, self.models)
 
     if isinstance(all_service_exists, bool) and not all_service_exists:
       os.remove(compose_yml_file)
@@ -48,7 +61,7 @@ class Describer(ZairaBase):
 
     if not os.path.exists(compose_yml_file) or not os.path.exists(nginx_config_file):
       os.makedirs(base_config_path, exist_ok=True)
-      compose, nginx_conf = generate_compose_and_nginx(DEFAULT_FEATURIZERS_WITH_PORT)
+      compose, nginx_conf = generate_compose_and_nginx(self._get_models_ports())
       Path(compose_yml_file).write_text(compose)
       Path(nginx_config_file).write_text(nginx_conf)
 
@@ -74,7 +87,7 @@ class Describer(ZairaBase):
 
   def run(self):
     self.setup_model_servers()
-    write_service_file(ALL_FEATURIZER)
+    write_service_file(self.models)
     self.reset_time()
     self._raw_descriptions()
     self.update_elapsed_time()

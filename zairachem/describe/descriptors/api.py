@@ -268,8 +268,8 @@ class BinaryStreamClient(ZairaBase):
       "data": stacked,
       "inputs": self.input_data,
     })
-    df = self._get_ersilia_df(any_results)
     if self.enable_cache:
+      df = self._get_ersilia_df(any_results)
       try:
         w = IsauraWriter(
           input_csv=None,

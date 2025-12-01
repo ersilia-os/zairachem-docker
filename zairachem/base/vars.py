@@ -92,9 +92,6 @@ ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 # Ersilia Model Hub
 
-DEFAULT_FEATURIZERS = ["eos5axz", "eos2gw4"]
+DEFAULT_FEATURIZERS = ["eos5axz", "eos2gw4", ""]
 DEFAULT_PROJECTIONS = ["eos2db3"]
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
-DEFAULT_FEATURIZERS_WITH_PORT = {
-  k: v for k, v in zip(ALL_FEATURIZER, get_free_ports(len(ALL_FEATURIZER)))
-}
