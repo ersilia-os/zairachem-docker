@@ -1,5 +1,12 @@
-import csv, json, hashlib, os, time, requests, re
+import csv
+import json
+import hashlib
+import os
+import time
+import requests
+import re
 import pandas as pd
+import numpy as np
 from zairachem.base.utils.logging import logger
 from zairachem.base import ZairaBase
 from zairachem.base.utils.utils import (
@@ -8,8 +15,13 @@ from zairachem.base.utils.utils import (
   latest_version,
 )
 from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
-from isaura.manage import IsauraCopy, IsauraReader, IsauraWriter
-import numpy as np
+try:
+  from isaura.manage import IsauraCopy, IsauraReader, IsauraWriter
+except:
+    IsauraCopy = None
+    IsauraReader = None
+    IsauraWriter = None
+
 
 _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
 _ALLOWED_RE = re.compile(

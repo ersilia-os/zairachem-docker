@@ -21,7 +21,10 @@ lazyqsar      = "2.1.1"
 stylia        = "0.0.2"
 openpyxl      = "3.1.5"
 rich-click    = "1.8.9"
-isaura        = {git="https://github.com/ersilia-os/isaura.git"}
+isaura = { git="https://github.com/ersilia-os/isaura.git", optional=true }
+
+[tool.poetry.extras]
+isaura = ["isaura"]
 
 [tool.poetry.scripts]
 zairachem = "zairachem.cli:cli"

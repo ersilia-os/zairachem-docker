@@ -30,7 +30,8 @@ zairachem [COMMAND] [OPTIONS]
 #### 🔹 `fit`
 
 Train a model on your input data.
-Runs preprocessing, descriptor computation, imputation, training, pooling, reporting, and finalization.
+Runs preprocessing, descriptor computation, imputation, training, pooling, reporting, and finalization. 
+The input file must be a `.csv` file with two columns: one containing SMILES strings and the other containing a binary output (0,1)
 
 **Usage:**
 
@@ -51,7 +52,8 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 * `--nearest-neighbor/-nn`: `True/False`: enables nearest search neighbor search to find similar compounds
 * `--contribute-store/-cs`: `True/False`: enables contributing precalculations stored in custom isaura projects to the default projects [isaura-public/isaura-private]
 * `--access/-a`: `public/private`: defines where to read the precalculation store [`public` `->` `isaura-public` and `private` `->` `isaura-private`]
-The eos-ids file must be a .json file with the following structure:
+
+The eos-ids file must be a `.json` file with the following structure:
 ```bash
 {
     "featurizer_ids": [
@@ -63,7 +65,7 @@ The eos-ids file must be a .json file with the following structure:
     ]
 }
 ```
-`parameter.json`
+And the created `parameter.json` will look like:
 ```json
 {
   "task": "classification",
