@@ -9,11 +9,11 @@ from zairachem.base.vars import (
   DEFAULT_PUBLIC_BUCKET,
   DEFAULT_PRIVATE_BUCKET,
 )
+
 try:
   from isaura.manage import IsauraInspect
 except ImportError:
-    IsauraInspect = None
-
+  IsauraInspect = None
 
 
 def install_docker_compose(install_file):

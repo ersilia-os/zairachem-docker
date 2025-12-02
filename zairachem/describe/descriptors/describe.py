@@ -11,12 +11,7 @@ from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
-from zairachem.base.vars import (
-  NETWORK_NAME,
-  DATA_SUBFOLDER,
-  PARAMETERS_FILE,
-  get_free_ports
-)
+from zairachem.base.vars import NETWORK_NAME, DATA_SUBFOLDER, PARAMETERS_FILE, get_free_ports
 from pathlib import Path
 
 
@@ -42,16 +37,14 @@ class Describer(ZairaBase):
     assert os.path.exists(self.output_dir)
 
   def _get_models_ports(self):
-    return {
-      k: v for k, v in zip(self.models, get_free_ports(len(self.models)))
-    }
+    return {k: v for k, v in zip(self.models, get_free_ports(len(self.models)))}
 
   def _get_models(self):
     with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       data = json.load(f)
     models = data["featurizer_ids"] + data["projection_ids"]
     return models
-  
+
   def create_config_files(self):
     all_service_exists = service_exists(compose_yml_file, self.models)
 
