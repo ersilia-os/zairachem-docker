@@ -23,7 +23,8 @@ def _service_block(model_id, host_port, network_name):
     networks:
       - {network_name}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 """
 
 
@@ -111,13 +112,17 @@ def generate_compose_and_nginx(
   header = "services:\n"
 
   redis = f"""  redis:
-    image: {REDIS_IMAGE}
-    command: ["redis-server", "--appendonly", "yes"]
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    networks:
-      - {network_name}
+      image: {REDIS_IMAGE}
+      command: ["redis-server", "--appendonly", "yes"]
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 20
+      volumes:
+        - redis_data:/data
+      networks:
+        - {network_name}
 """
 
   nginx = """  nginx:

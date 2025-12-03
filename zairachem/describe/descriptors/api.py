@@ -328,7 +328,6 @@ class BinaryStreamClient(ZairaBase):
         if isinstance(row, np.ndarray):
           filled.append(row)
         else:
-          logger.warning(f"Missing row encountered; using placeholder row instead.")
           filled.append(self._placeholder_row())
       stacked = np.vstack(filled)
       if any_results is None:
