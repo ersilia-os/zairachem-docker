@@ -42,7 +42,7 @@ class PoolerPipeline(ZairaBase):
       bagger.run()
     else:
       self.logger.warning(
-        "[yellow]Pooling setup for requested inferece is already done. Skippign this step![/]"
+        "[yellow]Pooling setup for requested inferece is already done. Skipping this step![/]"
       )
 
   def run(self):

@@ -80,7 +80,7 @@ class XGetter(ZairaBase):
           self.columns += ["umap-{0}".format(i)]
 
     tsne_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5")
-    if os.path.exists(umap_file):
+    if os.path.exists(tsne_file):
       with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5"), "r") as f:
         X_ = f["Values"][:]
         self.X += [X_]
