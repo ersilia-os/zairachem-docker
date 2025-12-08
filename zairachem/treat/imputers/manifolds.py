@@ -41,11 +41,7 @@ class Manifolds(DescriptorBase):
 
   def finalize(self, algo_name):
     algo_path = os.path.join(self.trained_path, algo_name + ".joblib")
-
-    if not self._is_predict:
-      self.save(self.X, algo_path)
-    else:
-      self.X = self.load(algo_path)
+    self.save(self.X, algo_path)
 
     file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, algo_name + ".h5")
     data = Data()
@@ -65,11 +61,7 @@ class Manifolds(DescriptorBase):
     data = post(self.inputs, self.url)
     cols = fetch_schema_from_github(DEFAULT_PROJECTIONS[0])[0]
     algos = self.group_by_prefix(cols)
-    if not self._is_predict:
-      self.train_idxs = self.get_train_indices(path=self.path)
-      self.trained_path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER)
-    else:
-      self.trained_path = os.path.join(self.trained_path, DESCRIPTORS_SUBFOLDER)
+    self.trained_path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER)
     for algo, dims in algos.items():
       self.X = [[d[dim] for dim in dims] for d in data]
       self.finalize(algo)
