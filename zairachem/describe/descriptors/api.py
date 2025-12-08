@@ -15,6 +15,7 @@ from zairachem.base.utils.utils import (
   latest_version,
 )
 from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
+from urllib.parse import urlparse
 
 try:
   from isaura.manage import IsauraCopy, IsauraReader, IsauraWriter
@@ -64,7 +65,7 @@ class BinaryStreamClient(ZairaBase):
   def resolve_dims(self):
     self.schema = fetch_schema_from_github(self.model_id)
     return self.schema[0]
-  
+
   def resolve_version(self, model_id, bucket):
     try:
       if "latest_featurizer_version" not in self.params:
@@ -206,10 +207,43 @@ class BinaryStreamClient(ZairaBase):
       logger.error(f"Error creating placeholder row: {e}")
       raise
 
+  def _root_from_url(self):
+    p = urlparse(self.url)
+    host = p.hostname or "localhost"
+    port = p.port or (443 if (p.scheme or "http") == "https" else 80)
+    scheme = p.scheme or "http"
+    return f"{scheme}://{host}:{port}"
+
+  def _ensure_ready(self, attempts=60, sleep_s=0.5):
+    if getattr(self, "_ready", False):
+      return
+    root = self._root_from_url()
+    for i in range(1, attempts + 1):
+      try:
+        r = requests.get(root, timeout=2)
+        if 200 <= r.status_code < 500:
+          self._ready = True
+          self.logger.info(f"Probe OK {root} on attempt {i}")
+          return
+        self.logger.info(f"Probe {root} attempt {i} got {r.status_code}")
+      except Exception as e:
+        self.logger.info(f"Probe {root} attempt {i} error: {e}")
+      time.sleep(sleep_s)
+    raise RuntimeError(f"Server not ready after {attempts} attempts at {root}")
+
   def _try_request(self, batch):
     try:
+      self._ensure_ready()
       params = {"output_type": "heavy"}
-      response = requests.post(self.url, json=batch, params=params, stream=True)
+      headers = {
+        "Content-Type": "application/json",
+        "Accept": "*/*",
+        "Connection": "close",
+      }
+      payload = json.dumps(batch, separators=(",", ":"))
+      response = requests.post(
+        self.url, params=params, data=payload, headers=headers, stream=True, timeout=(10, 300)
+      )
       response.raise_for_status()
       array, results = self.decode_binary_stream(response)
       if self._feature_len is None:
@@ -221,7 +255,6 @@ class BinaryStreamClient(ZairaBase):
       logger.error(f"Error in _try_request for batch of size {len(batch)}: {e}")
       raise
 
-
   def _fetch_or_split(self, batch, idx_offset, depth=0):
     try:
       try:
@@ -232,20 +265,22 @@ class BinaryStreamClient(ZairaBase):
           arrays_out = [np.asarray(row).reshape(1, -1) for row in array]
         return arrays_out, [True] * len(arrays_out), results
       except (requests.RequestException, IOError) as e:
-        logger.error(f"Request/IO error in _fetch_or_split at depth {depth}, idx_offset {idx_offset}: {e}")
+        logger.error(
+          f"Request/IO error in _fetch_or_split at depth {depth}, idx_offset {idx_offset}: {e}"
+        )
         if len(batch) == 1:
           logger.error(f"Failed to process single-element batch at idx_offset {idx_offset}")
           return [None], [False], None
         mid = len(batch) // 2
-        left_arrays, left_mask, left_res = self._fetch_or_split(
-          batch[:mid], idx_offset, depth + 1
-        )
+        left_arrays, left_mask, left_res = self._fetch_or_split(batch[:mid], idx_offset, depth + 1)
         right_arrays, right_mask, right_res = self._fetch_or_split(
           batch[mid:], idx_offset + mid, depth + 1
         )
         return left_arrays + right_arrays, left_mask + right_mask, right_res or left_res
     except Exception as e:
-      logger.error(f"Unexpected error in _fetch_or_split at depth {depth}, idx_offset {idx_offset}: {e}")
+      logger.error(
+        f"Unexpected error in _fetch_or_split at depth {depth}, idx_offset {idx_offset}: {e}"
+      )
       raise
 
   def run(self):
