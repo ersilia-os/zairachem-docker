@@ -242,7 +242,7 @@ class BinaryStreamClient(ZairaBase):
       }
       payload = json.dumps(batch, separators=(",", ":"))
       response = requests.post(
-        self.url, params=params, data=payload, headers=headers, stream=True, timeout=(10, 300)
+        self.url, params=params, data=payload, headers=headers, stream=True, timeout=(10, 7*3600)
       )
       response.raise_for_status()
       array, results = self.decode_binary_stream(response)
