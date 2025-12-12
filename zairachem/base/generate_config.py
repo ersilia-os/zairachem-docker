@@ -113,7 +113,20 @@ def generate_compose_and_nginx(
 
   redis = f"""  redis:
       image: {REDIS_IMAGE}
-      command: ["redis-server", "--appendonly", "yes"]
+      command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --appendfsync
+        - everysec
+        - --save
+        - ""
+        - --maxmemory
+        - 4gb
+        - --maxmemory-policy
+        - allkeys-lru
+        - --maxmemory-samples
+        - "10"
       healthcheck:
         test: ["CMD", "redis-cli", "ping"]
         interval: 5s
