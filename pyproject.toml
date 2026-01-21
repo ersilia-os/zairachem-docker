@@ -23,7 +23,7 @@ openpyxl      = "3.1.5"
 rich-click    = "1.8.9"
 torch         = "2.8.0"
 isaura = { git="https://github.com/ersilia-os/isaura.git" } 
-xai4chem = { path="/home/Jason/code/xai4chem_jhlozek", develop=true } #{ git="https://github.com/JHlozek/xai4chem.git" }
+xai4chem = { git="https://github.com/ersilia-os/xai4chem.git" }
 
 [tool.poetry.extras]
 isaura = ["isaura"]
