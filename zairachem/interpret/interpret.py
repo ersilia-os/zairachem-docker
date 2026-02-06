@@ -13,7 +13,7 @@ from zairachem.base.vars import (
   ACCFG_MODEL_FILENAME,
 )
 
-from xai4chem.supervised import Regressor, Classifier
+from xai4chem.supervised import Regressor
 from xai4chem.representations import DatamolDescriptor, MorganFingerprint, AccFgFingerprint
 
 from zairachem.base import ZairaBase
