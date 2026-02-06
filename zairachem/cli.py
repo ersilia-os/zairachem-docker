@@ -9,7 +9,7 @@ from zairachem.treat.imputers.impute import Imputer
 from zairachem.pool.pipe import PoolerPipeline
 from zairachem.report.report import Reporter
 from zairachem.finish.finish import Finisher
-from zairachem.interpretability.interpretability import Interpreter
+from zairachem.interpret.interpret import Interpreter
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.SHOW_ARGUMENTS = True
