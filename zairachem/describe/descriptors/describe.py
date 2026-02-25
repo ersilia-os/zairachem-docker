@@ -11,7 +11,13 @@ from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
-from zairachem.base.vars import NETWORK_NAME, DATA_SUBFOLDER, PARAMETERS_FILE, ALL_FEATURIZER, get_free_ports
+from zairachem.base.vars import (
+  NETWORK_NAME,
+  DATA_SUBFOLDER,
+  PARAMETERS_FILE,
+  ALL_FEATURIZER,
+  get_free_ports,
+)
 from pathlib import Path
 
 

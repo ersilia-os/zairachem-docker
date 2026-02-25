@@ -16,6 +16,16 @@ from zairachem.base.utils.utils import (
 )
 from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
 from urllib.parse import urlparse
+from rich.progress import (
+  Progress,
+  SpinnerColumn,
+  TextColumn,
+  BarColumn,
+  TaskProgressColumn,
+  MofNCompleteColumn,
+  TimeElapsedColumn,
+  TimeRemainingColumn,
+)
 
 try:
   from isaura.manage import IsauraCopy, IsauraReader, IsauraWriter
@@ -242,12 +252,7 @@ class BinaryStreamClient(ZairaBase):
       }
       payload = json.dumps(batch, separators=(",", ":"))
       response = requests.post(
-          self.url,
-          params=params,
-          data=payload,
-          headers=headers,
-          stream=True,
-          timeout=(10, None)
+        self.url, params=params, data=payload, headers=headers, stream=True, timeout=(10, None)
       )
       response.raise_for_status()
       array, results = self.decode_binary_stream(response)
@@ -349,18 +354,31 @@ class BinaryStreamClient(ZairaBase):
           checked_input.append(s)
 
       any_results = None
+      progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+      )
       try:
-        for start in range(0, len(checked_input), self.batch_size):
-          batch = checked_input[start : start + self.batch_size]
-          batch_abs_offset = good_idx[start]
-          t0 = time.perf_counter()
+        with progress:
+          task = progress.add_task("Computing descriptors", total=len(checked_input))
+          for start in range(0, len(checked_input), self.batch_size):
+            batch = checked_input[start : start + self.batch_size]
+            batch_abs_offset = good_idx[start]
+            t0 = time.perf_counter()
 
-          arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
-          total_time += time.perf_counter() - t0
-          if results is not None:
-            any_results = results
-          for j, row in enumerate(arrays_out):
-            per_item_rows[good_idx[start + j]] = row
+            arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
+            total_time += time.perf_counter() - t0
+            if results is not None:
+              any_results = results
+            for j, row in enumerate(arrays_out):
+              per_item_rows[good_idx[start + j]] = row
+            progress.advance(task, len(arrays_out))
       finally:
         self.logger.info(f"Total elapsed: {total_time:.4f}s")
       filled = []

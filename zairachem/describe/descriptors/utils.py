@@ -103,45 +103,43 @@ def _parse_cli_port(out: str) -> Optional[int]:
       return int(m.group(1))
   return None
 
+
 def _via_cli(service: str) -> Optional[int]:
-    compose_path = os.fspath(compose_file)
+  compose_path = os.fspath(compose_file)
 
-    cmds = [
-        ["docker", "compose", "-f", compose_path, "port", service, "80"],
-        ["docker-compose", "-f", compose_path, "port", service, "80"],
-    ]
+  cmds = [
+    ["docker", "compose", "-f", compose_path, "port", service, "80"],
+    ["docker-compose", "-f", compose_path, "port", service, "80"],
+  ]
 
-    logger.debug(f"Resolving port for service '{service}' using compose file: {compose_path}")
+  logger.debug(f"Resolving port for service '{service}' using compose file: {compose_path}")
 
-    for cmd in cmds:
-        logger.debug(f"Trying command: {' '.join(cmd)}")
+  for cmd in cmds:
+    logger.debug(f"Trying command: {' '.join(cmd)}")
 
-        try:
-            out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
-            logger.debug(f"Command output: '{out}'")
+    try:
+      out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
+      logger.debug(f"Command output: '{out}'")
 
-            port = _parse_cli_port(out)
-            if port is not None:
-                logger.info(f"Resolved '{service}' → port {port}")
-                return port
+      port = _parse_cli_port(out)
+      if port is not None:
+        logger.info(f"Resolved '{service}' → port {port}")
+        return port
 
-            logger.warning(f"No usable port found in output for '{service}': '{out}'")
+      logger.warning(f"No usable port found in output for '{service}': '{out}'")
 
-        except subprocess.CalledProcessError as e:
-            logger.error(
-                f"Command failed: {' '.join(cmd)} | Return code: {e.returncode} | Output: {e.output.strip()}"
-            )
+    except subprocess.CalledProcessError as e:
+      logger.error(
+        f"Command failed: {' '.join(cmd)} | Return code: {e.returncode} | Output: {e.output.strip()}"
+      )
 
-        except Exception as e:
-            logger.exception(
-                f"Unexpected error running command: {' '.join(cmd)} | Error: {e}"
-            )
+    except Exception as e:
+      logger.exception(f"Unexpected error running command: {' '.join(cmd)} | Error: {e}")
 
-    logger.error(
-        f"Failed to resolve port for service '{service}' "
-        f"after trying {len(cmds)} command variations."
-    )
-    return None
+  logger.error(
+    f"Failed to resolve port for service '{service}' after trying {len(cmds)} command variations."
+  )
+  return None
 
 
 def _via_yaml(service: str) -> Optional[int]:
