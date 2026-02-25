@@ -39,7 +39,7 @@ _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
 _ALLOWED_RE = re.compile(
   r"^[A-Za-z0-9@+\-\[\]\(\)=#$:.\\/%,*\.]+(?:\s+[A-Za-z0-9@+\-\[\]\(\)=#$:.\\/%,*\.]+)?$"
 )
-DEFAULT_BATCH_SIZE = 100
+DEFAULT_BATCH_SIZE = 1000
 
 
 class BinaryStreamClient(ZairaBase):
