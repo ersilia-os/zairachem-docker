@@ -21,7 +21,9 @@ lazyqsar      = "2.1.5"
 stylia        = "0.0.2"
 openpyxl      = "3.1.5"
 rich-click    = "1.8.9"
-isaura = { git="https://github.com/ersilia-os/isaura.git", optional=true }
+torch         = "2.8.0"
+isaura = { git="https://github.com/ersilia-os/isaura.git" } 
+xai4chem = { git="https://github.com/ersilia-os/xai4chem.git" }
 
 [tool.poetry.extras]
 isaura = ["isaura"]

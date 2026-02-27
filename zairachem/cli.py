@@ -9,6 +9,7 @@ from zairachem.treat.imputers.impute import Imputer
 from zairachem.pool.pipe import PoolerPipeline
 from zairachem.report.report import Reporter
 from zairachem.finish.finish import Finisher
+from zairachem.interpret.interpret import Interpreter
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.SHOW_ARGUMENTS = True
@@ -42,7 +43,6 @@ def process_group(clean, flush, anonymize):
 
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
   Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize).run()
-
 
 def common_options(
   require_input: bool = True, include_task: bool = False, include_eos: bool = False
@@ -129,6 +129,14 @@ def cli():
   default=False,
   help="Enables to copy or contribute caches to the default buckets!",
 )
+@click.option(
+  "--interpret-substructures",
+  "-is",
+  is_flag=True,
+  default=False,
+  help="Produce substructure feature contributions for each individual molecule.",
+)
+
 def fit(
   input_file,
   classification,
@@ -141,6 +149,7 @@ def fit(
   access,
   nearest_neighbors,
   contribute_store,
+  interpret_substructures,
 ):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
   if classification:
@@ -158,6 +167,8 @@ def fit(
     model_ids_file=eos_ids,
   )
   process_group(clean, flush, anonymize)
+  logger.debug("[#ff69b4]Running the interpretability pipeline[/]")
+  Interpreter(path=None, interpret_substructures=interpret_substructures).run()
 
 
 @cli.command(name="predict", help="Prepare artifacts for prediction (setup for inference).")
@@ -169,6 +180,14 @@ def fit(
   default=False,
   help="Override the output dir if it already exists.",
 )
+@click.option(
+  "--interpret-substructures",
+  "-is",
+  is_flag=True,
+  default=False,
+  help="Produce substructure feature contributions for each individual molecule.",
+)
+
 def predict(
   input_file,
   model_dir,
@@ -177,10 +196,13 @@ def predict(
   anonymize,
   output_dir,
   override_dir,
+  interpret_substructures,
 ):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data for prediction[/]")
   run_predict(input_file, model_dir, output_dir, override_dir)
   process_group(clean, flush, anonymize)
+  logger.debug("[#ff69b4]Running the interpretability pipeline[/]")
+  Interpreter(path=None, interpret_substructures=interpret_substructures).run()
 
 
 @cli.command(name="setup", help="Preprocess input data and create working artifacts.")
@@ -235,6 +257,20 @@ def report_cmd(plot_name):
 def finish_cmd(clean, flush, anonymize):
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
   Finisher(path=None, clean=clean, flush=flush, anonymize=anonymize).run()
+
+
+@cli.command(name="interpret", help="Produce explanations for predictions")
+@common_options(require_input=False)
+@click.option(
+  "--interpret-substructures",
+  "-is",
+  is_flag=True,
+  default=False,
+  help="Produce substructure feature contributions for each individual molecule.",
+)
+def interpret_cmd(interpret_substructures):
+  logger.debug("[#ff69b4]Running the interpretability pipeline[/]")
+  Interpreter(path=None, interpret_substructures=interpret_substructures).run()
 
 
 @cli.command(name="all", help="Run the entire pipeline end-to-end.")

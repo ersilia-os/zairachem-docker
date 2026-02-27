@@ -67,12 +67,18 @@ DESCRIPTORS_SUBFOLDER = "descriptors"
 ESTIMATORS_SUBFOLDER = "estimators"
 POOL_SUBFOLDER = "pool"
 REPORT_SUBFOLDER = "report"
+INTERPRETABILITY_SUBFOLDER = "interpretability"
 OUTPUT_FILENAME = "output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
 OUTPUT_XLSX_FILENAME = "output.xlsx"
 
 Y_HAT_FILE = "y_hat.joblib"
+
+GLOBAL_INTERPRET_SUBFOLDER = "global"
+SUBSTRUCTURE_INTERPRET_SUBFOLDER = "substructure"
+DATAMOL_MODEL_FILENAME = "model_datamol.pkl"
+ACCFG_MODEL_FILENAME = "model_accfg.pkl"
 
 RESULTS_UNMAPPED_FILENAME = "results_unmapped.csv"
 RESULTS_MAPPED_FILENAME = "results_mapped.csv"

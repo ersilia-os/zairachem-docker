@@ -12,7 +12,7 @@ conda create -n zairachem python=3.11 -y
 conda activate zairachem
 pip install -e .
 ```
-Since `zairachem` is depend in the `docker` and `docker-compose` we need to have them installed. Use this instruction for more detail [here](https://docs.docker.com/engine/install/ubuntu/). 
+Since `zairachem` depends on `docker` and `docker-compose` we need to have them installed. Use this instruction for more detail [here](https://docs.docker.com/engine/install/ubuntu/). 
 - To install `docker-compose` in MacOS we can simply execute:
 ```bash
 brew install docker-compose
@@ -52,6 +52,7 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 * `--nearest-neighbor/-nn`: `True/False`: enables nearest search neighbor search to find similar compounds
 * `--contribute-store/-cs`: `True/False`: enables contributing precalculations stored in custom isaura projects to the default projects [isaura-public/isaura-private]
 * `--access/-a`: `public/private`: defines where to read the precalculation store [`public` `->` `isaura-public` and `private` `->` `isaura-private`]
+* `----interpret-substructures/is`: `True/False`: produces functional group feature importance plots for each molecule
 
 The eos-ids file must be a `.json` file with the following structure:
 ```bash
@@ -110,6 +111,7 @@ zairachem predict -i INPUT_FILE -m MODEL_DIR [-o OUTPUT_DIR] [OPTIONS]
 
 * `-o, --output-dir`: Directory to save outputs.
 * `--override-dir`: Overwrite the output directory if it already exists.
+* `-is, --interpret-substructures`: `True/False`: produces functional group feature importance plots for each molecule
 
 **Example:**
 
@@ -128,3 +130,4 @@ zairachem predict -i new_data.csv -m ./models -o ./results --clean --override-di
 | `zairachem pool`                                            | Bag results from `estimate`.                             |
 | `zairachem report [--plot-name NAME]`                       | Generate analysis report and plots.                      |
 | `zairachem finish [--clean --flush --anonymize]`            | Finalize: cleanup, flush caches, optional anonymization. |
+| `zairachem interpret [--interpret-substructures`]           | Produce explainability plots, optional substructures.    |

@@ -23,6 +23,7 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
+  INTERPRETABILITY_SUBFOLDER,
   OUTPUT_FILENAME,
 )
 
@@ -91,6 +92,7 @@ class TrainSetup(object):
     self._make_subfolder(ESTIMATORS_SUBFOLDER)
     self._make_subfolder(POOL_SUBFOLDER)
     self._make_subfolder(REPORT_SUBFOLDER)
+    self._make_subfolder(INTERPRETABILITY_SUBFOLDER)
 
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)
