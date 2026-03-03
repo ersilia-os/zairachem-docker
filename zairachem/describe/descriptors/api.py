@@ -1,3 +1,5 @@
+
+
 import csv
 import json
 import hashlib
@@ -328,13 +330,15 @@ class BinaryStreamClient(ZairaBase):
 
   def run(self):
     any_results = None
+    if self.contribute_store or self.read_store:
+      self.version = self.resolve_version(self.model_id, self.read_store)
     if not self.read_store:
       logger.warning(f"Isaura read store is disabled (no -es flag provided)!")
       any_results = self._run()
     else:
       try:
         logger.info(f"Reading precalculations from bucket: {self.read_store}")
-        self.version = self.resolve_version(self.model_id, self.read_store)
+        
         df = pd.DataFrame(columns=["input"], data=self.input_data)
         r = IsauraReader(
           model_id=self.model_id,
