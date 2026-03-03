@@ -1,3 +1,4 @@
+import sys
 import rich_click as click
 import rich_click.rich_click as rc
 from zairachem.base.utils.logging import logger
@@ -9,6 +10,8 @@ from zairachem.treat.imputers.impute import Imputer
 from zairachem.pool.pipe import PoolerPipeline
 from zairachem.report.report import Reporter
 from zairachem.finish.finish import Finisher
+
+
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.SHOW_ARGUMENTS = True
@@ -22,6 +25,17 @@ rc.STYLE_METAVAR = "italic yellow"
 rc.STYLE_SWITCH = "underline cyan"
 rc.STYLE_USAGE = "bold blue"
 rc.STYLE_OPTION_DEFAULT = "dim italic"
+
+def _preprocess_optional_arg(argv, flag, default_value):
+  result = []
+  i = 0
+  while i < len(argv):
+    result.append(argv[i])
+    if argv[i] in (flag,):
+      if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
+        result.append(default_value)
+    i += 1
+  return result
 
 
 def process_group(clean, flush, anonymize):
@@ -108,12 +122,8 @@ def cli():
 @click.option(
   "--enable-store",
   "-es",
-  is_flag=True,
-  default=False,
-  help="Enables cache fetching and saving from isaura",
-)
-@click.option(
-  "--access", "-a", default="public", help="Cache reading access level [either public or private]"
+  default=None,
+  help="Enables reading precalculations from isaura store. Reads from isaura-public by default, or specify a project name (e.g., -es my_project).",
 )
 @click.option(
   "--nearest-neighbors",
@@ -125,9 +135,8 @@ def cli():
 @click.option(
   "--contribute-store",
   "-cs",
-  is_flag=True,
-  default=False,
-  help="Enables to copy or contribute caches to the default buckets!",
+  default=None,
+  help="Enables uploading precalculations to isaura store. Without a project name, writes to zairatemp, copies to isaura-public, then cleans up. With a project name (e.g., -cs my_project), writes directly to that project.",
 )
 def fit(
   input_file,
@@ -138,7 +147,6 @@ def fit(
   flush,
   anonymize,
   enable_store,
-  access,
   nearest_neighbors,
   contribute_store,
 ):
@@ -151,7 +159,6 @@ def fit(
     input_file,
     task,
     enable_store,
-    access,
     nearest_neighbors,
     contribute_store,
     output_dir=model_dir,
@@ -245,5 +252,13 @@ def run_all(input_file, model_dir, cutoff, direction, parameters, clean, flush, 
   process_group(clean, flush, anonymize)
 
 
-if __name__ == "__main__":
+def main():
+  sys.argv = _preprocess_optional_arg(sys.argv, "-es", "isaura-public")
+  sys.argv = _preprocess_optional_arg(sys.argv, "--enable-store", "isaura-public")
+  sys.argv = _preprocess_optional_arg(sys.argv, "-cs", "zairatemp")
+  sys.argv = _preprocess_optional_arg(sys.argv, "--contribute-store", "zairatemp")
   cli()
+
+
+if __name__ == "__main__":
+  main()

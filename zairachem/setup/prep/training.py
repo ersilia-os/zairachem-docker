@@ -33,7 +33,7 @@ RDLogger.logger().setLevel(RDLogger.CRITICAL)
 
 class TrainSetup(object):
   def __init__(
-    self, input_file, output_dir, task, model_ids, enable_cache, access, nn, contribute_cache
+    self, input_file, output_dir, task, model_ids, read_store, nn, contribute_store
   ):
     if output_dir is None:
       output_dir = input_file.split(".")[0]
@@ -55,10 +55,9 @@ class TrainSetup(object):
       "task": self.task,
       "featurizer_ids": self.featurizer_ids,
       "projection_ids": self.projection_ids,
-      "enable_cache": enable_cache,
-      "access": access,
+      "read_store": read_store,
       "enable_nns": nn,
-      "contribute_cache": contribute_cache,
+      "contribute_store": contribute_store,
     }
 
   def _copy_input_file(self):

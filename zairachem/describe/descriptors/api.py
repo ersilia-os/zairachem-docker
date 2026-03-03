@@ -11,7 +11,6 @@ from zairachem.base.utils.logging import logger
 from zairachem.base import ZairaBase
 from zairachem.base.utils.utils import (
   fetch_schema_from_github,
-  resolve_default_bucket,
   latest_version,
 )
 from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
@@ -28,12 +27,15 @@ from rich.progress import (
 )
 
 try:
-  from isaura.manage import IsauraCopy, IsauraReader, IsauraWriter
+  from isaura.manage import IsauraCopy, IsauraReader, IsauraRemover, IsauraWriter
 except Exception as e:
   logger.warning(f"Isaura modules could not be imported: {e}")
   IsauraCopy = None
   IsauraReader = None
+  IsauraRemover = None
   IsauraWriter = None
+
+ZAIRATEMP_BUCKET = "zairatemp"
 
 _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
 _ALLOWED_RE = re.compile(
@@ -57,11 +59,9 @@ class BinaryStreamClient(ZairaBase):
       self.path = self.get_output_dir()
       self.input_data, self.input_header = self._load_data()
       self.params = self._load_params()
-      self.access = self.params["access"]
-      self.enable_cache = bool(self.params["enable_cache"])
-      self.default_bucket = resolve_default_bucket(self.access)
-      self.nns = bool(self.params["enable_nns"])
-      self.contribute_cache = bool(self.params["contribute_cache"])
+      self.read_store = self.params.get("read_store")
+      self.contribute_store = self.params.get("contribute_store")
+      self.nns = bool(self.params.get("enable_nns", False))
       self._feature_len = None
       self.project_name = project_name
     except Exception as e:
@@ -293,40 +293,78 @@ class BinaryStreamClient(ZairaBase):
       )
       raise
 
-  def run(self):
-    if not self.enable_cache:
-      logger.warning(f"Isaura store operation is disabled globally!")
-      return self._run()
+  def _contribute(self, any_results):
+    if not self.contribute_store:
+      return
+    df = self._get_ersilia_df(any_results)
+    is_temp = self.contribute_store == ZAIRATEMP_BUCKET
+    write_bucket = ZAIRATEMP_BUCKET if is_temp else self.contribute_store
     try:
-      self.version = self.resolve_version(self.model_id, self.default_bucket)
-      df = pd.DataFrame(columns=["input"], data=self.input_data)
-      r = IsauraReader(
+      logger.info(f"Writing precalculations to bucket: {write_bucket}")
+      w = IsauraWriter(
+        input_csv=None,
         model_id=self.model_id,
         model_version=self.version,
-        input_csv=None,
-        approximate=self.nns,
-        bucket=self.default_bucket,
+        bucket=write_bucket,
       )
-      df = r.read(df=df)
-      values = df[df.columns.difference(["key", "input"])].values
-      values = values.astype("float")
-      cols = df.columns.difference(["key", "input"]).tolist()
-      self.schema = fetch_schema_from_github(self.model_id)
-      dtype = self.resolve_dtype()
-      any_results = {
-        "shape": values.shape,
-        "dtype": dtype,
-        "data": values,
-        "dims": cols,
-        "inputs": self.input_data,
-      }
-      return any_results
-    except SystemExit as e:
-      logger.info(f"Fall back to the api for calculating the descriptors due to SystemExit: {e}")
-      return self._run()
+      w.write(df=df)
+      if is_temp:
+        logger.info(f"Copying precalculations from {ZAIRATEMP_BUCKET} to isaura-public")
+        c = IsauraCopy(
+          model_id=self.model_id,
+          model_version=self.version,
+          bucket=ZAIRATEMP_BUCKET,
+        )
+        c.copy()
+        logger.info(f"Removing temporary data from {ZAIRATEMP_BUCKET}")
+        r = IsauraRemover(
+          model_id=self.model_id,
+          model_version=self.version,
+          bucket=ZAIRATEMP_BUCKET,
+        )
+        r.remove()
     except Exception as e:
-      logger.error(f"Unhandled error in run: {e}")
-      raise
+      logger.error(f"Error in Isaura contribute workflow: {e}")
+
+  def run(self):
+    any_results = None
+    if not self.read_store:
+      logger.warning(f"Isaura read store is disabled (no -es flag provided)!")
+      any_results = self._run()
+    else:
+      try:
+        logger.info(f"Reading precalculations from bucket: {self.read_store}")
+        self.version = self.resolve_version(self.model_id, self.read_store)
+        df = pd.DataFrame(columns=["input"], data=self.input_data)
+        r = IsauraReader(
+          model_id=self.model_id,
+          model_version=self.version,
+          input_csv=None,
+          approximate=self.nns,
+          bucket=self.read_store,
+        )
+        df = r.read(df=df)
+        values = df[df.columns.difference(["key", "input"])].values
+        values = values.astype("float")
+        cols = df.columns.difference(["key", "input"]).tolist()
+        self.schema = fetch_schema_from_github(self.model_id)
+        dtype = self.resolve_dtype()
+        any_results = {
+          "shape": values.shape,
+          "dtype": dtype,
+          "data": values,
+          "dims": cols,
+          "inputs": self.input_data,
+        }
+      except SystemExit as e:
+        logger.info(f"Fall back to the api for calculating the descriptors due to SystemExit: {e}")
+        any_results = self._run()
+      except Exception as e:
+        logger.error(f"Unhandled error in run: {e}")
+        raise
+
+    self._contribute(any_results)
+    return any_results
 
   def _get_ersilia_df(self, res):
     try:
@@ -399,24 +437,6 @@ class BinaryStreamClient(ZairaBase):
         "data": stacked,
         "inputs": self.input_data,
       })
-      if self.enable_cache:
-        df = self._get_ersilia_df(any_results)
-        try:
-          w = IsauraWriter(
-            input_csv=None,
-            model_id=self.model_id,
-            model_version=self.version,
-            bucket=self.project_name,
-            access=self.access,
-          )
-          w.write(df=df)
-          if self.contribute_cache:
-            c = IsauraCopy(
-              model_id=self.model_id, model_version=self.version, bucket=self.project_name
-            )
-            c.copy()
-        except Exception as e:
-          logger.error(f"Error writing to Isaura cache or copying data: {e}")
       return any_results
     except Exception as e:
       logger.error(f"Unhandled error in _run: {e}")

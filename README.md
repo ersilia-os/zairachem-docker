@@ -48,10 +48,9 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 * `--clean`: `True/False`.
 * `--flush`:` True/False`.
 * `--anonymize`: `True/False`.
-* `--enable-store/-es`: `True/False`: enables fetching or storing precalculation from isaura store
+* `--enable-store/-es [PROJECT]`: Enables reading precalculations from isaura store. Reads from `isaura-public` by default, or specify a custom project name (e.g., `-es my_project`).
 * `--nearest-neighbor/-nn`: `True/False`: enables nearest search neighbor search to find similar compounds
-* `--contribute-store/-cs`: `True/False`: enables contributing precalculations stored in custom isaura projects to the default projects [isaura-public/isaura-private]
-* `--access/-a`: `public/private`: defines where to read the precalculation store [`public` `->` `isaura-public` and `private` `->` `isaura-private`]
+* `--contribute-store/-cs [PROJECT]`: Enables uploading precalculations to isaura store. Without a project name, writes to a temporary bucket (`zairatemp`), copies to `isaura-public`, then removes the temp data. With a project name (e.g., `-cs my_project`), writes directly to that project only.
 
 The eos-ids file must be a `.json` file with the following structure:
 ```bash
@@ -76,10 +75,9 @@ And the created `parameter.json` will look like:
   "projection_ids": [
     "eos2db3"
   ],
-  "enable_cache": true,
-  "access": "public",
+  "read_store": "isaura-public",
   "enable_nns": false,
-  "contribute_cache": true,
+  "contribute_store": "my_project",
   "latest_featurizer_version": {
     "eos5axz": "v1",
     "eos2gw4": "v2"

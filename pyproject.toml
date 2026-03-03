@@ -27,7 +27,7 @@ isaura = { git="https://github.com/ersilia-os/isaura.git", optional=true }
 isaura = ["isaura"]
 
 [tool.poetry.scripts]
-zairachem = "zairachem.cli:cli"
+zairachem = "zairachem.cli:main"
 
 [build-system]
 requires    = ["poetry-core>=1.0.0"]
