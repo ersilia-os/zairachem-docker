@@ -1,3 +1,4 @@
+import json
 import os, shutil
 from zairachem.setup.prep import (
   ParametersFile,
@@ -26,9 +27,22 @@ from zairachem.base.utils.pipeline import PipelineStep, SessionFile
 
 
 class PredictSetup(object):
-  def __init__(self, input_file, model_dir, output_dir, override_dir, time_budget=120):
+  def __init__(
+    self,
+    input_file,
+    model_dir,
+    output_dir,
+    override_dir,
+    time_budget=120,
+    read_store=None,
+    nn=False,
+    contribute_store=None,
+  ):
     self.input_file = os.path.abspath(input_file)
     self.override_dir = override_dir
+    self.read_store = read_store
+    self.nn = nn
+    self.contribute_store = contribute_store
     if output_dir is None:
       self.output_dir = os.path.abspath(self.input_file.split(".")[0])
     else:
@@ -89,6 +103,24 @@ class PredictSetup(object):
       os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE),
       os.path.join(self.output_dir, DATA_SUBFOLDER, PARAMETERS_FILE),
     )
+    self._update_params()
+
+  def _update_params(self):
+    """Update params for prediction, overriding training params for isaura settings.
+    
+    The isaura precalculation settings (read_store, contribute_store, enable_nns) 
+    should NOT be inherited from training. They must be explicitly specified 
+    during prediction, otherwise they default to disabled (None/False).
+    """
+    params_path = os.path.join(self.output_dir, DATA_SUBFOLDER, PARAMETERS_FILE)
+    with open(params_path, "r") as f:
+      params = json.load(f)
+    # Always override isaura settings - don't inherit from training
+    params["read_store"] = self.read_store
+    params["enable_nns"] = self.nn
+    params["contribute_store"] = self.contribute_store
+    with open(params_path, "w") as f:
+      json.dump(params, f, indent=4)
 
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)

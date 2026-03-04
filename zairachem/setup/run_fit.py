@@ -3,7 +3,13 @@ from zairachem.base.utils.logging import logger
 
 
 def run(
-  input_file, task, read_store, nn, contribute_store, output_dir=None, model_ids_file=None
+  input_file,
+  task,
+  read_store=None,
+  nn=False,
+  contribute_store=None,
+  output_dir=None,
+  model_ids_file=None,
 ):
   ts = TrainSetup(
     input_file,

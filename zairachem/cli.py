@@ -12,7 +12,6 @@ from zairachem.report.report import Reporter
 from zairachem.finish.finish import Finisher
 
 
-
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.SHOW_ARGUMENTS = True
 
@@ -25,6 +24,7 @@ rc.STYLE_METAVAR = "italic yellow"
 rc.STYLE_SWITCH = "underline cyan"
 rc.STYLE_USAGE = "bold blue"
 rc.STYLE_OPTION_DEFAULT = "dim italic"
+
 
 def _preprocess_optional_arg(argv, flag, default_value):
   result = []
@@ -171,6 +171,25 @@ def fit(
 @common_options(require_input=True, include_task=False, include_eos=False)
 @click.option("--output-dir", "-o", required=False, help="Path to the output model dir.")
 @click.option(
+  "--enable-store",
+  "-es",
+  default=None,
+  help="Enables reading precalculations from isaura store. Reads from isaura-public by default, or specify a project name (e.g., -es my_project).",
+)
+@click.option(
+  "--nearest-neighbors",
+  "-nn",
+  is_flag=True,
+  default=False,
+  help="Enables nearest neighbor search for fetching calculations!",
+)
+@click.option(
+  "--contribute-store",
+  "-cs",
+  default=None,
+  help="Enables uploading precalculations to isaura store. Without a project name, writes to zairatemp, copies to isaura-public, then cleans up. With a project name (e.g., -cs my_project), writes directly to that project.",
+)
+@click.option(
   "--override-dir",
   is_flag=True,
   default=False,
@@ -183,10 +202,21 @@ def predict(
   flush,
   anonymize,
   output_dir,
+  enable_store,
+  nearest_neighbors,
+  contribute_store,
   override_dir,
 ):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data for prediction[/]")
-  run_predict(input_file, model_dir, output_dir, override_dir)
+  run_predict(
+    input_file,
+    model_dir,
+    output_dir,
+    override_dir,
+    read_store=enable_store,
+    nn=nearest_neighbors,
+    contribute_store=contribute_store,
+  )
   process_group(clean, flush, anonymize)
 
 
