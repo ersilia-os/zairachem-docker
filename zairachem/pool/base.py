@@ -1,9 +1,11 @@
-import json, h5py, os
+import json, h5py, os, gc
 import numpy as np
 import pandas as pd
+from typing import Iterator, Tuple, List
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.matrices import Hdf5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
   PARAMETERS_FILE,
@@ -19,7 +21,7 @@ from zairachem.base.vars import (
 )
 
 
-class ResultsIterator(ZairaBase):  # TODO SAME AS ESTIMATOR
+class ResultsIterator(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
     if path is None:
@@ -51,9 +53,10 @@ class ResultsIterator(ZairaBase):  # TODO SAME AS ESTIMATOR
 
 
 class XGetter(ZairaBase):
-  def __init__(self, path):
+  def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.path = path
+    self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     self.X = []
     self.columns = []
 
@@ -63,29 +66,31 @@ class XGetter(ZairaBase):
     df = df[[c for c in list(df.columns) if c not in [SMILES_COLUMN, COMPOUND_IDENTIFIER_COLUMN]]]
     return df
 
-  def _get_manifolds(self):
-    pca_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "pca.h5")
-    if os.path.exists(pca_file):
-      with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "pca.h5"), "r") as f:
+  def _load_manifold(self, name):
+    h5_path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, f"{name}.h5")
+    if not os.path.exists(h5_path):
+      return
+    h5 = Hdf5(h5_path)
+    shape = h5.shape()
+    n_rows = shape[0]
+    logger.info(f"[pool] loading {name} shape={shape}")
+    if n_rows <= self.batch_size * 2:
+      with h5py.File(h5_path, "r") as f:
         X_ = f["Values"][:]
-        self.X += [X_]
-        for i in range(X_.shape[1]):
-          self.columns += ["pca-{0}".format(i)]
-    umap_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "umap.h5")
-    if os.path.exists(umap_file):
-      with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "umap.h5"), "r") as f:
-        X_ = f["Values"][:]
-        self.X += [X_]
-        for i in range(X_.shape[1]):
-          self.columns += ["umap-{0}".format(i)]
+    else:
+      logger.info(f"[pool] loading {name} in chunks")
+      X_ = np.empty(shape, dtype=np.float32)
+      for start, end, chunk in h5.iter_values_with_indices(self.batch_size):
+        X_[start:end] = chunk
+        logger.debug(f"[pool] loaded {name} rows {start}-{end}/{n_rows}")
+    self.X.append(X_)
+    for i in range(X_.shape[1]):
+      self.columns.append(f"{name}-{i}")
+    gc.collect()
 
-    tsne_file = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5")
-    if os.path.exists(tsne_file):
-      with h5py.File(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "tsne.h5"), "r") as f:
-        X_ = f["Values"][:]
-        self.X += [X_]
-        for i in range(X_.shape[1]):
-          self.columns += ["tsne-{0}".format(i)]
+  def _get_manifolds(self):
+    for name in ("pca", "umap", "tsne"):
+      self._load_manifold(name)
 
   def _get_results(self):
     prefixes = []
@@ -111,15 +116,33 @@ class XGetter(ZairaBase):
     df.to_csv(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME), index=False)
     return df
 
+  def iter_get(self, chunk_size=None) -> Iterator[Tuple[int, int, pd.DataFrame]]:
+    if chunk_size is None:
+      chunk_size = self.batch_size
+    self._get_manifolds()
+    self._get_results()
+    n_rows = self.X[0].shape[0] if self.X else 0
+    logger.info(f"[pool:iter] Total rows={n_rows}, columns={len(self.columns)}")
+    for start in range(0, n_rows, chunk_size):
+      end = min(start + chunk_size, n_rows)
+      chunk_arrays = [x[start:end] for x in self.X]
+      chunk_X = np.hstack(chunk_arrays)
+      chunk_df = pd.DataFrame(chunk_X, columns=self.columns)
+      logger.debug(f"[pool:iter] Yielding rows {start}-{end}/{n_rows}")
+      yield start, end, chunk_df
+      del chunk_X, chunk_df, chunk_arrays
+      gc.collect()
+
 
 class BasePooler(ZairaBase):
-  def __init__(self, path):
+  def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.logger = logger
     if path is None:
       self.path = self.get_output_dir()
     else:
       self.path = path
+    self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     self.task = self._get_task()
 
   def _get_task(self):
@@ -133,13 +156,15 @@ class BasePooler(ZairaBase):
     return cids
 
   def _get_X(self):
-    df = XGetter(path=self.path).get()
+    df = XGetter(path=self.path, batch_size=self.batch_size).get()
     return df
 
+  def _iter_X(self, chunk_size=None) -> Iterator[Tuple[int, int, pd.DataFrame]]:
+    getter = XGetter(path=self.path, batch_size=self.batch_size)
+    yield from getter.iter_get(chunk_size=chunk_size)
+
   def _get_X_clf(self, df):
-    return df[
-      [c for c in list(df.columns)]
-    ]  # TODO: I just removed this code:  if "clf" in c and "_bin" not in c
+    return df[[c for c in list(df.columns)]]
 
   def _get_X_reg(self, df):
     return df[[c for c in list(df.columns) if "reg" in c]]

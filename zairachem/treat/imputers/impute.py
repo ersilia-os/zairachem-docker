@@ -2,31 +2,35 @@ import os
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.treat.imputers.manifolds import Manifolds
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.treat.imputers.treated import TreatedDescriptors
 
 
 class Imputer(ZairaBase):
-  def __init__(self, path):
+  def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     if path is None:
       self.path = self.get_output_dir()
     else:
       self.path = path
     self.output_dir = os.path.abspath(self.path)
+    self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     assert os.path.exists(self.output_dir)
 
   def _treated_descriptions(self):
     step = PipelineStep("treated_descriptions", self.output_dir)
     if not step.is_done():
-      TreatedDescriptors().run()
+      logger.info(f"[imputer] Using chunk size: {self.batch_size}")
+      TreatedDescriptors(chunk_size=self.batch_size).run()
       step.update()
 
   def _manifolds(self):
     step = PipelineStep("manifolds", self.output_dir)
     if not step.is_done():
-      Manifolds().run()
+      logger.info(f"[manifolds] Using batch size: {self.batch_size}")
+      Manifolds(batch_size=self.batch_size).run()
       step.update()
     else:
       logger.warning(

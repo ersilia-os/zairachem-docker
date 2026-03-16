@@ -1,10 +1,9 @@
-
-
 import csv
 import json
 import hashlib
 import os
 import time
+import gc
 import requests
 import re
 import pandas as pd
@@ -57,7 +56,6 @@ class BinaryStreamClient(ZairaBase):
       self.csv_path = csv_path
       self.url = url
       self.model_id = model_id
-
       self.path = self.get_output_dir()
       self.input_data, self.input_header = self._load_data()
       self.params = self._load_params()
@@ -82,10 +80,8 @@ class BinaryStreamClient(ZairaBase):
     try:
       if "latest_featurizer_version" not in self.params:
         self.params["latest_featurizer_version"] = {}
-
       if model_id in self.params["latest_featurizer_version"]:
         return self.params["latest_featurizer_version"][model_id]
-
       version = latest_version(model_id, bucket)
       self.params["latest_featurizer_version"][model_id] = version
       self._save_params(self.params)
@@ -140,13 +136,11 @@ class BinaryStreamClient(ZairaBase):
       view = memoryview(arr).cast("B")
       read = len(remainder)
       view[:read] = remainder
-
       for chunk in it:
         view[read : read + len(chunk)] = chunk
         read += len(chunk)
         if read >= total_bytes:
           break
-
       if read < total_bytes:
         raise IOError(f"Incomplete read: got {read} of {total_bytes} bytes")
       return arr, meta
@@ -328,18 +322,23 @@ class BinaryStreamClient(ZairaBase):
     except Exception as e:
       logger.error(f"Error in Isaura contribute workflow: {e}")
 
-  def run(self):
+  def run(self, output_h5=None, isaura_batch_size=None):
+    from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
+
+    if isaura_batch_size is None:
+      isaura_batch_size = DEFAULT_ISAURA_BATCH_SIZE
     any_results = None
     if self.contribute_store or self.read_store:
       self.version = self.resolve_version(self.model_id, self.read_store)
     if not self.read_store:
       logger.warning(f"Isaura read store is disabled (no -es flag provided)!")
-      any_results = self._run()
+      any_results = self._run(output_h5=output_h5)
     else:
       try:
         logger.info(f"Reading precalculations from bucket: {self.read_store}")
-        
-        df = pd.DataFrame(columns=["input"], data=self.input_data)
+        n_total = len(self.input_data)
+        n_chunks = (n_total + isaura_batch_size - 1) // isaura_batch_size
+        logger.info(f"[isaura] total={n_total} batch={isaura_batch_size} chunks={n_chunks}")
         r = IsauraReader(
           model_id=self.model_id,
           model_version=self.version,
@@ -347,26 +346,66 @@ class BinaryStreamClient(ZairaBase):
           approximate=self.nns,
           bucket=self.read_store,
         )
-        df = r.read(df=df)
-        values = df[df.columns.difference(["key", "input"])].values
-        values = values.astype("float")
-        cols = df.columns.difference(["key", "input"]).tolist()
         self.schema = fetch_schema_from_github(self.model_id)
         dtype = self.resolve_dtype()
-        any_results = {
-          "shape": values.shape,
-          "dtype": dtype,
-          "data": values,
-          "dims": cols,
-          "inputs": self.input_data,
-        }
+        cols = None
+        h5_sink = None
+        if output_h5:
+          from zairachem.base.utils.matrices import Hdf5
+
+          h5_sink = Hdf5(output_h5)
+        all_values = []
+        for ci in range(n_chunks):
+          lo = ci * isaura_batch_size
+          hi = min(lo + isaura_batch_size, n_total)
+          chunk_inputs = self.input_data[lo:hi]
+          chunk_df = pd.DataFrame(columns=["input"], data=chunk_inputs)
+          logger.info(f"[isaura] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
+          result_df = r.read(df=chunk_df)
+          if cols is None:
+            cols = result_df.columns.difference(["key", "input"]).tolist()
+            if h5_sink:
+              h5_sink.create_empty(len(cols), cols, dtype="float32")
+          chunk_values = result_df[cols].values.astype("float32")
+          if h5_sink:
+            chunk_input_list = (
+              result_df["input"].astype(str).tolist()
+              if "input" in result_df.columns
+              else chunk_inputs
+            )
+            h5_sink.append(chunk_values, chunk_input_list)
+            logger.info(
+              f"[isaura] chunk {ci + 1}/{n_chunks} appended {len(chunk_values)} rows to h5"
+            )
+          else:
+            all_values.append(chunk_values)
+          del result_df, chunk_values, chunk_df
+          gc.collect()
+        if h5_sink:
+          any_results = {
+            "shape": (n_total, len(cols)),
+            "dtype": dtype,
+            "data": None,
+            "dims": cols,
+            "inputs": self.input_data,
+            "h5_file": output_h5,
+          }
+        else:
+          stacked = np.vstack(all_values) if all_values else np.empty((0, 0))
+          del all_values
+          any_results = {
+            "shape": stacked.shape,
+            "dtype": dtype,
+            "data": stacked,
+            "dims": cols or [],
+            "inputs": self.input_data,
+          }
       except SystemExit as e:
         logger.info(f"Fall back to the api for calculating the descriptors due to SystemExit: {e}")
-        any_results = self._run()
+        any_results = self._run(output_h5=output_h5)
       except Exception as e:
         logger.error(f"Unhandled error in run: {e}")
         raise
-
     self._contribute(any_results)
     return any_results
 
@@ -380,8 +419,10 @@ class BinaryStreamClient(ZairaBase):
       logger.error(f"Error creating Ersilia DataFrame: {e}")
       raise
 
-  def _run(self):
+  def _run(self, output_h5=None):
     try:
+      from zairachem.base.utils.matrices import Hdf5
+
       total_time = 0.0
       n = len(self.input_data)
       per_item_rows = [None] * n
@@ -394,8 +435,14 @@ class BinaryStreamClient(ZairaBase):
         if ok:
           good_idx.append(i)
           checked_input.append(s)
-
       any_results = None
+      h5_sink = None
+      cols = None
+      if output_h5:
+        schema_cols = fetch_schema_from_github(self.model_id)[0]
+        h5_sink = Hdf5(output_h5)
+        h5_sink.create_empty(len(schema_cols), schema_cols, dtype="float32")
+        cols = schema_cols
       progress = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -409,38 +456,69 @@ class BinaryStreamClient(ZairaBase):
       try:
         with progress:
           task = progress.add_task("Computing descriptors", total=len(checked_input))
+          processed_count = 0
           for start in range(0, len(checked_input), self.batch_size):
             batch = checked_input[start : start + self.batch_size]
             batch_abs_offset = good_idx[start]
             t0 = time.perf_counter()
-
             arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
             total_time += time.perf_counter() - t0
             if results is not None:
               any_results = results
-            for j, row in enumerate(arrays_out):
-              per_item_rows[good_idx[start + j]] = row
+            if h5_sink:
+              batch_arrays = []
+              batch_inputs = []
+              for j, row in enumerate(arrays_out):
+                if isinstance(row, np.ndarray):
+                  batch_arrays.append(row)
+                else:
+                  batch_arrays.append(self._placeholder_row())
+                batch_inputs.append(checked_input[start + j])
+              if batch_arrays:
+                stacked_batch = np.vstack(batch_arrays).astype("float32")
+                h5_sink.append(stacked_batch, batch_inputs)
+                logger.debug(f"[api] Appended {len(batch_arrays)} rows to h5")
+                del stacked_batch, batch_arrays
+                gc.collect()
+            else:
+              for j, row in enumerate(arrays_out):
+                per_item_rows[good_idx[start + j]] = row
+            processed_count += len(arrays_out)
             progress.advance(task, len(arrays_out))
       finally:
         self.logger.info(f"Total elapsed: {total_time:.4f}s")
-      filled = []
-      for row in per_item_rows:
-        if isinstance(row, np.ndarray):
-          filled.append(row)
-        else:
-          filled.append(self._placeholder_row())
-      stacked = np.vstack(filled)
-      if any_results is None:
-        any_results = {}
-      if "dtype" not in any_results:
-        any_results.update({"dtype": self.resolve_dtype()})
-      if "dims" not in any_results:
-        any_results.update({"dims": self.resolve_dims()})
-      any_results.update({
-        "shape": stacked.shape,
-        "data": stacked,
-        "inputs": self.input_data,
-      })
+      if h5_sink:
+        if any_results is None:
+          any_results = {}
+        if "dtype" not in any_results:
+          any_results.update({"dtype": self.resolve_dtype()})
+        if "dims" not in any_results:
+          any_results.update({"dims": cols})
+        any_results.update({
+          "shape": h5_sink.shape(),
+          "data": None,
+          "inputs": checked_input,
+          "h5_file": output_h5,
+        })
+      else:
+        filled = []
+        for row in per_item_rows:
+          if isinstance(row, np.ndarray):
+            filled.append(row)
+          else:
+            filled.append(self._placeholder_row())
+        stacked = np.vstack(filled)
+        if any_results is None:
+          any_results = {}
+        if "dtype" not in any_results:
+          any_results.update({"dtype": self.resolve_dtype()})
+        if "dims" not in any_results:
+          any_results.update({"dims": self.resolve_dims()})
+        any_results.update({
+          "shape": stacked.shape,
+          "data": stacked,
+          "inputs": self.input_data,
+        })
       return any_results
     except Exception as e:
       logger.error(f"Unhandled error in _run: {e}")

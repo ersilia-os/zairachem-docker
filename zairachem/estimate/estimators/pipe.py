@@ -4,6 +4,7 @@ import pandas as pd
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import DATA_SUBFOLDER, DATA_FILENAME, PARAMETERS_FILE
 from zairachem.estimate.estimators.evaluate import SimpleEvaluator
 from zairachem.estimate.estimators.lazy_qsar.pipe import LazyQsarAutoMLPipeline
@@ -12,7 +13,7 @@ MOLMAP_DATA_SIZE_LIMIT = 10000
 
 
 class EstimatorPipeline(ZairaBase):
-  def __init__(self, path):
+  def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.logger = logger
     if path is None:
@@ -20,9 +21,10 @@ class EstimatorPipeline(ZairaBase):
     else:
       self.path = path
     self.output_dir = os.path.abspath(self.path)
+    self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     assert os.path.exists(self.output_dir)
     self.params = self._load_params()
-    self.data_size = self._get_data_size()  # TODO clean up if not needed
+    self.data_size = self._get_data_size()
 
   def _get_data_size(self):
     data = pd.read_csv(os.path.join(self.get_trained_dir(), DATA_SUBFOLDER, DATA_FILENAME))
@@ -36,8 +38,8 @@ class EstimatorPipeline(ZairaBase):
   def _lazyqsar_estimator_pipeline(self):
     step = PipelineStep("lazy-qsar", self.output_dir)
     if not step.is_done():
-      self.logger.debug("Running lazyqsar pipeline")
-      p = LazyQsarAutoMLPipeline(path=self.path)
+      logger.info(f"[estimator] Running lazyqsar pipeline with batch_size={self.batch_size}")
+      p = LazyQsarAutoMLPipeline(path=self.path, batch_size=self.batch_size)
       p.run()
       step.update()
 

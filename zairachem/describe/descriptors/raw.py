@@ -25,7 +25,7 @@ class RawLoader(ZairaBase):
 
 
 class RawDescriptors(ZairaBase):
-  def __init__(self):
+  def __init__(self, batch_size=None):
     ZairaBase.__init__(self)
     self.path = self.get_output_dir()
     self.params = self._load_params()
@@ -33,6 +33,7 @@ class RawDescriptors(ZairaBase):
     self.input_csv_ersilia = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
     self._process_ersilia_inputs()
     self.api = BinaryStreamClient(csv_path=self.input_csv_ersilia)
+    self.batch_size = batch_size
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
 
@@ -62,10 +63,12 @@ class RawDescriptors(ZairaBase):
 
   def _run_eos(self, eos_id):
     output_h5 = self.output_h5_filename(eos_id)
-
     try:
-      res = self.api.run()
-      Hdf5Data(res).save(output_h5)
+      res = self.api.run(output_h5=output_h5, isaura_batch_size=self.batch_size)
+      if res.get("h5_file"):
+        self.logger.info(f"[raw] {eos_id} streamed directly to {output_h5}")
+      elif res.get("data") is not None:
+        Hdf5Data(res).save(output_h5)
     except Exception as e:
       self.logger.error(f"Exception in h5: {e}")
 

@@ -16,32 +16,20 @@ compose_file = Path(__file__).parent.parent / "files" / "configs" / "docker-comp
 
 class Hdf5Data:
   def __init__(self, results):
-    try:
-      self.values = results["data"]
-      self.dim = results["shape"][-1]
-      self.dtype = results["dtype"]
-      if self.dtype is None:
-        self._force_dtype = False
-        self._np_dtype = None
-      else:
-        self._force_dtype = True
-        self._np_dtype = np.dtype(self.dtype)
-
-      str_dt = h5py.string_dtype(encoding="utf-8")
-      self.inputs = np.array(results["inputs"], dtype=str_dt)
-      self.features = np.array(results["dims"], dtype=str_dt)
-
-    except Exception as e:
-      raise RuntimeError(f"Failed to initialize Hdf5Data: {e}")
+    self.values = results["data"]
+    self.dim = results["shape"][-1]
+    self.dtype = results["dtype"]
+    self._np_dtype = np.dtype(self.dtype) if self.dtype else None
+    str_dt = h5py.string_dtype(encoding="utf-8")
+    self.inputs = np.array(results["inputs"], dtype=str_dt)
+    self.features = np.array(results["dims"], dtype=str_dt)
 
   def save(self, filename):
-    try:
-      with h5py.File(filename, "w") as f:
-        f.create_dataset("Values", data=self.values)
-        f.create_dataset("Inputs", data=self.inputs)
-        f.create_dataset("Features", data=self.features)
-    except OSError as e:
-      raise IOError(f"Could not write to file '{filename}': {e}")
+    logger.info(f"[h5] saving {filename} shape={np.shape(self.values)}")
+    with h5py.File(filename, "w") as f:
+      f.create_dataset("Values", data=self.values)
+      f.create_dataset("Inputs", data=self.inputs)
+      f.create_dataset("Features", data=self.features)
 
 
 class Hdf5DataLoader(object):

@@ -6,21 +6,24 @@ from ..base import BasePooler
 from .bagger import BaggerRegressor, BaggerClassifier
 
 from zairachem.base import ZairaBase
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import POOL_SUBFOLDER
 
 
 class Fitter(BasePooler):
-  def __init__(self, path):
-    BasePooler.__init__(self, path=path)
+  def __init__(self, path, batch_size=None):
+    BasePooler.__init__(self, path=path, batch_size=batch_size)
     self.trained_path = os.path.join(self.get_output_dir(), POOL_SUBFOLDER)
 
   def run(self):
     self.reset_time()
     valid_idxs = self.get_validation_indices(path=self.path)
     cids = self._get_compound_ids()
+    logger.info(f"[bagger:fit] Loading X with batch_size={self.batch_size}")
     df_X = self._get_X()
     df_Y = self._get_y()
-    cids = [cids[idx] for idx in valid_idxs]  # compound ids only for validation
+    cids = [cids[idx] for idx in valid_idxs]
     if self.task == "regression":
       df_X_reg = self._get_X_reg(df_X)
       X_reg = pd.DataFrame(df_X_reg).reset_index(drop=True)
@@ -56,12 +59,13 @@ class Fitter(BasePooler):
 
 
 class Predictor(BasePooler):
-  def __init__(self, path):
-    BasePooler.__init__(self, path=path)
+  def __init__(self, path, batch_size=None):
+    BasePooler.__init__(self, path=path, batch_size=batch_size)
     self.trained_path = os.path.join(self.get_trained_dir(), POOL_SUBFOLDER)
 
   def run(self):
     self.reset_time()
+    logger.info(f"[bagger:predict] Loading X with batch_size={self.batch_size}")
     df = self._get_X()
     cids = self._get_compound_ids()
     if self.task == "regression":
@@ -95,16 +99,17 @@ class Predictor(BasePooler):
 
 
 class Bagger(ZairaBase):
-  def __init__(self, path=None):
+  def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
+    self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     if path is None:
       self.path = self.get_output_dir()
     else:
       self.path = path
     if not self.is_predict():
-      self.estimator = Fitter(path=self.path)
+      self.estimator = Fitter(path=self.path, batch_size=self.batch_size)
     else:
-      self.estimator = Predictor(path=self.path)
+      self.estimator = Predictor(path=self.path, batch_size=self.batch_size)
 
   def run(self):
     if not self.is_predict():

@@ -38,18 +38,18 @@ def _preprocess_optional_arg(argv, flag, default_value):
   return result
 
 
-def process_group(clean, flush, anonymize):
+def process_group(clean, flush, anonymize, batch_size=None):
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
-  Describer(path=None).run()
+  Describer(path=None, batch_size=batch_size).run()
 
   logger.debug("[#ff69b4]Running the treatment pipeline[/]")
-  Imputer(path=None).run()
+  Imputer(path=None, batch_size=batch_size).run()
 
   logger.debug("[#ff69b4]Running the estimator pipeline[/]")
-  EstimatorPipeline(path=None).run()
+  EstimatorPipeline(path=None, batch_size=batch_size).run()
 
   logger.debug("[#ff69b4]Running the pooling pipeline to aggregate the result using bagging[/]")
-  PoolerPipeline(path=None).run()
+  PoolerPipeline(path=None, batch_size=batch_size).run()
 
   logger.debug("[#ff69b4]Running the reporting pipeline[/]")
   Reporter(path=None, plot_name=None).run()
@@ -123,20 +123,27 @@ def cli():
   "--enable-store",
   "-es",
   default=None,
-  help="Enables reading precalculations from isaura store. Reads from isaura-public by default, or specify a project name (e.g., -es my_project).",
+  help="Enables reading precalculations from isaura store.",
 )
 @click.option(
   "--nearest-neighbors",
   "-nn",
   is_flag=True,
   default=False,
-  help="Enables nearest neighbor search for fetching calculations!",
+  help="Enables nearest neighbor search for fetching calculations.",
 )
 @click.option(
   "--contribute-store",
   "-cs",
   default=None,
-  help="Enables uploading precalculations to isaura store. Without a project name, writes to zairatemp, copies to isaura-public, then cleans up. With a project name (e.g., -cs my_project), writes directly to that project.",
+  help="Enables uploading precalculations to isaura store.",
+)
+@click.option(
+  "--batch-size",
+  "-bs",
+  default=None,
+  type=int,
+  help="Batch size for chunked processing (default: 10000). Controls memory usage for large datasets.",
 )
 def fit(
   input_file,
@@ -149,8 +156,11 @@ def fit(
   enable_store,
   nearest_neighbors,
   contribute_store,
+  batch_size,
 ):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
+  if batch_size:
+    logger.info(f"[#ff69b4]Using batch size: {batch_size}[/]")
   if classification:
     task = "classification"
   else:
@@ -164,7 +174,7 @@ def fit(
     output_dir=model_dir,
     model_ids_file=eos_ids,
   )
-  process_group(clean, flush, anonymize)
+  process_group(clean, flush, anonymize, batch_size=batch_size)
 
 
 @cli.command(name="predict", help="Prepare artifacts for prediction (setup for inference).")
@@ -195,6 +205,13 @@ def fit(
   default=False,
   help="Override the output dir if it already exists.",
 )
+@click.option(
+  "--batch-size",
+  "-bs",
+  default=None,
+  type=int,
+  help="Batch size for chunked processing (default: 10000). Controls memory usage for large datasets.",
+)
 def predict(
   input_file,
   model_dir,
@@ -206,8 +223,11 @@ def predict(
   nearest_neighbors,
   contribute_store,
   override_dir,
+  batch_size,
 ):
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data for prediction[/]")
+  if batch_size:
+    logger.info(f"[#ff69b4]Using batch size: {batch_size}[/]")
   run_predict(
     input_file,
     model_dir,
@@ -217,7 +237,7 @@ def predict(
     nn=nearest_neighbors,
     contribute_store=contribute_store,
   )
-  process_group(clean, flush, anonymize)
+  process_group(clean, flush, anonymize, batch_size=batch_size)
 
 
 @cli.command(name="setup", help="Preprocess input data and create working artifacts.")
@@ -233,30 +253,58 @@ def setup_cmd(input_file, classification, model_dir, eos_ids):
 
 @cli.command(name="describe", help="Compute molecular descriptors.")
 @common_options(require_input=False)
-def describe_cmd():
+@click.option(
+  "--batch-size",
+  "-bs",
+  default=None,
+  type=int,
+  help="Batch size for chunked processing.",
+)
+def describe_cmd(batch_size):
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
-  Describer(path=None).run()
+  Describer(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="treat", help="Impute/clean treated features.")
 @common_options(require_input=False)
-def treat_cmd():
+@click.option(
+  "--batch-size",
+  "-bs",
+  default=None,
+  type=int,
+  help="Batch size for chunked processing.",
+)
+def treat_cmd(batch_size):
   logger.debug("[#ff69b4]Running the treatment pipeline[/]")
-  Imputer(path=None).run()
+  Imputer(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="estimate", help="Train/estimate models.")
 @common_options(require_input=False)
-def estimate_cmd():
+@click.option(
+  "--batch-size",
+  "-bs",
+  default=None,
+  type=int,
+  help="Batch size for chunked processing.",
+)
+def estimate_cmd(batch_size):
   logger.debug("[#ff69b4]Running the estimator pipeline[/]")
-  EstimatorPipeline(path=None).run()
+  EstimatorPipeline(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="pool", help="Aggregate results via bagging.")
 @common_options(require_input=False)
-def pool_cmd():
+@click.option(
+  "--batch-size",
+  "-bs",
+  default=None,
+  type=int,
+  help="Batch size for chunked processing.",
+)
+def pool_cmd(batch_size):
   logger.debug("[#ff69b4]Running the pooling pipeline[/]")
-  PoolerPipeline(path=None).run()
+  PoolerPipeline(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="report", help="Generate analysis report and plots.")

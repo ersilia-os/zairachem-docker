@@ -1,9 +1,9 @@
-import csv, hashlib, joblib, json, os
+import csv, hashlib, joblib, json, os, gc
 import numpy as np
 import pandas as pd
 from zairachem.describe.descriptors.utils import get_model_url
 from zairachem.treat.imputers import DescriptorBase
-from zairachem.base.utils.matrices import Hdf5, Data
+from zairachem.base.utils.matrices import Hdf5, Data, DEFAULT_CHUNK_SIZE
 from zairachem.base.utils.utils import fetch_schema_from_github, post, latest_version
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
@@ -13,6 +13,7 @@ from zairachem.base.vars import (
   PARAMETERS_FILE,
   ERSILIA_DATA_FILENAME,
   DEFAULT_PROJECTIONS,
+  DEFAULT_ISAURA_BATCH_SIZE,
 )
 
 try:
@@ -30,7 +31,7 @@ MAX_COMPONENTS = 4
 
 
 class Manifolds(DescriptorBase):
-  def __init__(self):
+  def __init__(self, batch_size=None):
     DescriptorBase.__init__(self)
     self.path = self.get_output_dir()
     self.input_file = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
@@ -45,6 +46,7 @@ class Manifolds(DescriptorBase):
     self.contribute_store = self.params.get("contribute_store")
     self.nns = bool(self.params.get("enable_nns", False))
     self.version = None
+    self.batch_size = batch_size or DEFAULT_ISAURA_BATCH_SIZE
 
   def _load_params(self):
     try:
@@ -67,10 +69,8 @@ class Manifolds(DescriptorBase):
     try:
       if "latest_projection_version" not in self.params:
         self.params["latest_projection_version"] = {}
-
       if model_id in self.params["latest_projection_version"]:
         return self.params["latest_projection_version"][model_id]
-
       version = latest_version(model_id, bucket)
       self.params["latest_projection_version"][model_id] = version
       self._save_params(self.params)
@@ -91,10 +91,34 @@ class Manifolds(DescriptorBase):
   def save(self, obj, file_name):
     joblib.dump(obj, file_name)
 
+  def finalize_chunked(self, algo_name, cols, all_data):
+    algo_path = os.path.join(self.trained_path, algo_name + ".joblib")
+    self.save(all_data, algo_path)
+    file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, algo_name + ".h5")
+    h5 = Hdf5(file_name)
+    h5.create_empty(len(cols), cols, dtype="float32")
+    chunk_size = self.batch_size
+    n_total = len(self.inputs)
+    for i in range(0, n_total, chunk_size):
+      end = min(i + chunk_size, n_total)
+      chunk_values = np.array(all_data[i:end], dtype="float32")
+      chunk_inputs = self.inputs[i:end]
+      h5.append(chunk_values, chunk_inputs)
+      logger.debug(f"[manifolds] Appended rows {i}-{end}/{n_total} to {algo_name}.h5")
+    info_path = file_name.replace(".h5", ".json")
+    info = {
+      "inputs": h5.n_rows(),
+      "features": h5.n_features(),
+      "values": list(h5.shape()),
+      "is_sparse": False,
+    }
+    with open(info_path, "w") as f:
+      json.dump(info, f, indent=4)
+    gc.collect()
+
   def finalize(self, algo_name):
     algo_path = os.path.join(self.trained_path, algo_name + ".joblib")
     self.save(self.X, algo_path)
-
     file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, algo_name + ".h5")
     data = Data()
     data.set(inputs=self.inputs, values=self.X, features=None)
@@ -151,49 +175,111 @@ class Manifolds(DescriptorBase):
     except Exception as e:
       logger.error(f"Error in Isaura contribute workflow for projections: {e}")
 
+  def _run_api_chunked(self):
+    logger.info(f"Computing projections via API in chunks: {self.url}")
+    n_total = len(self.inputs)
+    n_chunks = (n_total + self.batch_size - 1) // self.batch_size
+    logger.info(f"[manifolds:api] total={n_total} batch={self.batch_size} chunks={n_chunks}")
+    cols = fetch_schema_from_github(self.model_id)[0]
+    all_data = []
+    for ci in range(n_chunks):
+      lo = ci * self.batch_size
+      hi = min(lo + self.batch_size, n_total)
+      chunk_inputs = self.inputs[lo:hi]
+      logger.info(f"[manifolds:api] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
+      chunk_data = post(chunk_inputs, self.url)
+      all_data.extend(chunk_data)
+      del chunk_data
+      gc.collect()
+    return all_data, cols
+
   def _run_api(self):
     logger.info(f"Computing projections via API: {self.url}")
     data = post(self.inputs, self.url)
     cols = fetch_schema_from_github(self.model_id)[0]
     return data, cols
 
+  def _read_isaura_chunked(self):
+    logger.info(f"Reading projection precalculations from bucket in chunks: {self.read_store}")
+    n_total = len(self.inputs)
+    n_chunks = (n_total + self.batch_size - 1) // self.batch_size
+    logger.info(f"[manifolds:isaura] total={n_total} batch={self.batch_size} chunks={n_chunks}")
+    r = IsauraReader(
+      model_id=self.model_id,
+      model_version=self.version,
+      input_csv=None,
+      approximate=self.nns,
+      bucket=self.read_store,
+    )
+    cols = None
+    all_data = []
+    for ci in range(n_chunks):
+      lo = ci * self.batch_size
+      hi = min(lo + self.batch_size, n_total)
+      chunk_inputs = self.inputs[lo:hi]
+      chunk_df = pd.DataFrame(columns=["input"], data=chunk_inputs)
+      logger.info(f"[manifolds:isaura] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
+      result_df = r.read(df=chunk_df)
+      if cols is None:
+        cols = result_df.columns.difference(["key", "input"]).tolist()
+      values = result_df[cols].values
+      chunk_data = [{col: row[i] for i, col in enumerate(cols)} for row in values]
+      all_data.extend(chunk_data)
+      del result_df, values, chunk_data, chunk_df
+      gc.collect()
+    return all_data, cols
+
   def run(self):
     self.inputs = self._load_data()[0]
+    n_total = len(self.inputs)
+    use_chunked = n_total > self.batch_size * 2
+    logger.info(f"[manifolds] Processing {n_total} inputs (chunked={use_chunked})")
     data = None
     cols = None
-
     if self.contribute_store or self.read_store:
       self.version = self.resolve_version(self.model_id, self.read_store)
-
     if not self.read_store:
       logger.warning(f"Isaura read store is disabled for projections (no -es flag provided)!")
-      data, cols = self._run_api()
+      if use_chunked:
+        data, cols = self._run_api_chunked()
+      else:
+        data, cols = self._run_api()
     else:
       try:
-        logger.info(f"Reading projection precalculations from bucket: {self.read_store}")
-        df = pd.DataFrame(columns=["input"], data=self.inputs)
-        r = IsauraReader(
-          model_id=self.model_id,
-          model_version=self.version,
-          input_csv=None,
-          approximate=self.nns,
-          bucket=self.read_store,
-        )
-        df = r.read(df=df)
-        cols = df.columns.difference(["key", "input"]).tolist()
-        values = df[cols].values
-        data = [{col: row[i] for i, col in enumerate(cols)} for row in values]
+        if use_chunked:
+          data, cols = self._read_isaura_chunked()
+        else:
+          logger.info(f"Reading projection precalculations from bucket: {self.read_store}")
+          df = pd.DataFrame(columns=["input"], data=self.inputs)
+          r = IsauraReader(
+            model_id=self.model_id,
+            model_version=self.version,
+            input_csv=None,
+            approximate=self.nns,
+            bucket=self.read_store,
+          )
+          df = r.read(df=df)
+          cols = df.columns.difference(["key", "input"]).tolist()
+          values = df[cols].values
+          data = [{col: row[i] for i, col in enumerate(cols)} for row in values]
       except SystemExit as e:
         logger.info(f"Fall back to API for computing projections due to SystemExit: {e}")
-        data, cols = self._run_api()
+        if use_chunked:
+          data, cols = self._run_api_chunked()
+        else:
+          data, cols = self._run_api()
       except Exception as e:
         logger.error(f"Unhandled error reading projection cache: {e}")
         raise
-
     self._contribute(self.inputs, [[d[col] for col in cols] for d in data], cols)
-
     algos = self.group_by_prefix(cols)
     self.trained_path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER)
     for algo, dims in algos.items():
-      self.X = [[d[dim] for dim in dims] for d in data]
-      self.finalize(algo)
+      algo_data = [[d[dim] for dim in dims] for d in data]
+      if use_chunked:
+        self.finalize_chunked(algo, dims, algo_data)
+      else:
+        self.X = algo_data
+        self.finalize(algo)
+      del algo_data
+      gc.collect()
