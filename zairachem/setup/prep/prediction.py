@@ -168,14 +168,18 @@ class PredictSetup(object):
   def _clean(self):
     step = PipelineStep("clean", self.output_dir)
     if not step.is_done():
+      logger.info("[setup] Starting clean step")
       SetupCleaner(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
       step.update()
+      logger.info("[setup] Clean step complete")
 
   def _check(self):
     step = PipelineStep("setup_check", self.output_dir)
     if not step.is_done():
+      logger.info("[setup] Starting check step")
       SetupChecker(self.output_dir).run()
       step.update()
+      logger.info("[setup] Check step complete")
 
   def update_elapsed_time(self):
     ZairaBase().update_elapsed_time()
