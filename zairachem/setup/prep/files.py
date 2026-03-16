@@ -3,6 +3,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 from rdkit import Chem
+from rich.progress import (
+  Progress,
+  SpinnerColumn,
+  BarColumn,
+  TextColumn,
+  TimeElapsedColumn,
+  TimeRemainingColumn,
+  MofNCompleteColumn,
+)
 from zairachem.setup.prep.schema import InputSchema
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
@@ -20,6 +29,19 @@ from zairachem.base.vars import (
 
 DEDUPE_BATCH_SIZE = 5000
 DEDUPE_MAX_WORKERS = None
+
+
+def _create_progress():
+  return Progress(
+    SpinnerColumn(),
+    TextColumn("[bold blue]{task.description}"),
+    BarColumn(bar_width=40),
+    MofNCompleteColumn(),
+    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+    TimeElapsedColumn(),
+    TimeRemainingColumn(),
+    transient=False,
+  )
 
 
 def _validate_smiles_batch(batch_data):
@@ -95,13 +117,12 @@ class SingleFile(InputSchema):
   def _validate_smiles_sequential(self, data):
     results = []
     n_total = len(data)
-    log_interval = max(1, n_total // 20)
-    for i, (idx, cid, smi) in enumerate(data):
-      if i % log_interval == 0:
-        logger.info(f"[dedupe] Validating SMILES: {i}/{n_total} ({int(100 * i / n_total)}%)")
-      mol = Chem.MolFromSmiles(smi) if smi else None
-      results.append((idx, cid, smi, mol is not None))
-    logger.info(f"[dedupe] Validating SMILES: {n_total}/{n_total} (100%)")
+    with _create_progress() as progress:
+      task = progress.add_task("Validating SMILES", total=n_total)
+      for idx, cid, smi in data:
+        mol = Chem.MolFromSmiles(smi) if smi else None
+        results.append((idx, cid, smi, mol is not None))
+        progress.update(task, advance=1)
     return results
 
   def _validate_smiles_parallel(self, data):
@@ -112,28 +133,28 @@ class SingleFile(InputSchema):
       start = i * DEDUPE_BATCH_SIZE
       end = min(start + DEDUPE_BATCH_SIZE, n_total)
       batches.append(data[start:end])
-    logger.info(f"[dedupe] Validating {n_total} SMILES in {n_batches} batches (parallel)")
+    logger.info(f"[dedupe] Validating {n_total:,} SMILES in {n_batches:,} batches (parallel)")
     results = []
-    with ProcessPoolExecutor(max_workers=DEDUPE_MAX_WORKERS) as executor:
-      futures = {
-        executor.submit(_validate_smiles_batch, batch): i for i, batch in enumerate(batches)
-      }
-      completed = 0
-      for future in as_completed(futures):
-        batch_idx = futures[future]
-        try:
-          batch_results = future.result()
-          results.extend(batch_results)
-          completed += 1
-          if completed % 10 == 0 or completed == n_batches:
-            logger.info(f"[dedupe] Completed {completed}/{n_batches} batches")
-        except Exception as e:
-          logger.error(f"[dedupe] Batch {batch_idx} failed: {e}")
+    with _create_progress() as progress:
+      task = progress.add_task("Validating SMILES", total=n_batches)
+      with ProcessPoolExecutor(max_workers=DEDUPE_MAX_WORKERS) as executor:
+        futures = {
+          executor.submit(_validate_smiles_batch, batch): i for i, batch in enumerate(batches)
+        }
+        for future in as_completed(futures):
+          batch_idx = futures[future]
+          try:
+            batch_results = future.result()
+            results.extend(batch_results)
+            progress.update(task, advance=1)
+          except Exception as e:
+            logger.error(f"[dedupe] Batch {batch_idx} failed: {e}")
+            progress.update(task, advance=1)
     return results
 
   def dedupe(self, df, path):
     n_total = df.shape[0]
-    logger.info(f"[dedupe] Starting deduplication of {n_total} compounds")
+    logger.info(f"[dedupe] Starting deduplication of {n_total:,} compounds")
     data = [
       (i, r[0], r[1]) for i, r in enumerate(df[[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN]].values)
     ]
@@ -173,7 +194,7 @@ class SingleFile(InputSchema):
     dfm.to_csv(os.path.join(path, MAPPING_FILENAME), index=False)
     R = [[cid, cid2smiles[cid]] for cid in unique_cids]
     dfc = pd.DataFrame(R, columns=[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN])
-    logger.info(f"[dedupe] Deduplication complete: {n_total} -> {len(dfc)} unique compounds")
+    logger.info(f"[dedupe] Deduplication complete: {n_total:,} -> {len(dfc):,} unique compounds")
     return dfc
 
   def compounds_table(self, df, path):

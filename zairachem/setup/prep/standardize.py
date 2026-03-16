@@ -4,6 +4,16 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
+from rich.progress import (
+  Progress,
+  SpinnerColumn,
+  BarColumn,
+  TextColumn,
+  TimeElapsedColumn,
+  TimeRemainingColumn,
+  MofNCompleteColumn,
+)
+
 from zairachem.base.vars import (
   SMILES_COLUMN,
   COMPOUNDS_FILENAME,
@@ -17,6 +27,19 @@ from zairachem.base.utils.logging import logger
 
 DEFAULT_BATCH_SIZE = 1000
 MAX_WORKERS = None
+
+
+def _create_progress():
+  return Progress(
+    SpinnerColumn(),
+    TextColumn("[bold blue]{task.description}"),
+    BarColumn(bar_width=40),
+    MofNCompleteColumn(),
+    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+    TimeElapsedColumn(),
+    TimeRemainingColumn(),
+    transient=False,
+  )
 
 
 def _standardize_single(smi):
@@ -53,14 +76,15 @@ class ChemblStandardize(object):
   def _run_sequential(self, df):
     R = []
     n_total = len(df)
-    for idx, r in enumerate(df.values):
-      if idx % 100 == 0:
-        logger.debug(f"[standardize] Processing {idx}/{n_total}")
-      identifier = r[0]
-      smi = r[1]
-      st_smi = _standardize_single(smi)
-      if st_smi is not None:
-        R += [[identifier, smi, st_smi]]
+    with _create_progress() as progress:
+      task = progress.add_task("Standardizing molecules", total=n_total)
+      for idx, r in enumerate(df.values):
+        identifier = r[0]
+        smi = r[1]
+        st_smi = _standardize_single(smi)
+        if st_smi is not None:
+          R.append([identifier, smi, st_smi])
+        progress.update(task, advance=1)
     return R
 
   def _run_parallel(self, df):
@@ -72,44 +96,44 @@ class ChemblStandardize(object):
       start = i * self.batch_size
       end = min(start + self.batch_size, n_total)
       batches.append(data[start:end])
-    logger.info(f"[standardize] Processing {n_total} molecules in {n_batches} batches (parallel)")
+    logger.info(
+      f"[standardize] Processing {n_total:,} molecules in {n_batches:,} batches (parallel)"
+    )
     R = []
-    with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-      futures = {executor.submit(_standardize_batch, batch): i for i, batch in enumerate(batches)}
-      completed = 0
-      for future in as_completed(futures):
-        batch_idx = futures[future]
-        try:
-          batch_results = future.result()
-          R.extend(batch_results)
-          completed += 1
-          if completed % 10 == 0 or completed == n_batches:
-            logger.info(f"[standardize] Completed {completed}/{n_batches} batches")
-        except Exception as e:
-          logger.error(f"[standardize] Batch {batch_idx} failed: {e}")
+    with _create_progress() as progress:
+      task = progress.add_task("Standardizing molecules", total=n_batches)
+      with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        futures = {executor.submit(_standardize_batch, batch): i for i, batch in enumerate(batches)}
+        for future in as_completed(futures):
+          batch_idx = futures[future]
+          try:
+            batch_results = future.result()
+            R.extend(batch_results)
+            progress.update(task, advance=1)
+          except Exception as e:
+            logger.error(f"[standardize] Batch {batch_idx} failed: {e}")
+            progress.update(task, advance=1)
     return R
 
   def _run_vectorized(self, df):
     n_total = len(df)
-    logger.info(f"[standardize] Processing {n_total} molecules")
+    logger.info(f"[standardize] Processing {n_total:,} molecules")
     R = []
-    log_interval = max(1, n_total // 20)
-    for idx, r in enumerate(df.values):
-      if idx % log_interval == 0:
-        pct = int(100 * idx / n_total)
-        logger.info(f"[standardize] Progress: {idx}/{n_total} ({pct}%)")
-      identifier = r[0]
-      smi = r[1]
-      st_smi = _standardize_single(smi)
-      if st_smi is not None:
-        R += [[identifier, smi, st_smi]]
-    logger.info(f"[standardize] Completed {n_total}/{n_total} (100%)")
+    with _create_progress() as progress:
+      task = progress.add_task("Standardizing molecules", total=n_total)
+      for r in df.values:
+        identifier = r[0]
+        smi = r[1]
+        st_smi = _standardize_single(smi)
+        if st_smi is not None:
+          R.append([identifier, smi, st_smi])
+        progress.update(task, advance=1)
     return R
 
   def run(self):
     df = pd.read_csv(self.input_file)
     n_total = len(df)
-    logger.info(f"[standardize] Starting standardization of {n_total} compounds")
+    logger.info(f"[standardize] Starting standardization of {n_total:,} compounds")
     if n_total > 5000:
       try:
         R = self._run_parallel(df)
@@ -122,4 +146,4 @@ class ChemblStandardize(object):
       R, columns=[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN]
     )
     df.to_csv(self.output_file, index=False)
-    logger.info(f"[standardize] Saved {len(df)} standardized compounds to {self.output_file}")
+    logger.info(f"[standardize] Saved {len(df):,} standardized compounds to {self.output_file}")
