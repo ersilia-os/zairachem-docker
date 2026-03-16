@@ -73,9 +73,9 @@ class BaggerClassifier(object):
     return np.median(np.array(df_X), axis=1)
 
   def _fit_weighting(self, df_X, df_y):
-    y = np.array(df_y).ravel()
+    y = np.array(df_y, dtype=np.float32).ravel()
     cols = list(df_X.columns)
-    X = np.array(df_X)
+    X = np.array(df_X, dtype=np.float32)
     p25 = np.percentile(X.ravel(), 25)
     p50 = np.percentile(X.ravel(), 50)
     p75 = np.percentile(X.ravel(), 75)
@@ -185,7 +185,7 @@ class BaggerRegressor(object):
 
   def _fit_scaling(self, df_X, df_y):
     cols = list(df_X.columns)
-    X = np.array(df_X)
+    X = np.array(df_X, dtype=np.float32)
     p25 = np.percentile(X.ravel(), 25)
     p50 = np.percentile(X.ravel(), 50)
     p75 = np.percentile(X.ravel(), 75)
@@ -266,7 +266,7 @@ class BaggerRegressor(object):
       return self._fit_scaling(df_X, df_y)
     if self.mode == "median":
       return self._fit_just_median(df_X, df_y)
-    if self.mdoe == "model":
+    if self.mode == "model":
       return self._fit_model(df_X, df_y)
 
   def predict(self, df_X):

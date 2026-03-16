@@ -76,12 +76,12 @@ class XGetter(ZairaBase):
     logger.info(f"[pool] loading {name} shape={shape}")
     if n_rows <= self.batch_size * 2:
       with h5py.File(h5_path, "r") as f:
-        X_ = f["Values"][:]
+        X_ = np.array(f["Values"][:], dtype=np.float32)
     else:
       logger.info(f"[pool] loading {name} in chunks")
       X_ = np.empty(shape, dtype=np.float32)
       for start, end, chunk in h5.iter_values_with_indices(self.batch_size):
-        X_[start:end] = chunk
+        X_[start:end] = np.array(chunk, dtype=np.float32)
         logger.debug(f"[pool] loaded {name} rows {start}-{end}/{n_rows}")
     self.X.append(X_)
     for i in range(X_.shape[1]):
@@ -98,11 +98,14 @@ class XGetter(ZairaBase):
     for rpath in ResultsIterator(path=self.path).iter_relpaths():
       prefixes += ["-".join(rpath)]
       file_name = "/".join([self.path, ESTIMATORS_SUBFOLDER] + rpath + [RESULTS_UNMAPPED_FILENAME])
+      if not os.path.exists(file_name):
+        logger.warning(f"[pool] Results file not found: {file_name}")
+        continue
       dfs += [self._read_results_file(file_name)]
     for i in range(len(dfs)):
       df = dfs[i]
       prefix = prefixes[i]
-      self.X += [np.array(df)]
+      self.X += [np.array(df, dtype=np.float32)]
       self.columns += ["{0}-{1}".format(prefix, c) for c in list(df.columns)]
     self.logger.debug(
       "Number of columns: {0} ... from {1} estimators".format(len(self.columns), len(dfs))
