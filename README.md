@@ -45,11 +45,13 @@ zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
 * `-m, --model-dir`: Directory where the model is stored.
 * `-c/-r, --classification/--regression`: type of model
 * `-e, --eos-ids`: Ersilia models to use for featurization and projection.
-* `--clean`: `True/False`.
-* `--flush`:` True/False`.
-* `--anonymize`: `True/False`.
+* `--clean`: Clean descriptors at the end of the run to save space.
+* `--flush`: Flush model checkpoints to save space (useful for cross-validations).
+* `--anonymize`: Anonymize the inputs entirely.
+* `-ct, --clean-target [all|model|predict]`: Target for clean/flush/anonymize operations (default: `all`).
+* `-bs, --batch-size`: Batch size for chunked processing (default: 10000). Controls memory usage for large datasets.
 * `--enable-store/-es [PROJECT]`: Enables reading precalculations from isaura store. Reads from `isaura-public` by default, or specify a custom project name (e.g., `-es my_project`).
-* `--nearest-neighbor/-nn`: `True/False`: enables nearest search neighbor search to find similar compounds
+* `--nearest-neighbor/-nn`: Enables nearest search neighbor search to find similar compounds.
 * `--contribute-store/-cs [PROJECT]`: Enables uploading precalculations to isaura store. Without a project name, writes to a temporary bucket (`zairatemp`), copies to `isaura-public`, then removes the temp data. With a project name (e.g., `-cs my_project`), writes directly to that project only.
 
 The eos-ids file must be a `.json` file with the following structure:
@@ -115,14 +117,66 @@ zairachem predict -i INPUT_FILE -m MODEL_DIR [-o OUTPUT_DIR] [OPTIONS]
 zairachem predict -i new_data.csv -m ./models -o ./results --clean --override-dir
 ```
 
+---
+
+### Clean Target Options
+
+The `--clean-target` (`-ct`) option allows granular control over which directories are affected by `--clean`, `--flush`, and `--anonymize` operations:
+
+| Target | Description |
+| ------ | ----------- |
+| `all` | (Default) Apply to both model and prediction directories |
+| `model` | Apply only to the model directory |
+| `predict` | Apply only to the prediction directory (only valid during prediction) |
+
+**Use Cases:**
+
+1. **Keep model, clean predictions only** (most common for production):
+   ```bash
+   zairachem predict -i data.csv -m ./models --clean --clean-target predict
+   ```
+
+2. **Clean model only** (rare, but supported):
+   ```bash
+   zairachem predict -i data.csv -m ./models --clean --clean-target model
+   ```
+
+3. **Clean everything** (default behavior, useful for cross-validation):
+   ```bash
+   zairachem predict -i data.csv -m ./models --clean --clean-target all
+   ```
+
+---
+
+### Batch Size for Large Datasets
+
+For large datasets (e.g., 100k+ molecules), use the `--batch-size` (`-bs`) option to control memory usage:
+
+```bash
+# Process in chunks of 5000 molecules
+zairachem fit -i large_data.csv -m ./models -bs 5000 -es
+
+# Predict with custom batch size
+zairachem predict -i large_predict.csv -m ./models -bs 5000 -es
+```
+
+The batch size controls:
+- Chunked reading/writing of H5 descriptor files
+- Batched API calls to Ersilia models
+- Chunked processing in treatment, estimation, and pooling stages
+
+Default batch size is 10,000 rows.
+
+---
+
 ## Commands for executing each step in zairachem
 
 | Command                                                     | What it does                                             |
 | ----------------------------------------------------------- | -------------------------------------------------------- |
 | `zairachem setup -i input.csv -c`                           | Preprocess input and prepare working artifacts.          |
-| `zairachem describe`                                        | Compute molecular descriptors for prepared inputs.       |
-| `zairachem treat`                                           | Impute/clean features produced by `describe`.            |
-| `zairachem estimate`                                        | Train/estimate models.                                    |
-| `zairachem pool`                                            | Bag results from `estimate`.                             |
+| `zairachem describe [-bs BATCH_SIZE]`                       | Compute molecular descriptors for prepared inputs.       |
+| `zairachem treat [-bs BATCH_SIZE]`                          | Impute/clean features produced by `describe`.            |
+| `zairachem estimate [-bs BATCH_SIZE]`                       | Train/estimate models.                                   |
+| `zairachem pool [-bs BATCH_SIZE]`                           | Bag results from `estimate`.                             |
 | `zairachem report [--plot-name NAME]`                       | Generate analysis report and plots.                      |
-| `zairachem finish [--clean --flush --anonymize]`            | Finalize: cleanup, flush caches, optional anonymization. |
+| `zairachem finish [--clean --flush --anonymize] [-ct TARGET]` | Finalize: cleanup, flush caches, optional anonymization. |
