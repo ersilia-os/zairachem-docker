@@ -1,5 +1,15 @@
 import os
 import pandas as pd
+from rich.progress import (
+  Progress,
+  ProgressColumn,
+  SpinnerColumn,
+  TextColumn,
+  TimeElapsedColumn,
+  TimeRemainingColumn,
+  MofNCompleteColumn,
+)
+from rich.progress_bar import ProgressBar
 from zairachem.base.vars import (
   STANDARD_COMPOUNDS_FILENAME,
   FOLDS_FILENAME,
@@ -10,6 +20,49 @@ from zairachem.base.vars import (
   STANDARD_SMILES_COLUMN,
 )
 from zairachem.base.utils.logging import logger
+
+
+class _PulseBarColumn(ProgressColumn):
+  def __init__(
+    self,
+    bar_width: int = 40,
+    style: str = "bar.back",
+    complete_style: str = "bar.complete",
+    finished_style: str = "bar.finished",
+    pulse_style: str = "bar.pulse",
+  ) -> None:
+    super().__init__()
+    self.bar_width = int(bar_width)
+    self.style = style
+    self.complete_style = complete_style
+    self.finished_style = finished_style
+    self.pulse_style = pulse_style
+
+  def render(self, task) -> ProgressBar:
+    return ProgressBar(
+      total=task.total,
+      completed=task.completed,
+      width=max(1, self.bar_width),
+      pulse=not task.finished,
+      animation_time=task.get_time(),
+      style=self.style,
+      complete_style=self.complete_style,
+      finished_style=self.finished_style,
+      pulse_style=self.pulse_style,
+    )
+
+
+def _create_progress():
+  return Progress(
+    SpinnerColumn(),
+    TextColumn("[bold blue]{task.description}"),
+    _PulseBarColumn(bar_width=40),
+    MofNCompleteColumn(),
+    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
+    TimeElapsedColumn(),
+    TimeRemainingColumn(),
+    transient=False,
+  )
 
 
 class DataMerger(object):
@@ -43,25 +96,26 @@ class DataMergerForPrediction(object):
   def run(self, has_tasks):
     cpd_file = os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME)
     out_file = os.path.join(self.path, DATA_FILENAME)
-    logger.info(f"[merge] Reading standardized compounds from {cpd_file}")
-    if not has_tasks:
-      df = pd.read_csv(cpd_file, usecols=[COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN])
-      logger.info(f"[merge] Loaded {len(df)} compounds")
-      df = df.rename(columns={STANDARD_SMILES_COLUMN: SMILES_COLUMN})
-      logger.info(f"[merge] Writing merged data to {out_file}")
-      df.to_csv(out_file, index=False)
-      logger.info(f"[merge] Merge complete")
-    else:
-      df_cpd = pd.read_csv(cpd_file, usecols=[COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN])
-      logger.info(f"[merge] Loaded {len(df_cpd)} compounds")
-      df_cpd = df_cpd.rename(columns={STANDARD_SMILES_COLUMN: SMILES_COLUMN})
-      tsk_file = os.path.join(self.path, TASKS_FILENAME)
-      logger.info(f"[merge] Reading tasks from {tsk_file}")
-      df_tsk = pd.read_csv(tsk_file)
-      logger.info(f"[merge] Loaded {len(df_tsk)} task records")
-      logger.info(f"[merge] Merging compounds with tasks")
-      df = df_cpd.merge(df_tsk, on=COMPOUND_IDENTIFIER_COLUMN)
-      logger.info(f"[merge] Merged result has {len(df)} records")
-      logger.info(f"[merge] Writing merged data to {out_file}")
-      df.to_csv(out_file, index=False)
-      logger.info(f"[merge] Merge complete")
+    with _create_progress() as progress:
+      if not has_tasks:
+        task = progress.add_task("Merging data", total=3)
+        df = pd.read_csv(cpd_file, usecols=[COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN])
+        progress.update(task, advance=1, description=f"Loaded {len(df):,} compounds")
+        df = df.rename(columns={STANDARD_SMILES_COLUMN: SMILES_COLUMN})
+        progress.update(task, advance=1, description="Writing merged data")
+        df.to_csv(out_file, index=False)
+        progress.update(task, advance=1, description="Merge complete")
+      else:
+        task = progress.add_task("Merging data", total=5)
+        df_cpd = pd.read_csv(cpd_file, usecols=[COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN])
+        progress.update(task, advance=1, description=f"Loaded {len(df_cpd):,} compounds")
+        df_cpd = df_cpd.rename(columns={STANDARD_SMILES_COLUMN: SMILES_COLUMN})
+        tsk_file = os.path.join(self.path, TASKS_FILENAME)
+        df_tsk = pd.read_csv(tsk_file)
+        progress.update(task, advance=1, description=f"Loaded {len(df_tsk):,} task records")
+        df = df_cpd.merge(df_tsk, on=COMPOUND_IDENTIFIER_COLUMN)
+        progress.update(task, advance=1, description=f"Merged {len(df):,} records")
+        df.to_csv(out_file, index=False)
+        progress.update(task, advance=1, description="Writing merged data")
+        progress.update(task, advance=1, description="Merge complete")
+    logger.info(f"[merge] Saved {len(df):,} records to {out_file}")
