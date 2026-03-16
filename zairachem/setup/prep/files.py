@@ -5,13 +5,46 @@ import numpy as np
 from rdkit import Chem
 from rich.progress import (
   Progress,
+  ProgressColumn,
   SpinnerColumn,
-  BarColumn,
   TextColumn,
   TimeElapsedColumn,
   TimeRemainingColumn,
   MofNCompleteColumn,
 )
+from rich.progress_bar import ProgressBar
+
+
+class _PulseBarColumn(ProgressColumn):
+  def __init__(
+    self,
+    bar_width: int = 40,
+    style: str = "bar.back",
+    complete_style: str = "bar.complete",
+    finished_style: str = "bar.finished",
+    pulse_style: str = "bar.pulse",
+  ) -> None:
+    super().__init__()
+    self.bar_width = int(bar_width)
+    self.style = style
+    self.complete_style = complete_style
+    self.finished_style = finished_style
+    self.pulse_style = pulse_style
+
+  def render(self, task) -> ProgressBar:
+    return ProgressBar(
+      total=task.total,
+      completed=task.completed,
+      width=max(1, self.bar_width),
+      pulse=not task.finished,
+      animation_time=task.get_time(),
+      style=self.style,
+      complete_style=self.complete_style,
+      finished_style=self.finished_style,
+      pulse_style=self.pulse_style,
+    )
+
+
 from zairachem.setup.prep.schema import InputSchema
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
@@ -35,7 +68,7 @@ def _create_progress():
   return Progress(
     SpinnerColumn(),
     TextColumn("[bold blue]{task.description}"),
-    BarColumn(bar_width=40),
+    _PulseBarColumn(bar_width=40),
     MofNCompleteColumn(),
     TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
     TimeElapsedColumn(),
