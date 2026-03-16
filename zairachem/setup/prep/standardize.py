@@ -70,7 +70,7 @@ def _create_progress():
     TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
     TimeElapsedColumn(),
     TimeRemainingColumn(),
-    transient=False,
+    transient=True,
   )
 
 
