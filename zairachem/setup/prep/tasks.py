@@ -17,6 +17,7 @@ from zairachem.base.vars import (
 from .files import ParametersFile
 from zairachem.base.vars import MIN_CLASS, DATA_SUBFOLDER
 from zairachem.base import ZairaBase
+from zairachem.base.utils.logging import logger
 
 from sklearn.preprocessing import PowerTransformer, QuantileTransformer
 
@@ -223,13 +224,19 @@ class SingleTasksForPrediction(SingleTasks):
     SingleTasks.__init__(self, path=path)
 
   def run(self):
+    logger.info(f"[tasks] Loading values data from {self.path}")
     df = self._get_data()
+    logger.info(f"[tasks] Loaded {len(df)} records, task type: {self._task}")
     if self._task == "classification":
       self.logger.debug("It is simply a binary classification")
+      logger.info("[tasks] Processing classification task")
       ct = ClfTasksForPrediction(data=df)
       df["bin"] = ct.values
       self._task = "classification"
     elif self._task == "regression":
       self.logger.debug("Data is not simply a binary classification")
-      # TODO
-    df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)
+      logger.info("[tasks] Processing regression task")
+    out_file = os.path.join(self.path, TASKS_FILENAME)
+    logger.info(f"[tasks] Writing tasks to {out_file}")
+    df.to_csv(out_file, index=False)
+    logger.info("[tasks] Tasks processing complete")

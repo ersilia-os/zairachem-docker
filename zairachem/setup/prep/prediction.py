@@ -107,9 +107,9 @@ class PredictSetup(object):
 
   def _update_params(self):
     """Update params for prediction, overriding training params for isaura settings.
-    
-    The isaura precalculation settings (read_store, contribute_store, enable_nns) 
-    should NOT be inherited from training. They must be explicitly specified 
+
+    The isaura precalculation settings (read_store, contribute_store, enable_nns)
+    should NOT be inherited from training. They must be explicitly specified
     during prediction, otherwise they default to disabled (None/False).
     """
     params_path = os.path.join(self.output_dir, DATA_SUBFOLDER, PARAMETERS_FILE)
@@ -152,14 +152,18 @@ class PredictSetup(object):
   def _tasks(self):
     step = PipelineStep("tasks", self.output_dir)
     if not step.is_done():
+      logger.info("[setup] Starting tasks step")
       SingleTasksForPrediction(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
       step.update()
+      logger.info("[setup] Tasks step complete")
 
   def _merge(self):
     step = PipelineStep("merge", self.output_dir)
     if not step.is_done():
+      logger.info("[setup] Starting merge step")
       DataMergerForPrediction(os.path.join(self.output_dir, DATA_SUBFOLDER)).run(self.has_tasks)
       step.update()
+      logger.info("[setup] Merge step complete")
 
   def _clean(self):
     step = PipelineStep("clean", self.output_dir)
