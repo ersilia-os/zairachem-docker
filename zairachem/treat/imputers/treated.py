@@ -338,14 +338,15 @@ class ChunkedTreatedDescriptors(DescriptorBase):
       path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
       raw_h5_path = os.path.join(path, RAW_DESC_FILENAME)
       output_h5_path = os.path.join(path, TREATED_DESC_FILENAME)
-      if not os.path.exists(raw_h5_path):
-        self.logger.warning(f"[treat] Skipping {eos_id}: raw.h5 not found at {raw_h5_path}")
+      raw_h5 = open_h5(raw_h5_path)
+      if raw_h5 is None:
+        self.logger.warning(f"[treat] Skipping {eos_id}: no raw data found at {raw_h5_path}")
         continue
       if not self._is_predict:
         trained_path = path
       else:
         trained_path = os.path.join(self.trained_path, DESCRIPTORS_SUBFOLDER, eos_id)
-      self.logger.info(f"[treat] Processing {eos_id}")
+      self.logger.info(f"[treat] Processing {eos_id} ({type(raw_h5).__name__})")
       if not self._is_predict:
         nan_filter, imputer, var_filter, scaler = self._fit_transformers_chunked(
           raw_h5_path, trained_path
@@ -398,8 +399,9 @@ class TreatedDescriptors(DescriptorBase):
     for eos_id in self.done_eos_iter():
       path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
       raw_h5_path = os.path.join(path, RAW_DESC_FILENAME)
-      if not os.path.exists(raw_h5_path):
-        self.logger.warning(f"[treat] Skipping {eos_id}: raw.h5 not found at {raw_h5_path}")
+      raw_h5 = open_h5(raw_h5_path)
+      if raw_h5 is None:
+        self.logger.warning(f"[treat] Skipping {eos_id}: no raw data found at {raw_h5_path}")
         continue
       if not self._is_predict:
         trained_path = path
@@ -435,10 +437,9 @@ class TreatedDescriptors(DescriptorBase):
           json.dump(info, f, indent=4)
       else:
         self.logger.info(f"[treat] Using in-memory processing for {eos_id}")
-        data = rl.open(eos_id)
-        data = data.load()
+        h5_data = raw_h5.load()
         X = {}
-        X[-1] = data.values()
+        X[-1] = h5_data.values()
         for step in self.common_pipeline:
           curr, prev = step[0], step[1]
           algo = step[-1]()
@@ -453,7 +454,7 @@ class TreatedDescriptors(DescriptorBase):
           curr, prev = step[0], step[1]
           algo = step[-1]()
           if algo._name == "scaler":
-            if data.is_sparse():
+            if h5_data.is_sparse():
               self.logger.info("Skipping normalization of {0} as it is sparse".format(eos_id))
               algo.set_skip()
             else:
@@ -465,7 +466,7 @@ class TreatedDescriptors(DescriptorBase):
           X[curr] = algo.transform(X[prev])
         final_idx = len(self.common_pipeline) + len(self.scaled_pipeline) - 1
         file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, self._name)
-        data._values = X[final_idx]
-        Hdf5(file_name).save(data)
-        data.save_info(file_name.split(".")[0] + ".json")
+        h5_data._values = X[final_idx]
+        Hdf5(file_name).save(h5_data)
+        h5_data.save_info(file_name.split(".")[0] + ".json")
       gc.collect()
