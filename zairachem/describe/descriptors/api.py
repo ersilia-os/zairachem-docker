@@ -349,11 +349,11 @@ class BinaryStreamClient(ZairaBase):
         self.schema = fetch_schema_from_github(self.model_id)
         dtype = self.resolve_dtype()
         cols = None
-        h5_sink = None
+        h5_store = None
         if output_h5:
-          from zairachem.base.utils.matrices import Hdf5
+          from zairachem.base.utils.matrices import ChunkedH5Store
 
-          h5_sink = Hdf5(output_h5)
+          h5_store = ChunkedH5Store(output_h5)
         all_values = []
         for ci in range(n_chunks):
           lo = ci * isaura_batch_size
@@ -364,24 +364,24 @@ class BinaryStreamClient(ZairaBase):
           result_df = r.read(df=chunk_df)
           if cols is None:
             cols = result_df.columns.difference(["key", "input"]).tolist()
-            if h5_sink:
-              h5_sink.create_empty(len(cols), cols, dtype="float32")
+            if h5_store:
+              h5_store.create(len(cols), cols)
           chunk_values = result_df[cols].values.astype("float32")
-          if h5_sink:
+          if h5_store:
             chunk_input_list = (
               result_df["input"].astype(str).tolist()
               if "input" in result_df.columns
               else chunk_inputs
             )
-            h5_sink.append(chunk_values, chunk_input_list)
+            h5_store.save_chunk(chunk_values, chunk_input_list)
             logger.info(
-              f"[isaura] chunk {ci + 1}/{n_chunks} appended {len(chunk_values)} rows to h5"
+              f"[isaura] chunk {ci + 1}/{n_chunks} saved {len(chunk_values)} rows"
             )
           else:
             all_values.append(chunk_values)
           del result_df, chunk_values, chunk_df
           gc.collect()
-        if h5_sink:
+        if h5_store:
           any_results = {
             "shape": (n_total, len(cols)),
             "dtype": dtype,
@@ -421,7 +421,7 @@ class BinaryStreamClient(ZairaBase):
 
   def _run(self, output_h5=None):
     try:
-      from zairachem.base.utils.matrices import Hdf5
+      from zairachem.base.utils.matrices import ChunkedH5Store
 
       total_time = 0.0
       n = len(self.input_data)
@@ -436,12 +436,12 @@ class BinaryStreamClient(ZairaBase):
           good_idx.append(i)
           checked_input.append(s)
       any_results = None
-      h5_sink = None
+      h5_store = None
       cols = None
       if output_h5:
         schema_cols = fetch_schema_from_github(self.model_id)[0]
-        h5_sink = Hdf5(output_h5)
-        h5_sink.create_empty(len(schema_cols), schema_cols, dtype="float32")
+        h5_store = ChunkedH5Store(output_h5)
+        h5_store.create(len(schema_cols), schema_cols)
         cols = schema_cols
       progress = Progress(
         SpinnerColumn(),
@@ -465,7 +465,7 @@ class BinaryStreamClient(ZairaBase):
             total_time += time.perf_counter() - t0
             if results is not None:
               any_results = results
-            if h5_sink:
+            if h5_store:
               batch_arrays = []
               batch_inputs = []
               for j, row in enumerate(arrays_out):
@@ -476,8 +476,8 @@ class BinaryStreamClient(ZairaBase):
                 batch_inputs.append(checked_input[start + j])
               if batch_arrays:
                 stacked_batch = np.vstack(batch_arrays).astype("float32")
-                h5_sink.append(stacked_batch, batch_inputs)
-                logger.debug(f"[api] Appended {len(batch_arrays)} rows to h5")
+                h5_store.save_chunk(stacked_batch, batch_inputs)
+                logger.debug(f"[api] Saved chunk with {len(batch_arrays)} rows")
                 del stacked_batch, batch_arrays
                 gc.collect()
             else:
@@ -487,7 +487,7 @@ class BinaryStreamClient(ZairaBase):
             progress.advance(task, len(arrays_out))
       finally:
         self.logger.info(f"Total elapsed: {total_time:.4f}s")
-      if h5_sink:
+      if h5_store:
         if any_results is None:
           any_results = {}
         if "dtype" not in any_results:
@@ -495,7 +495,7 @@ class BinaryStreamClient(ZairaBase):
         if "dims" not in any_results:
           any_results.update({"dims": cols})
         any_results.update({
-          "shape": h5_sink.shape(),
+          "shape": h5_store.shape(),
           "data": None,
           "inputs": checked_input,
           "h5_file": output_h5,

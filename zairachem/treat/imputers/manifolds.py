@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from zairachem.describe.descriptors.utils import get_model_url
 from zairachem.treat.imputers import DescriptorBase
-from zairachem.base.utils.matrices import Hdf5, Data, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import Hdf5, Data, ChunkedH5Store, DEFAULT_CHUNK_SIZE
 from zairachem.base.utils.utils import fetch_schema_from_github, post, latest_version
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
@@ -95,21 +95,21 @@ class Manifolds(DescriptorBase):
     algo_path = os.path.join(self.trained_path, algo_name + ".joblib")
     self.save(all_data, algo_path)
     file_name = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, algo_name + ".h5")
-    h5 = Hdf5(file_name)
-    h5.create_empty(len(cols), cols, dtype="float32")
+    h5_store = ChunkedH5Store(file_name)
+    h5_store.create(len(cols), cols)
     chunk_size = self.batch_size
     n_total = len(self.inputs)
     for i in range(0, n_total, chunk_size):
       end = min(i + chunk_size, n_total)
       chunk_values = np.array(all_data[i:end], dtype="float32")
       chunk_inputs = self.inputs[i:end]
-      h5.append(chunk_values, chunk_inputs)
-      logger.debug(f"[manifolds] Appended rows {i}-{end}/{n_total} to {algo_name}.h5")
+      h5_store.save_chunk(chunk_values, chunk_inputs)
+      logger.debug(f"[manifolds] Saved chunk rows {i}-{end}/{n_total} for {algo_name}")
     info_path = file_name.replace(".h5", ".json")
     info = {
-      "inputs": h5.n_rows(),
-      "features": h5.n_features(),
-      "values": list(h5.shape()),
+      "inputs": h5_store.n_rows(),
+      "features": h5_store.n_features(),
+      "values": list(h5_store.shape()),
       "is_sparse": False,
     }
     with open(info_path, "w") as f:

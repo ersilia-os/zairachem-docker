@@ -5,7 +5,7 @@ from typing import Iterator, Tuple, Optional
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import Hdf5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import Hdf5, ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
@@ -57,61 +57,59 @@ class BaseEstimatorIndividual(BaseEstimator):
       task = json.load(f)["task"]
     return task
 
-  def _get_h5_path(self) -> Optional[str]:
-    f_treated = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, self.model_id, TREATED_DESC_FILENAME)
-    f_raw = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, self.model_id, RAW_DESC_FILENAME)
-    if os.path.exists(f_treated):
-      return f_treated
-    if os.path.exists(f_raw):
-      return f_raw
+  def _open_h5(self):
+    base = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, self.model_id)
+    for fname in [TREATED_DESC_FILENAME, RAW_DESC_FILENAME]:
+      h5 = open_h5(os.path.join(base, fname))
+      if h5 is not None:
+        return h5
     return None
 
   def _get_X_shape(self) -> Optional[Tuple[int, int]]:
-    h5_path = self._get_h5_path()
-    if h5_path is None:
+    h5 = self._open_h5()
+    if h5 is None:
       return None
-    h5 = Hdf5(h5_path)
     return h5.shape()
 
   def _get_X(self) -> Optional[np.ndarray]:
-    h5_path = self._get_h5_path()
-    if h5_path is None:
-      self.logger.warning(f"[estimator] No H5 file found for {self.model_id}")
+    h5 = self._open_h5()
+    if h5 is None:
+      self.logger.warning(f"[estimator] No H5 data found for {self.model_id}")
       return None
-    h5 = Hdf5(h5_path)
     shape = h5.shape()
     n_rows = shape[0]
-    if n_rows <= self.batch_size * 2:
-      with h5py.File(h5_path, "r") as f:
-        self.logger.info(
-          f"[estimator] loading {self.model_id} shape={shape} from {os.path.basename(h5_path)}"
-        )
-        X = f["Values"][:]
+    if isinstance(h5, ChunkedH5Store):
+      self.logger.info(f"[estimator] loading {self.model_id} shape={shape} (chunked store)")
+      X = np.empty(shape, dtype=np.float32)
+      for start, end, chunk in h5.iter_values_with_indices():
+        X[start:end] = chunk
+      gc.collect()
       return X
-    self.logger.info(
-      f"[estimator] loading {self.model_id} shape={shape} from {os.path.basename(h5_path)} (chunked)"
-    )
+    if n_rows <= self.batch_size * 2:
+      self.logger.info(f"[estimator] loading {self.model_id} shape={shape} (in-memory)")
+      return h5.values()
+    self.logger.info(f"[estimator] loading {self.model_id} shape={shape} (chunked read)")
     X = np.empty(shape, dtype=np.float32)
     for start, end, chunk in h5.iter_values_with_indices(self.batch_size):
       X[start:end] = chunk
-      self.logger.debug(f"[estimator] loaded rows {start}-{end}/{n_rows}")
     gc.collect()
     return X
 
   def _iter_X(self, chunk_size: int = None) -> Iterator[Tuple[int, int, np.ndarray]]:
     if chunk_size is None:
       chunk_size = self.batch_size
-    h5_path = self._get_h5_path()
-    h5 = Hdf5(h5_path)
+    h5 = self._open_h5()
     n_rows = h5.n_rows()
     self.logger.info(f"[estimator] iterating {self.model_id} in chunks of {chunk_size}")
-    for start, end, chunk in h5.iter_values_with_indices(chunk_size):
-      self.logger.debug(f"[estimator:iter] rows {start}-{end}/{n_rows}")
-      yield start, end, chunk
+    if isinstance(h5, ChunkedH5Store):
+      for start, end, chunk in h5.iter_values_with_indices():
+        yield start, end, chunk
+    else:
+      for start, end, chunk in h5.iter_values_with_indices(chunk_size):
+        yield start, end, chunk
 
   def _get_X_slice(self, start: int, end: int) -> np.ndarray:
-    h5_path = self._get_h5_path()
-    h5 = Hdf5(h5_path)
+    h5 = self._open_h5()
     return h5.values_slice(start, end)
 
   def _get_Y_col(self):

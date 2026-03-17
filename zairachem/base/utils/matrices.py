@@ -1,4 +1,4 @@
-import collections, h5py, json, joblib, gc
+import collections, h5py, json, joblib, gc, os, glob
 import numpy as np
 import pandas as pd
 from typing import Iterator, Tuple, List, Optional, Union
@@ -7,6 +7,8 @@ from zairachem.base.utils.logging import logger
 
 SNIFF_N = 100000
 DEFAULT_CHUNK_SIZE = 10000
+_CHUNK_META_FILE = "chunks_meta.json"
+_CHUNK_PREFIX = "chunk_"
 
 
 class Data(object):
@@ -442,3 +444,181 @@ class ChunkedScaler:
       return chunk
     result = (chunk - self.center) / self.scale
     return np.clip(result, -self.abs_limit, self.abs_limit)
+
+
+def open_h5(path: str):
+  store = ChunkedH5Store(path)
+  if store.exists():
+    return store
+  if os.path.exists(path):
+    return Hdf5(path)
+  return None
+
+
+class ChunkedH5Store:
+
+  def __init__(self, base_path: str):
+    if base_path.endswith(".h5"):
+      self.dir = base_path.rsplit(".h5", 1)[0] + "_chunks"
+      self.legacy_path = base_path
+    else:
+      self.dir = base_path
+      self.legacy_path = None
+    self._meta_path = os.path.join(self.dir, _CHUNK_META_FILE)
+    self._chunk_idx = 0
+
+  def _chunk_path(self, idx: int) -> str:
+    return os.path.join(self.dir, f"{_CHUNK_PREFIX}{idx:04d}.h5")
+
+  def _read_meta(self) -> dict:
+    if os.path.exists(self._meta_path):
+      with open(self._meta_path, "r") as f:
+        return json.load(f)
+    return {"n_chunks": 0, "total_rows": 0, "n_features": 0, "features": []}
+
+  def _write_meta(self, meta: dict):
+    with open(self._meta_path, "w") as f:
+      json.dump(meta, f, indent=2)
+
+  def exists(self) -> bool:
+    return os.path.exists(self._meta_path) and self._read_meta()["n_chunks"] > 0
+
+  def n_chunks(self) -> int:
+    return self._read_meta()["n_chunks"]
+
+  def n_rows(self) -> int:
+    return self._read_meta()["total_rows"]
+
+  def n_features(self) -> int:
+    return self._read_meta()["n_features"]
+
+  def features(self) -> List[str]:
+    return self._read_meta()["features"]
+
+  def shape(self) -> Tuple[int, int]:
+    meta = self._read_meta()
+    return (meta["total_rows"], meta["n_features"])
+
+  def create(self, n_features: int, features: List[str]):
+    os.makedirs(self.dir, exist_ok=True)
+    meta = {"n_chunks": 0, "total_rows": 0, "n_features": n_features, "features": features}
+    self._write_meta(meta)
+    self._chunk_idx = 0
+    logger.info(f"[h5store:create] {self.dir} features={n_features}")
+
+  def save_chunk(self, values: np.ndarray, inputs: List[str]):
+    n_new = values.shape[0]
+    if n_new == 0:
+      return
+    meta = self._read_meta()
+    chunk_path = self._chunk_path(meta["n_chunks"])
+    str_dt = h5py.string_dtype(encoding="utf-8")
+    with h5py.File(chunk_path, "w") as f:
+      f.create_dataset("Values", data=values)
+      f.create_dataset("Inputs", data=np.array(inputs, dtype=str_dt))
+      f.create_dataset("Features", data=np.array(meta["features"], dtype=str_dt))
+    meta["n_chunks"] += 1
+    meta["total_rows"] += n_new
+    self._write_meta(meta)
+    logger.debug(f"[h5store:save_chunk] {chunk_path} rows={n_new} (total={meta['total_rows']})")
+
+  def _sorted_chunk_paths(self) -> List[str]:
+    meta = self._read_meta()
+    return [self._chunk_path(i) for i in range(meta["n_chunks"])]
+
+  def iter_chunks(self) -> Iterator[Tuple[np.ndarray, List[str]]]:
+    for path in self._sorted_chunk_paths():
+      with h5py.File(path, "r") as f:
+        values = f["Values"][:]
+        inputs = [x.decode("utf-8") for x in f["Inputs"][:]]
+      yield values, inputs
+
+  def iter_values(self) -> Iterator[np.ndarray]:
+    for path in self._sorted_chunk_paths():
+      with h5py.File(path, "r") as f:
+        yield f["Values"][:]
+
+  def iter_values_with_indices(self) -> Iterator[Tuple[int, int, np.ndarray]]:
+    offset = 0
+    for path in self._sorted_chunk_paths():
+      with h5py.File(path, "r") as f:
+        vals = f["Values"][:]
+      end = offset + vals.shape[0]
+      yield offset, end, vals
+      offset = end
+
+  def iter_all(self) -> Iterator[Tuple[int, int, np.ndarray, List[str]]]:
+    offset = 0
+    for path in self._sorted_chunk_paths():
+      with h5py.File(path, "r") as f:
+        vals = f["Values"][:]
+        inputs = [x.decode("utf-8") for x in f["Inputs"][:]]
+      end = offset + vals.shape[0]
+      yield offset, end, vals, inputs
+      offset = end
+
+  def values(self) -> np.ndarray:
+    parts = list(self.iter_values())
+    if not parts:
+      return np.empty((0, 0))
+    return np.concatenate(parts, axis=0)
+
+  def inputs(self) -> List[str]:
+    all_inputs = []
+    for _, inp in self.iter_chunks():
+      all_inputs.extend(inp)
+    return all_inputs
+
+  def values_slice(self, start: int, end: int) -> np.ndarray:
+    offset = 0
+    parts = []
+    for path in self._sorted_chunk_paths():
+      with h5py.File(path, "r") as f:
+        chunk_n = f["Values"].shape[0]
+        chunk_end = offset + chunk_n
+        if chunk_end <= start:
+          offset = chunk_end
+          continue
+        if offset >= end:
+          break
+        local_start = max(0, start - offset)
+        local_end = min(chunk_n, end - offset)
+        parts.append(f["Values"][local_start:local_end])
+        offset = chunk_end
+    if not parts:
+      return np.empty((0, 0))
+    return np.concatenate(parts, axis=0)
+
+  def is_sparse(self) -> bool:
+    count = 0
+    zeros = 0
+    for vals in self.iter_values():
+      flat = vals.ravel()
+      sample = flat[:SNIFF_N - count] if count + len(flat) > SNIFF_N else flat
+      zeros += np.sum(sample == 0)
+      count += len(sample)
+      if count >= SNIFF_N:
+        break
+    if count == 0:
+      return False
+    return zeros / count > 0.8
+
+  def load(self) -> "Data":
+    data = Data()
+    data.set(
+      inputs=self.inputs(),
+      values=self.values(),
+      features=self.features(),
+    )
+    data._is_sparse = self.is_sparse()
+    return data
+
+  def cleanup(self):
+    for path in self._sorted_chunk_paths():
+      if os.path.exists(path):
+        os.remove(path)
+    if os.path.exists(self._meta_path):
+      os.remove(self._meta_path)
+    if os.path.exists(self.dir) and not os.listdir(self.dir):
+      os.rmdir(self.dir)
+    logger.info(f"[h5store:cleanup] Removed {self.dir}")

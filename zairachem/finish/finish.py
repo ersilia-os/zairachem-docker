@@ -48,11 +48,15 @@ class Cleaner(ZairaBase):
     for d in os.listdir(full_path):
       if d.startswith("fp2sim"):
         continue
-      if os.path.isdir(os.path.join(full_path, d)):
-        self._clean_descriptors_by_subfolder(full_path, d)
+      entry = os.path.join(full_path, d)
+      if os.path.isdir(entry):
+        if d.endswith("_chunks"):
+          shutil.rmtree(entry)
+        else:
+          self._clean_descriptors_by_subfolder(full_path, d)
       else:
         if d.endswith(".h5"):
-          os.remove(os.path.join(full_path, d))
+          os.remove(entry)
 
   def _clean_descriptors(self, path):
     self._clean_descriptors_by_subfolder(path, DESCRIPTORS_SUBFOLDER)

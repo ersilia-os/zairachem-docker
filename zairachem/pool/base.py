@@ -5,7 +5,7 @@ from typing import Iterator, Tuple, List
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import Hdf5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import Hdf5, ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
   PARAMETERS_FILE,
@@ -68,21 +68,22 @@ class XGetter(ZairaBase):
 
   def _load_manifold(self, name):
     h5_path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, f"{name}.h5")
-    if not os.path.exists(h5_path):
+    h5 = open_h5(h5_path)
+    if h5 is None:
       return
-    h5 = Hdf5(h5_path)
     shape = h5.shape()
-    n_rows = shape[0]
     logger.info(f"[pool] loading {name} shape={shape}")
-    if n_rows <= self.batch_size * 2:
-      with h5py.File(h5_path, "r") as f:
-        X_ = np.array(f["Values"][:], dtype=np.float32)
+    if isinstance(h5, ChunkedH5Store):
+      X_ = np.empty(shape, dtype=np.float32)
+      for start, end, chunk in h5.iter_values_with_indices():
+        X_[start:end] = np.array(chunk, dtype=np.float32)
+    elif shape[0] <= self.batch_size * 2:
+      X_ = np.array(h5.values(), dtype=np.float32)
     else:
       logger.info(f"[pool] loading {name} in chunks")
       X_ = np.empty(shape, dtype=np.float32)
       for start, end, chunk in h5.iter_values_with_indices(self.batch_size):
         X_[start:end] = np.array(chunk, dtype=np.float32)
-        logger.debug(f"[pool] loaded {name} rows {start}-{end}/{n_rows}")
     self.X.append(X_)
     for i in range(X_.shape[1]):
       self.columns.append(f"{name}-{i}")

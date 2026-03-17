@@ -8,6 +8,8 @@ from zairachem.treat.fpsim2.searcher import SimilaritySearcher
 from zairachem.base import ZairaBase
 from zairachem.base.utils.matrices import (
   Hdf5,
+  ChunkedH5Store,
+  open_h5,
   ChunkedNanFilter,
   ChunkedImputer,
   ChunkedVarianceFilter,
@@ -219,7 +221,10 @@ class RawLoader(ZairaBase):
 
   def open(self, eos_id):
     path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, RAW_DESC_FILENAME)
-    return Hdf5(path)
+    h5 = open_h5(path)
+    if h5 is None:
+      logger.warning(f"[RawLoader] No H5 data found at {path}")
+    return h5
 
 
 class TreatedLoader(ZairaBase):
@@ -229,7 +234,10 @@ class TreatedLoader(ZairaBase):
 
   def open(self, eos_id):
     path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, TREATED_DESC_FILENAME)
-    return Hdf5(path)
+    h5 = open_h5(path)
+    if h5 is None:
+      logger.warning(f"[TreatedLoader] No H5 data found at {path}")
+    return h5
 
 
 class ChunkedTreatedDescriptors(DescriptorBase):
@@ -247,7 +255,7 @@ class ChunkedTreatedDescriptors(DescriptorBase):
       yield eos_id
 
   def _fit_transformers_chunked(self, h5_path, trained_path):
-    h5 = Hdf5(h5_path)
+    h5 = open_h5(h5_path)
     n_rows = h5.n_rows()
     n_features = h5.n_features()
     is_sparse = h5.is_sparse()
@@ -304,21 +312,21 @@ class ChunkedTreatedDescriptors(DescriptorBase):
     return nan_filter, imputer, var_filter, scaler
 
   def _transform_chunked(self, h5_path, output_path, nan_filter, imputer, var_filter, scaler):
-    h5_in = Hdf5(h5_path)
-    h5_out = Hdf5(output_path)
+    h5_in = open_h5(h5_path)
+    h5_out = ChunkedH5Store(output_path)
     n_rows = h5_in.n_rows()
     n_final_features = len(var_filter.col_idxs)
     input_features = h5_in.features()
     nan_filtered_features = [input_features[i] for i in nan_filter.col_idxs]
     output_features = [nan_filtered_features[i] for i in var_filter.col_idxs]
-    h5_out.create_empty(n_final_features, output_features, dtype="float32")
+    h5_out.create(n_final_features, output_features)
     self.logger.info(f"[treat:transform] Processing {n_rows} rows -> {n_final_features} features")
     for start, end, values, inputs in h5_in.iter_all(self.chunk_size):
       x = nan_filter.transform(values)
       x = imputer.transform(x)
       x = var_filter.transform(x)
       x = scaler.transform(x)
-      h5_out.append(x.astype("float32"), inputs)
+      h5_out.save_chunk(x.astype("float32"), inputs)
       self.logger.debug(f"[treat] Processed rows {start}-{end}/{n_rows}")
       del values, x
       gc.collect()
@@ -345,7 +353,7 @@ class ChunkedTreatedDescriptors(DescriptorBase):
       else:
         nan_filter, imputer, var_filter, scaler = self._load_transformers(trained_path)
       self._transform_chunked(raw_h5_path, output_h5_path, nan_filter, imputer, var_filter, scaler)
-      h5_out = Hdf5(output_h5_path)
+      h5_out = open_h5(output_h5_path)
       info_path = output_h5_path.replace(".h5", ".json")
       info = {
         "inputs": h5_out.n_rows(),
@@ -375,10 +383,10 @@ class TreatedDescriptors(DescriptorBase):
       yield eos_id
 
   def _should_use_chunked(self, h5_path):
-    if not os.path.exists(h5_path):
+    h5 = open_h5(h5_path)
+    if h5 is None:
       return False
     try:
-      h5 = Hdf5(h5_path)
       n_rows = h5.n_rows()
       return n_rows > self.chunk_size * 2
     except Exception as e:
@@ -415,7 +423,7 @@ class TreatedDescriptors(DescriptorBase):
         chunked_processor._transform_chunked(
           raw_h5_path, output_h5_path, nan_filter, imputer, var_filter, scaler
         )
-        h5_out = Hdf5(output_h5_path)
+        h5_out = open_h5(output_h5_path)
         info_path = output_h5_path.replace(".h5", ".json")
         info = {
           "inputs": h5_out.n_rows(),
