@@ -449,9 +449,12 @@ class ChunkedScaler:
 def open_h5(path: str):
   store = ChunkedH5Store(path)
   if store.exists():
+    logger.debug(f"[open_h5] Using chunked store at {store.dir}")
     return store
   if os.path.exists(path):
+    logger.debug(f"[open_h5] Using legacy H5 at {path}")
     return Hdf5(path)
+  logger.debug(f"[open_h5] No H5 data found at {path}")
   return None
 
 
@@ -533,12 +536,12 @@ class ChunkedH5Store:
         inputs = [x.decode("utf-8") for x in f["Inputs"][:]]
       yield values, inputs
 
-  def iter_values(self) -> Iterator[np.ndarray]:
+  def iter_values(self, chunk_size=None) -> Iterator[np.ndarray]:
     for path in self._sorted_chunk_paths():
       with h5py.File(path, "r") as f:
         yield f["Values"][:]
 
-  def iter_values_with_indices(self) -> Iterator[Tuple[int, int, np.ndarray]]:
+  def iter_values_with_indices(self, chunk_size=None) -> Iterator[Tuple[int, int, np.ndarray]]:
     offset = 0
     for path in self._sorted_chunk_paths():
       with h5py.File(path, "r") as f:
@@ -547,7 +550,7 @@ class ChunkedH5Store:
       yield offset, end, vals
       offset = end
 
-  def iter_all(self) -> Iterator[Tuple[int, int, np.ndarray, List[str]]]:
+  def iter_all(self, chunk_size=None) -> Iterator[Tuple[int, int, np.ndarray, List[str]]]:
     offset = 0
     for path in self._sorted_chunk_paths():
       with h5py.File(path, "r") as f:

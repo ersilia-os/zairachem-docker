@@ -62,7 +62,9 @@ class BaseEstimatorIndividual(BaseEstimator):
     for fname in [TREATED_DESC_FILENAME, RAW_DESC_FILENAME]:
       h5 = open_h5(os.path.join(base, fname))
       if h5 is not None:
+        self.logger.info(f"[estimator] Resolved {self.model_id} -> {fname} ({type(h5).__name__})")
         return h5
+    self.logger.warning(f"[estimator] No H5 data found for {self.model_id} at {base}")
     return None
 
   def _get_X_shape(self) -> Optional[Tuple[int, int]]:
@@ -100,13 +102,9 @@ class BaseEstimatorIndividual(BaseEstimator):
       chunk_size = self.batch_size
     h5 = self._open_h5()
     n_rows = h5.n_rows()
-    self.logger.info(f"[estimator] iterating {self.model_id} in chunks of {chunk_size}")
-    if isinstance(h5, ChunkedH5Store):
-      for start, end, chunk in h5.iter_values_with_indices():
-        yield start, end, chunk
-    else:
-      for start, end, chunk in h5.iter_values_with_indices(chunk_size):
-        yield start, end, chunk
+    self.logger.info(f"[estimator] iterating {self.model_id} n_rows={n_rows} n_features={h5.n_features()}")
+    for start, end, chunk in h5.iter_values_with_indices(chunk_size):
+      yield start, end, chunk
 
   def _get_X_slice(self, start: int, end: int) -> np.ndarray:
     h5 = self._open_h5()
