@@ -31,8 +31,8 @@ class Fitter(BaseEstimatorIndividual):
   def run(self):
     self.reset_time()
     tasks = collections.OrderedDict()
-    X = self._get_X()
-    if X is None:
+    shape = self._get_X_shape()
+    if shape is None:
       logger.warning(f"[lazyqsar:fit] Skipping {self.model_id}: no descriptor data available")
       self.update_elapsed_time()
       return tasks
@@ -40,34 +40,37 @@ class Fitter(BaseEstimatorIndividual):
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      logger.info(f"[lazyqsar:fit] Training on {len(train_idxs)} samples, {X.shape[1]} features")
+      train_set = set(train_idxs)
+      logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {shape[0]} samples")
+      X_train_parts = []
+      for start, end, chunk in self._iter_X():
+        mask = [i - start for i in train_idxs if start <= i < end]
+        if mask:
+          X_train_parts.append(chunk[mask])
+        del chunk
+        gc.collect()
+      X_train = np.concatenate(X_train_parts, axis=0)
+      del X_train_parts
+      gc.collect()
+      logger.info(f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features")
       model = LazyBinaryClassifier()
-      model.fit(
-        X=X[train_idxs],
-        y=y[train_idxs],
-      )
+      model.fit(X=X_train, y=y[train_idxs])
+      del X_train
+      gc.collect()
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model.save(model_folder, onnx=True)
       logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
-      train_preds = self._predict_batched(model, X)
-      tasks[t] = make_classification_report(y, train_preds)
+      n_samples = shape[0]
+      preds = np.empty(n_samples, dtype=np.float32)
+      for start, end, chunk in self._iter_X():
+        batch_preds = model.predict_proba(X=chunk)[:, 1]
+        preds[start:end] = batch_preds
+        del chunk
+        gc.collect()
+      tasks[t] = make_classification_report(y, preds)
     self.update_elapsed_time()
-    del X
     gc.collect()
     return tasks
-
-  def _predict_batched(self, model, X):
-    n_samples = X.shape[0]
-    if n_samples <= self.batch_size * 2:
-      return model.predict_proba(X=X)[:, 1]
-    logger.info(f"[lazyqsar:predict] Batched prediction on {n_samples} samples")
-    preds = np.empty(n_samples, dtype=np.float32)
-    for start in range(0, n_samples, self.batch_size):
-      end = min(start + self.batch_size, n_samples)
-      batch_preds = model.predict_proba(X=X[start:end])[:, 1]
-      preds[start:end] = batch_preds
-      logger.debug(f"[lazyqsar:predict] Processed {start}-{end}/{n_samples}")
-    return preds
 
 
 class Predictor(BaseEstimatorIndividual):
@@ -86,8 +89,8 @@ class Predictor(BaseEstimatorIndividual):
   def run(self):
     self.reset_time()
     tasks = collections.OrderedDict()
-    X = self._get_X()
-    if X is None:
+    shape = self._get_X_shape()
+    if shape is None:
       logger.warning(f"[lazyqsar:predict] Skipping {self.model_id}: no descriptor data available")
       self.update_elapsed_time()
       return tasks
@@ -96,63 +99,13 @@ class Predictor(BaseEstimatorIndividual):
     if self.task == "classification":
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model = LazyBinaryClassifier.load(model_folder)
-      logger.info(f"[lazyqsar:predict] Loaded model from {model_folder}")
-      preds = self._predict_batched(model, X)
-      tasks[t] = make_classification_report(y, preds)
-    self.update_elapsed_time()
-    del X
-    gc.collect()
-    return tasks
-
-  def _predict_batched(self, model, X):
-    n_samples = X.shape[0]
-    if n_samples <= self.batch_size * 2:
-      return model.predict_proba(X=X)[:, 1]
-    logger.info(f"[lazyqsar:predict] Batched prediction on {n_samples} samples")
-    preds = np.empty(n_samples, dtype=np.float32)
-    for start in range(0, n_samples, self.batch_size):
-      end = min(start + self.batch_size, n_samples)
-      batch_preds = model.predict_proba(X=X[start:end])[:, 1]
-      preds[start:end] = batch_preds
-      logger.debug(f"[lazyqsar:predict] Processed {start}-{end}/{n_samples}")
-    return preds
-
-
-class ChunkedPredictor(BaseEstimatorIndividual):
-  def __init__(self, path, model_id, batch_size=None):
-    BaseEstimatorIndividual.__init__(
-      self,
-      path=path,
-      estimator=ESTIMATORS_FAMILY_SUBFOLDER,
-      model_id=model_id,
-      batch_size=batch_size,
-    )
-    self.trained_path = os.path.join(
-      self.get_trained_dir(), ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER
-    )
-
-  def run(self):
-    self.reset_time()
-    tasks = collections.OrderedDict()
-    shape = self._get_X_shape()
-    if shape is None:
-      logger.warning(
-        f"[lazyqsar:chunked_predict] Skipping {self.model_id}: no descriptor data available"
-      )
-      self.update_elapsed_time()
-      return tasks
-    y = self._get_y()
-    t = "reg" if self.task == "regression" else "clf"
-    if self.task == "classification":
-      model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model = LazyBinaryClassifier.load(model_folder)
-      logger.info(f"[lazyqsar:chunked_predict] Loaded model from {model_folder}")
+      logger.info(f"[lazyqsar:predict] Loaded model from {model_folder}, predicting {shape[0]} samples chunk-by-chunk")
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
       for start, end, chunk in self._iter_X():
         batch_preds = model.predict_proba(X=chunk)[:, 1]
         preds[start:end] = batch_preds
-        logger.debug(f"[lazyqsar:chunked_predict] Processed {start}-{end}/{n_samples}")
+        logger.debug(f"[lazyqsar:predict] Processed {start}-{end}/{n_samples}")
         del chunk
         gc.collect()
       tasks[t] = make_classification_report(y, preds)
@@ -174,7 +127,9 @@ class IndividualEstimator(ZairaBase):
         path=self.path, model_id=self.model_id, is_simple=is_simple, batch_size=self.batch_size
       )
     else:
-      self.estimator = Predictor(path=self.path, model_id=self.model_id, batch_size=self.batch_size)
+      self.estimator = Predictor(
+        path=self.path, model_id=self.model_id, batch_size=self.batch_size
+      )
 
   def run(self):
     if not self.is_predict():
