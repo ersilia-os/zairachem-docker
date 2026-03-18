@@ -374,10 +374,10 @@ class ChunkedTreatedDescriptors(DescriptorBase):
       h5_out = open_h5(output_h5_path)
       info_path = output_h5_path.replace(".h5", ".json")
       info = {
-        "inputs": h5_out.n_rows(),
-        "features": h5_out.n_features(),
-        "values": list(h5_out.shape()),
-        "is_sparse": h5_out.is_sparse(),
+        "inputs": int(h5_out.n_rows()),
+        "features": int(h5_out.n_features()),
+        "values": [int(x) for x in h5_out.shape()],
+        "is_sparse": bool(h5_out.is_sparse()),
       }
       with open(info_path, "w") as f:
         json.dump(info, f, indent=4)
@@ -445,10 +445,10 @@ class TreatedDescriptors(DescriptorBase):
         h5_out = open_h5(output_h5_path)
         info_path = output_h5_path.replace(".h5", ".json")
         info = {
-          "inputs": h5_out.n_rows(),
-          "features": h5_out.n_features(),
-          "values": list(h5_out.shape()),
-          "is_sparse": h5_out.is_sparse(),
+          "inputs": int(h5_out.n_rows()),
+          "features": int(h5_out.n_features()),
+          "values": [int(x) for x in h5_out.shape()],
+          "is_sparse": bool(h5_out.is_sparse()),
         }
         with open(info_path, "w") as f:
           json.dump(info, f, indent=4)

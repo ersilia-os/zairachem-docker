@@ -46,10 +46,10 @@ class Data(object):
 
   def save_info(self, file_name):
     info = {
-      "inputs": len(self._inputs),
-      "features": len(self._features),
-      "values": np.array(self._values).shape,
-      "is_sparse": self._is_sparse,
+      "inputs": int(len(self._inputs)),
+      "features": int(len(self._features)),
+      "values": [int(x) for x in np.array(self._values).shape],
+      "is_sparse": bool(self._is_sparse) if self._is_sparse is not None else False,
     }
     with open(file_name, "w") as f:
       json.dump(info, f, indent=4)
