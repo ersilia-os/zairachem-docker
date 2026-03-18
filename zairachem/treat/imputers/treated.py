@@ -311,14 +311,31 @@ class ChunkedTreatedDescriptors(DescriptorBase):
     scaler = joblib.load(os.path.join(trained_path, "scaler.joblib"))
     return nan_filter, imputer, var_filter, scaler
 
+  def _get_output_features(self, h5_in, nan_filter, imputer, var_filter, scaler):
+    input_features = h5_in.features()
+    n_input = len(input_features)
+    dummy = np.zeros((1, n_input), dtype=np.float32)
+    dummy = nan_filter.transform(dummy)
+    dummy = imputer.transform(dummy)
+    dummy = var_filter.transform(dummy)
+    dummy = scaler.transform(dummy)
+    n_output = dummy.shape[1]
+    output_features = [f"f{i}" for i in range(n_output)]
+    if hasattr(nan_filter, "col_idxs") and hasattr(var_filter, "col_idxs"):
+      nan_features = [input_features[i] for i in nan_filter.col_idxs]
+      output_features = [nan_features[i] for i in var_filter.col_idxs]
+    elif hasattr(nan_filter, "col_idxs"):
+      nan_features = [input_features[i] for i in nan_filter.col_idxs]
+      output_features = nan_features[:n_output]
+    return n_output, output_features
+
   def _transform_chunked(self, h5_path, output_path, nan_filter, imputer, var_filter, scaler):
     h5_in = open_h5(h5_path)
     h5_out = ChunkedH5Store(output_path)
     n_rows = h5_in.n_rows()
-    n_final_features = len(var_filter.col_idxs)
-    input_features = h5_in.features()
-    nan_filtered_features = [input_features[i] for i in nan_filter.col_idxs]
-    output_features = [nan_filtered_features[i] for i in var_filter.col_idxs]
+    n_final_features, output_features = self._get_output_features(
+      h5_in, nan_filter, imputer, var_filter, scaler
+    )
     h5_out.create(n_final_features, output_features)
     self.logger.info(f"[treat:transform] Processing {n_rows} rows -> {n_final_features} features")
     for start, end, values, inputs in h5_in.iter_all(self.chunk_size):
