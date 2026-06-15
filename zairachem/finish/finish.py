@@ -232,9 +232,15 @@ class Anonymizer(ZairaBase):
     self._replace_sensitive_columns(os.path.join(path, OUTPUT_TABLE_FILENAME))
 
   def _clear_descriptors(self, path):
-    Cleaner(
-      path=path, target=CLEAN_TARGET_PREDICT if path == self.output_dir else CLEAN_TARGET_MODEL
-    ).run()
+    # Choose the target that actually cleans THIS path in the current mode. Only the
+    # predict directory (in predict mode) uses PREDICT; every other case — including
+    # fit, where output_dir IS the model dir — uses MODEL, so descriptors are removed
+    # rather than skipped (PREDICT target is a no-op during a fit).
+    if path == self.output_dir and self._is_predict:
+      target = CLEAN_TARGET_PREDICT
+    else:
+      target = CLEAN_TARGET_MODEL
+    Cleaner(path=path, target=target).run()
     subfolder = os.path.join(path, DESCRIPTORS_SUBFOLDER)
     if not os.path.exists(subfolder):
       return

@@ -1,6 +1,6 @@
 import collections, joblib, json, os, gc
 import numpy as np
-from lazyqsar.agnostic import LazyBinaryClassifier
+from lazyqsar.agnostic import LazyClassifier
 from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
@@ -40,25 +40,32 @@ class Fitter(BaseEstimatorIndividual):
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      train_set = set(train_idxs)
       logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {shape[0]} samples")
       X_train_parts = []
+      train_order = []
       for start, end, chunk in self._iter_X():
-        mask = [i - start for i in train_idxs if start <= i < end]
-        if mask:
-          X_train_parts.append(chunk[mask])
+        # Global indices of the training rows that fall in this chunk, kept in
+        # train_idxs order. X_train is assembled chunk by chunk, so y MUST be indexed
+        # by this same accumulated order — NOT by the global train_idxs order, or X
+        # rows and y labels get permuted relative to each other across chunks
+        # (multi-chunk / large datasets) and the model trains on mismatched pairs.
+        sel = [i for i in train_idxs if start <= i < end]
+        if sel:
+          X_train_parts.append(chunk[[i - start for i in sel]])
+          train_order.extend(sel)
         del chunk
         gc.collect()
       X_train = np.concatenate(X_train_parts, axis=0)
       del X_train_parts
       gc.collect()
+      y_train = y[np.array(train_order)]
       logger.info(f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features")
-      model = LazyBinaryClassifier()
-      model.fit(X=X_train, y=y[train_idxs])
+      model = LazyClassifier()
+      model.fit(X=X_train, y=y_train)
       del X_train
       gc.collect()
       model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model.save(model_folder, onnx=True)
+      model.save(model_folder)
       logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
@@ -98,7 +105,7 @@ class Predictor(BaseEstimatorIndividual):
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
       model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model = LazyBinaryClassifier.load(model_folder)
+      model = LazyClassifier.load(model_folder)
       logger.info(f"[lazyqsar:predict] Loaded model from {model_folder}, predicting {shape[0]} samples chunk-by-chunk")
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
@@ -169,8 +176,32 @@ class Estimator(ZairaBase):
 
   def run(self):
     model_ids = self._get_model_ids()
+    n_success = 0
     for model_id in model_ids:
       logger.info(f"[lazyqsar] Processing model {model_id}")
-      estimator = IndividualEstimator(path=self.path, model_id=model_id, batch_size=self.batch_size)
-      estimator.run()
+      try:
+        estimator = IndividualEstimator(
+          path=self.path, model_id=model_id, batch_size=self.batch_size
+        )
+        estimator.run()
+        n_success += 1
+      except Exception as e:
+        # A descriptor whose features are non-predictive can have all of them
+        # eliminated by the internal feature selection, leaving an empty matrix that
+        # crashes the estimator. Skip it instead of aborting the whole run; it simply
+        # won't contribute to the final model (the assembler/pool already ignore
+        # descriptors without a y_hat.joblib / results file).
+        logger.warning(
+          f"[lazyqsar] Skipping descriptor {model_id}: estimator failed "
+          f"({type(e).__name__}: {e}). It will be excluded from the final model."
+        )
       gc.collect()
+    if n_success == 0:
+      raise RuntimeError(
+        "No descriptor produced a valid estimator — cannot build a model. All "
+        "descriptors failed (e.g. non-predictive features were entirely eliminated). "
+        "Check the dataset and the chosen descriptors."
+      )
+    logger.info(
+      f"[lazyqsar] {n_success}/{len(model_ids)} descriptors produced a valid estimator"
+    )

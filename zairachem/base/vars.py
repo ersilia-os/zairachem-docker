@@ -38,7 +38,6 @@ STANDARD_COMPOUNDS_FILENAME = "compounds_std.csv"
 MAPPING_FILENAME = "mapping.csv"
 VALUES_FILENAME = "values.csv"
 TASKS_FILENAME = "tasks.csv"
-FOLDS_FILENAME = "folds.csv"
 PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
@@ -90,8 +89,8 @@ _CONFIG_FILENAME = "config.json"
 PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
-DEFAULT_FEATURIZERS = ["eos5axz", "eos2gw4", ""]
-DEFAULT_PROJECTIONS = ["eos2db3"]
+DEFAULT_FEATURIZERS = ["eos3l5f", "eos8aa5", "eos4u6p", "eos9o72", "eos4ex3", "eos82v1"]
+DEFAULT_PROJECTIONS = ["eos1klk"]
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 
 DEFAULT_ISAURA_BATCH_SIZE = 10000

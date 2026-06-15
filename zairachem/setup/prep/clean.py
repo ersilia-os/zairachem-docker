@@ -4,7 +4,6 @@ import pandas as pd
 from zairachem.base.vars import (
   COMPOUNDS_FILENAME,
   STANDARD_COMPOUNDS_FILENAME,
-  FOLDS_FILENAME,
   TASKS_FILENAME,
   VALUES_FILENAME,
   DATA_FILENAME,
@@ -22,7 +21,6 @@ class SetupCleaner(object):
     for f in [
       COMPOUNDS_FILENAME,
       STANDARD_COMPOUNDS_FILENAME,
-      FOLDS_FILENAME,
       TASKS_FILENAME,
       VALUES_FILENAME,
     ]:

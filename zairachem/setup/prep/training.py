@@ -5,7 +5,6 @@ from zairachem.setup.prep import (
   ModelIdsFile,
   SingleFile,
   ChemblStandardize,
-  FoldEnsemble,
   SingleTasks,
   DataMerger,
   SetupCleaner,
@@ -39,14 +38,11 @@ class TrainSetup(object):
       output_dir = input_file.split(".")[0]
     if model_ids is not None:
       self.model_ids = ModelIdsFile(model_ids).load()
-      if "featurizer_ids" in self.model_ids.keys():
-        self.featurizer_ids = self.model_ids["featurizer_ids"]
-      else:
-        self.featurizer_ids = DEFAULT_FEATURIZERS
-      if "projection_ids" in self.model_ids.keys():
-        self.projection_ids = self.model_ids["projection_ids"]
-      else:
-        self.projection_ids = DEFAULT_PROJECTIONS
+    else:
+      # No --eos-ids file provided: fall back to the default descriptors/projection.
+      self.model_ids = {}
+    self.featurizer_ids = self.model_ids.get("featurizer_ids", DEFAULT_FEATURIZERS)
+    self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
     self.input_file = os.path.abspath(input_file)
     self.output_dir = os.path.abspath(output_dir)
     self.task = task
@@ -116,13 +112,6 @@ class TrainSetup(object):
       std.run()
       step.update()
 
-  def _create_folds(self):
-    step = PipelineStep("create_folds", self.output_dir)
-    if not step.is_done():
-      std = FoldEnsemble(os.path.join(self.output_dir, DATA_SUBFOLDER))
-      std.run()
-      step.update()
-
   def _tasks(self):
     step = PipelineStep("tasks", self.output_dir)
     if not step.is_done():
@@ -160,7 +149,6 @@ class TrainSetup(object):
     self._initialize()
     self._normalize_input()
     self._standardise()
-    self._create_folds()
     self._tasks()
     self._merge()
     self._check()

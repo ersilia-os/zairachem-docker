@@ -319,6 +319,15 @@ class BinaryStreamClient(ZairaBase):
           bucket=ZAIRATEMP_BUCKET,
         )
         r.remove()
+    except SystemExit as e:
+      # isaura raises SystemExit (not Exception) when the project/bucket does not
+      # exist; catch it explicitly so a missing bucket is a clear, non-fatal warning
+      # instead of silently aborting the whole run.
+      logger.warning(
+        f"Could not contribute descriptors to isaura bucket '{write_bucket}': {e}. "
+        f"Skipping upload and continuing. If the project does not exist, create it with: "
+        f"isaura create -pn {write_bucket} --access <public|private>"
+      )
     except Exception as e:
       logger.error(f"Error in Isaura contribute workflow: {e}")
 
@@ -339,13 +348,6 @@ class BinaryStreamClient(ZairaBase):
         n_total = len(self.input_data)
         n_chunks = (n_total + isaura_batch_size - 1) // isaura_batch_size
         logger.info(f"[isaura] total={n_total} batch={isaura_batch_size} chunks={n_chunks}")
-        r = IsauraReader(
-          model_id=self.model_id,
-          model_version=self.version,
-          input_csv=None,
-          approximate=self.nns,
-          bucket=self.read_store,
-        )
         self.schema = fetch_schema_from_github(self.model_id)
         dtype = self.resolve_dtype()
         cols = None
@@ -361,6 +363,16 @@ class BinaryStreamClient(ZairaBase):
           chunk_inputs = self.input_data[lo:hi]
           chunk_df = pd.DataFrame(columns=["input"], data=chunk_inputs)
           logger.info(f"[isaura] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
+          # Fresh reader per chunk: IsauraReader.read() is stateful — a reused instance
+          # returns the previous read's row count (e.g. a 12-input final chunk comes back
+          # padded to 100), corrupting row alignment with the rest of the pipeline.
+          r = IsauraReader(
+            model_id=self.model_id,
+            model_version=self.version,
+            input_csv=None,
+            approximate=self.nns,
+            bucket=self.read_store,
+          )
           result_df = r.read(df=chunk_df)
           if cols is None:
             cols = result_df.columns.difference(["key", "input"]).tolist()
@@ -412,8 +424,16 @@ class BinaryStreamClient(ZairaBase):
   def _get_ersilia_df(self, res):
     try:
       keys = [hashlib.md5(inp.encode()).hexdigest() for inp in res["inputs"]]
+      data = res["data"]
+      # When descriptors are streamed to disk, res["data"] is None and the real
+      # values live in the h5 file. Load them so we don't upload all-NaN columns.
+      if data is None and res.get("h5_file"):
+        from zairachem.base.utils.matrices import open_h5
+
+        h5 = open_h5(res["h5_file"])
+        data = h5.values()
       return pd.DataFrame({"key": keys, "input": res["inputs"]}).join(
-        pd.DataFrame(res["data"], columns=res["dims"], dtype=str)
+        pd.DataFrame(data, columns=res["dims"], dtype=str)
       )
     except Exception as e:
       logger.error(f"Error creating Ersilia DataFrame: {e}")

@@ -1,6 +1,5 @@
 from .files import ModelIdsFile, ParametersFile, SingleFile, SingleFileForPrediction
 from .standardize import ChemblStandardize
-from .folding import FoldEnsemble
 from .tasks import SingleTasks, SingleTasksForPrediction
 from .merge import DataMerger, DataMergerForPrediction
 from .clean import SetupCleaner
@@ -14,7 +13,6 @@ __all__ = [
   "SingleFile",
   "SingleFileForPrediction",
   "ChemblStandardize",
-  "FoldEnsemble",
   "SingleTasks",
   "SingleTasksForPrediction",
   "DataMerger",

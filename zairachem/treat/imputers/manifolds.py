@@ -35,13 +35,16 @@ class Manifolds(DescriptorBase):
     DescriptorBase.__init__(self)
     self.path = self.get_output_dir()
     self.input_file = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
-    self.url = get_model_url(DEFAULT_PROJECTIONS[0])
-    self.model_id = DEFAULT_PROJECTIONS[0]
     params_file = os.path.join(self.trained_path, "data", PARAMETERS_FILE)
     with open(params_file, "r") as f:
       params = json.load(f)
       self.reference_eos_id = params["featurizer_ids"][0]
     self.params = self._load_params()
+    # Use the projection model from the run configuration, not a hardcoded default,
+    # so that --eos-ids projection_ids are honored (describe already uses them).
+    projection_ids = self.params.get("projection_ids") or DEFAULT_PROJECTIONS
+    self.model_id = projection_ids[0]
+    self.url = get_model_url(self.model_id)
     self.read_store = self.params.get("read_store")
     self.contribute_store = self.params.get("contribute_store")
     self.nns = bool(self.params.get("enable_nns", False))
@@ -172,6 +175,15 @@ class Manifolds(DescriptorBase):
           bucket=ZAIRATEMP_BUCKET,
         )
         r.remove()
+    except SystemExit as e:
+      # isaura raises SystemExit (not Exception) when the project/bucket does not
+      # exist; catch it explicitly so a missing bucket is a clear, non-fatal warning
+      # instead of silently aborting the whole run.
+      logger.warning(
+        f"Could not contribute projections to isaura bucket '{write_bucket}': {e}. "
+        f"Skipping upload and continuing. If the project does not exist, create it with: "
+        f"isaura create -pn {write_bucket} --access <public|private>"
+      )
     except Exception as e:
       logger.error(f"Error in Isaura contribute workflow for projections: {e}")
 
@@ -204,13 +216,6 @@ class Manifolds(DescriptorBase):
     n_total = len(self.inputs)
     n_chunks = (n_total + self.batch_size - 1) // self.batch_size
     logger.info(f"[manifolds:isaura] total={n_total} batch={self.batch_size} chunks={n_chunks}")
-    r = IsauraReader(
-      model_id=self.model_id,
-      model_version=self.version,
-      input_csv=None,
-      approximate=self.nns,
-      bucket=self.read_store,
-    )
     cols = None
     all_data = []
     for ci in range(n_chunks):
@@ -219,6 +224,16 @@ class Manifolds(DescriptorBase):
       chunk_inputs = self.inputs[lo:hi]
       chunk_df = pd.DataFrame(columns=["input"], data=chunk_inputs)
       logger.info(f"[manifolds:isaura] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
+      # Fresh reader per chunk: IsauraReader.read() is stateful — a reused instance
+      # returns the previous read's row count (a partial final chunk comes back padded),
+      # corrupting row alignment.
+      r = IsauraReader(
+        model_id=self.model_id,
+        model_version=self.version,
+        input_csv=None,
+        approximate=self.nns,
+        bucket=self.read_store,
+      )
       result_df = r.read(df=chunk_df)
       if cols is None:
         cols = result_df.columns.difference(["key", "input"]).tolist()

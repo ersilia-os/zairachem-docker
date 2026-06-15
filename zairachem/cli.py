@@ -359,11 +359,20 @@ def run_all(input_file, model_dir, clean, flush, anonymize, clean_target):
 
 
 def main():
+  # Third-party imports (lazyqsar, isaura) call loguru's logger.remove() at import time,
+  # wiping zairachem's sinks. Re-assert them now that all imports are done.
+  logger.configure()
   sys.argv = _preprocess_optional_arg(sys.argv, "-es", "isaura-public")
   sys.argv = _preprocess_optional_arg(sys.argv, "--enable-store", "isaura-public")
   sys.argv = _preprocess_optional_arg(sys.argv, "-cs", "zairatemp")
   sys.argv = _preprocess_optional_arg(sys.argv, "--contribute-store", "zairatemp")
-  cli()
+  try:
+    cli()
+  except Exception:
+    # Record the full traceback to the log file (console.log) before exiting, so a crash
+    # leaves a diagnosable record instead of only a transient terminal message.
+    logger.exception("ZairaChem terminated with an unhandled error")
+    raise
 
 
 if __name__ == "__main__":

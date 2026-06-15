@@ -12,7 +12,6 @@ from rich.progress import (
 from rich.progress_bar import ProgressBar
 from zairachem.base.vars import (
   STANDARD_COMPOUNDS_FILENAME,
-  FOLDS_FILENAME,
   TASKS_FILENAME,
   DATA_FILENAME,
   COMPOUND_IDENTIFIER_COLUMN,
@@ -72,16 +71,11 @@ class DataMerger(object):
   def get_standard_smiles(self):
     return pd.read_csv(os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME))
 
-  def get_folds(self):
-    return pd.read_csv(os.path.join(self.path, FOLDS_FILENAME))
-
   def get_tasks(self):
     return pd.read_csv(os.path.join(self.path, TASKS_FILENAME))
 
   def run(self):
-    df1 = self.get_standard_smiles()
-    df2 = self.get_folds()
-    df = pd.merge(df1, df2, on=[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN, STANDARD_SMILES_COLUMN])
+    df = self.get_standard_smiles()
     df = df.drop(columns=[SMILES_COLUMN])
     df = df.rename(columns={STANDARD_SMILES_COLUMN: SMILES_COLUMN})
     df_tsk = self.get_tasks()
