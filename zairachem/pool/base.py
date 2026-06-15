@@ -48,7 +48,7 @@ class ResultsIterator(ZairaBase):
       yield rpath
 
   def iter_abspaths(self):
-    for rpath in self.iter_relpaths:
+    for rpath in self.iter_relpaths():
       yield "/".join([self.path] + rpath)
 
 
@@ -97,15 +97,13 @@ class XGetter(ZairaBase):
     prefixes = []
     dfs = []
     for rpath in ResultsIterator(path=self.path).iter_relpaths():
-      prefixes += ["-".join(rpath)]
       file_name = "/".join([self.path, ESTIMATORS_SUBFOLDER] + rpath + [RESULTS_UNMAPPED_FILENAME])
       if not os.path.exists(file_name):
         logger.warning(f"[pool] Results file not found: {file_name}")
         continue
+      prefixes += ["-".join(rpath)]
       dfs += [self._read_results_file(file_name)]
-    for i in range(len(dfs)):
-      df = dfs[i]
-      prefix = prefixes[i]
+    for prefix, df in zip(prefixes, dfs):
       self.X += [np.array(df, dtype=np.float32)]
       self.columns += ["{0}-{1}".format(prefix, c) for c in list(df.columns)]
     self.logger.debug(
@@ -156,7 +154,7 @@ class BasePooler(ZairaBase):
 
   def _get_compound_ids(self):
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    cids = list(df["compound_id"])
+    cids = list(df[COMPOUND_IDENTIFIER_COLUMN])
     return cids
 
   def _get_X(self):
@@ -172,10 +170,6 @@ class BasePooler(ZairaBase):
 
   def _get_X_reg(self, df):
     return df[[c for c in list(df.columns) if "reg" in c]]
-
-  def _get_y(self, task):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    return np.array(df[task])
 
   def _get_Y_col(self):
     if self.task == "classification":

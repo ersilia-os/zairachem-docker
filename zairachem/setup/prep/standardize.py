@@ -77,7 +77,7 @@ def _create_progress():
 def _standardize_single(smi):
   try:
     st_smi = standardize_molblock_from_smiles(smi, get_smiles=True)
-  except:
+  except Exception:
     st_smi = smi
   return st_smi if st_smi is not None else smi
 

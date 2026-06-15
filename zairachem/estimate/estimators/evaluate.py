@@ -42,7 +42,7 @@ class ResultsIterator(ZairaBase):
       yield rpath
 
   def iter_abspaths(self):
-    for rpath in self.iter_relpaths:
+    for rpath in self.iter_relpaths():
       yield "/".join([self.path] + rpath)
 
 

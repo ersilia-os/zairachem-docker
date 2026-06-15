@@ -63,14 +63,13 @@ class RawDescriptors(ZairaBase):
 
   def _run_eos(self, eos_id):
     output_h5 = self.output_h5_filename(eos_id)
-    try:
-      res = self.api.run(output_h5=output_h5, isaura_batch_size=self.batch_size)
-      if res.get("h5_file"):
-        self.logger.info(f"[raw] {eos_id} streamed directly to {output_h5}")
-      elif res.get("data") is not None:
-        Hdf5Data(res).save(output_h5)
-    except Exception as e:
-      self.logger.error(f"Exception in h5: {e}")
+    res = self.api.run(output_h5=output_h5, isaura_batch_size=self.batch_size)
+    if res.get("h5_file"):
+      self.logger.info(f"[raw] {eos_id} streamed directly to {output_h5}")
+    elif res.get("data") is not None:
+      Hdf5Data(res).save(output_h5)
+    else:
+      raise Exception(f"No descriptor data returned for model {eos_id}")
 
   def run(self):
     done_eos = []
@@ -88,7 +87,7 @@ class RawDescriptors(ZairaBase):
       try:
         self._run_eos(eos_id)
         done_eos += [eos_id]
-      except:
-        raise Exception(f"Raw descriptor calculations failed for model {eos_id}")
+      except Exception as e:
+        raise Exception(f"Raw descriptor calculations failed for model {eos_id}") from e
     with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "w") as f:
       json.dump(done_eos, f, indent=4)

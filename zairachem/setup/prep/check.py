@@ -146,7 +146,8 @@ class SetupChecker(object):
         if sim < 0.6:
           try:
             omol = standardise.run(omol)
-          except:
+          except Exception as e:
+            logger.debug(f"[check] standardization failed during similarity check: {e}")
             progress.update(task, advance=1)
             continue
           ofp = Chem.RDKFingerprint(omol)

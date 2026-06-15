@@ -161,7 +161,13 @@ class ClfTasks(object):
           bin_values += [1]
         else:
           bin_values += [0]
-    self._has_enough_min_class(bin_values)
+    if not self._has_enough_min_class(bin_values):
+      n1 = int(np.sum(bin_values))
+      n0 = len(bin_values) - n1
+      raise Exception(
+        f"Not enough samples per class for classification: "
+        f"{n1} positive / {n0} negative (minimum {MIN_CLASS} each required)."
+      )
     return bin_values
 
 
