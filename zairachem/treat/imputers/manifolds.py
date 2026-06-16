@@ -235,6 +235,14 @@ class Manifolds(DescriptorBase):
         bucket=self.read_store,
       )
       result_df = r.read(df=chunk_df)
+      # Re-align to the requested inputs: isaura may reorder/duplicate returned rows.
+      if "input" in result_df.columns:
+        result_df = (
+          result_df.drop_duplicates(subset="input")
+          .set_index("input")
+          .reindex(chunk_inputs)
+          .reset_index()
+        )
       if cols is None:
         cols = result_df.columns.difference(["key", "input"]).tolist()
       values = result_df[cols].values
@@ -274,6 +282,14 @@ class Manifolds(DescriptorBase):
             bucket=self.read_store,
           )
           df = r.read(df=df)
+          # Re-align to the requested inputs: isaura may reorder/duplicate returned rows.
+          if "input" in df.columns:
+            df = (
+              df.drop_duplicates(subset="input")
+              .set_index("input")
+              .reindex(self.inputs)
+              .reset_index()
+            )
           cols = df.columns.difference(["key", "input"]).tolist()
           values = df[cols].values
           data = [{col: row[i] for i, col in enumerate(cols)} for row in values]

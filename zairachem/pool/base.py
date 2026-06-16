@@ -166,7 +166,10 @@ class BasePooler(ZairaBase):
     yield from getter.iter_get(chunk_size=chunk_size)
 
   def _get_X_clf(self, df):
-    return df[[c for c in list(df.columns)]]
+    # The classifier bagger stacks on the per-descriptor clf probabilities only. Drop the
+    # manifold projection columns (pca-/umap-/tsne-) and the binary (_bin) columns, which
+    # should not be fed to the meta-classifier (they dilute/leak rather than help).
+    return self._filter_out_unwanted_columns(df)
 
   def _get_X_reg(self, df):
     return df[[c for c in list(df.columns) if "reg" in c]]

@@ -131,7 +131,7 @@ class ChemblStandardize(object):
     logger.info(
       f"[standardize] Processing {n_total:,} molecules in {n_batches:,} batches (parallel)"
     )
-    R = []
+    results_by_batch = {}
     with _create_progress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_batches)
       with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
@@ -139,12 +139,16 @@ class ChemblStandardize(object):
         for future in as_completed(futures):
           batch_idx = futures[future]
           try:
-            batch_results = future.result()
-            R.extend(batch_results)
-            progress.update(task, advance=1)
+            results_by_batch[batch_idx] = future.result()
           except Exception as e:
             logger.error(f"[standardize] Batch {batch_idx} failed: {e}")
-            progress.update(task, advance=1)
+            results_by_batch[batch_idx] = []
+          progress.update(task, advance=1)
+    # Reassemble in submission (input) order: as_completed yields in completion order,
+    # which would otherwise make compounds_std.csv / data.csv order non-deterministic.
+    R = []
+    for i in range(n_batches):
+      R.extend(results_by_batch.get(i, []))
     return R
 
   def _run_vectorized(self, df):

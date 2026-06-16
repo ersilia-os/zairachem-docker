@@ -289,10 +289,9 @@ class BinaryStreamClient(ZairaBase):
       )
       raise
 
-  def _contribute(self, any_results):
+  def _contribute(self, any_results, batch_size=None):
     if not self.contribute_store:
       return
-    df = self._get_ersilia_df(any_results)
     is_temp = self.contribute_store == ZAIRATEMP_BUCKET
     write_bucket = ZAIRATEMP_BUCKET if is_temp else self.contribute_store
     try:
@@ -303,7 +302,7 @@ class BinaryStreamClient(ZairaBase):
         model_version=self.version,
         bucket=write_bucket,
       )
-      w.write(df=df)
+      self._write_to_store(w, any_results, batch_size)
       if is_temp:
         logger.info(f"Copying precalculations from {ZAIRATEMP_BUCKET} to isaura-public")
         c = IsauraCopy(
@@ -330,6 +329,33 @@ class BinaryStreamClient(ZairaBase):
       )
     except Exception as e:
       logger.error(f"Error in Isaura contribute workflow: {e}")
+
+  def _ersilia_chunk_df(self, inputs, values, dims):
+    keys = [hashlib.md5(str(i).encode()).hexdigest() for i in inputs]
+    return pd.DataFrame({"key": keys, "input": list(inputs)}).join(
+      pd.DataFrame(values, columns=dims, dtype=str)
+    )
+
+  def _write_to_store(self, writer, res, batch_size=None):
+    # Stream the upload chunk-by-chunk so the full descriptor matrix (n_molecules x
+    # thousands of features) is never materialised in memory at once. Falls back to a
+    # single write only when the values are already held in memory (non-streamed path).
+    from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
+
+    bs = batch_size or DEFAULT_ISAURA_BATCH_SIZE
+    dims = res["dims"]
+    if res.get("data") is None and res.get("h5_file"):
+      from zairachem.base.utils.matrices import open_h5
+
+      h5 = open_h5(res["h5_file"])
+      inputs = [str(x) for x in h5.inputs()]
+      n = 0
+      for start, end, chunk in h5.iter_values_with_indices(bs):
+        writer.write(df=self._ersilia_chunk_df(inputs[start:end], np.asarray(chunk), dims))
+        n += end - start
+      logger.info(f"Contributed {n} rows to bucket (streamed in chunks of {bs})")
+    else:
+      writer.write(df=self._get_ersilia_df(res))
 
   def run(self, output_h5=None, isaura_batch_size=None):
     from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
@@ -374,6 +400,18 @@ class BinaryStreamClient(ZairaBase):
             bucket=self.read_store,
           )
           result_df = r.read(df=chunk_df)
+          # isaura does not guarantee the returned rows match the requested order or
+          # count (it can reorder and include cross-tranche duplicates). Re-align to the
+          # exact requested inputs so the saved descriptors stay row-aligned with the
+          # rest of the pipeline (compounds/labels). Without this, large multi-dataset
+          # stores return scrambled rows -> X/y misalignment and count-mismatch crashes.
+          if "input" in result_df.columns:
+            result_df = (
+              result_df.drop_duplicates(subset="input")
+              .set_index("input")
+              .reindex(chunk_inputs)
+              .reset_index()
+            )
           if cols is None:
             cols = result_df.columns.difference(["key", "input"]).tolist()
             if h5_store:
@@ -418,7 +456,7 @@ class BinaryStreamClient(ZairaBase):
       except Exception as e:
         logger.error(f"Unhandled error in run: {e}")
         raise
-    self._contribute(any_results)
+    self._contribute(any_results, isaura_batch_size)
     return any_results
 
   def _get_ersilia_df(self, res):

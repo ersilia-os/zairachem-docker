@@ -1,7 +1,10 @@
 import sys
+import random
+import numpy as np
 import rich_click as click
 import rich_click.rich_click as rc
 from zairachem.base.utils.logging import logger
+from zairachem.base.vars import RANDOM_SEED
 from zairachem.setup.run_fit import run as run_fit
 from zairachem.setup.run_predict import run as run_predict
 from zairachem.describe.descriptors.describe import Describer
@@ -362,6 +365,11 @@ def main():
   # Third-party imports (lazyqsar, isaura) call loguru's logger.remove() at import time,
   # wiping zairachem's sinks. Re-assert them now that all imports are done.
   logger.configure()
+  # Fixed seed so the fit-time row shuffle (get_train_indices) and other RNG draws are
+  # reproducible across runs. Note: lazyqsar's internal models expose no seed, so
+  # predictions may still vary slightly; descriptor/setup ordering is now deterministic.
+  random.seed(RANDOM_SEED)
+  np.random.seed(RANDOM_SEED)
   sys.argv = _preprocess_optional_arg(sys.argv, "-es", "isaura-public")
   sys.argv = _preprocess_optional_arg(sys.argv, "--enable-store", "isaura-public")
   sys.argv = _preprocess_optional_arg(sys.argv, "-cs", "zairatemp")

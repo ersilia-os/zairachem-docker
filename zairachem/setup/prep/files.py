@@ -122,7 +122,12 @@ class SingleFile(InputSchema):
     self.df = pd.read_csv(input_file)
 
   def _make_identifiers(self):
-    all_smiles = list(set(list(self.df[self.df[self.smiles_column].notnull()][self.smiles_column])))
+    # Preserve input order (dict.fromkeys dedups, keeping first occurrence) so compound_id
+    # assignment — and therefore data.csv row order — is deterministic across runs.
+    # set() iteration order varies per process (string hash randomization).
+    all_smiles = list(
+      dict.fromkeys(self.df[self.df[self.smiles_column].notnull()][self.smiles_column])
+    )
     smiles2identifier = {}
     n = len(str(len(all_smiles)))
     for i, smi in enumerate(all_smiles):

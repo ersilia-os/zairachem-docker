@@ -48,7 +48,9 @@ class RawDescriptors(ZairaBase):
     df.to_csv(self.input_csv_ersilia, index=False)
 
   def eos_ids(self):
-    eos_ids = list(set(self.params["featurizer_ids"]))
+    # Preserve config order and dedup deterministically (set() order varies per process,
+    # which would make the per-descriptor processing order non-reproducible).
+    eos_ids = list(dict.fromkeys(self.params["featurizer_ids"]))
     return eos_ids
 
   def done_eos_ids(self):
