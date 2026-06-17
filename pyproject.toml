@@ -18,10 +18,10 @@ fpsim2        = "0.5.2"
 lolP          = "0.0.4"
 umap-learn    = "0.5.7"
 lazyqsar      = { version = "3.4.1", extras = ["fit"] }
-stylia        = "0.0.2"
+stylia        = "1.0.1"
 openpyxl      = "3.1.5"
 rich-click    = "1.8.9"
-isaura = { git="https://github.com/ersilia-os/isaura.git", optional=true }
+isaura = { version = "2.3.0", optional = true }
 
 [tool.poetry.extras]
 isaura = ["isaura"]

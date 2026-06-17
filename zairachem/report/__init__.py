@@ -3,13 +3,21 @@ import pandas as pd
 
 import stylia
 
-from stylia import TWO_COLUMNS_WIDTH
-
 from zairachem.base import ZairaBase
 from zairachem.base.vars import DATA_FILENAME, DATA_SUBFOLDER, REPORT_SUBFOLDER
 
-
+# stylia 1.0.1 dropped the TWO_COLUMNS_WIDTH constant; keep the original figure proportions.
+TWO_COLUMNS_WIDTH = 7.09
 INDIVIDUAL_FIGSIZE = (TWO_COLUMNS_WIDTH / 2, TWO_COLUMNS_WIDTH / 2)
+
+# In stylia 1.0.1 create_figure's width/height are scale factors, not inches, so the old
+# inch-based figsizes must be rescaled. This factor maps the individual figure to ~1870 px,
+# matching the previous (0.0.2) report output; other figsizes scale proportionally.
+FIGSIZE_SCALE = 0.43 / (TWO_COLUMNS_WIDTH / 2)
+
+# Use the Ersilia style/palette and the print format (set once at import).
+stylia.set_style("ersilia")
+stylia.set_format("print")
 
 
 class BaseResults(ZairaBase):
@@ -55,7 +63,9 @@ class BasePlot(BaseResults):
     if ax is None:
       if figsize is None:
         figsize = INDIVIDUAL_FIGSIZE
-      _, ax = stylia.create_figure(1, 1, width=figsize[0], height=figsize[1])
+      _, ax = stylia.create_figure(
+        1, 1, width=figsize[0] * FIGSIZE_SCALE, height=figsize[1] * FIGSIZE_SCALE
+      )
     self.name = "base"
     self.ax = ax[0]
 

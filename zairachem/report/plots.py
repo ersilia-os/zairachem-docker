@@ -10,14 +10,27 @@ import pandas as pd
 
 from zairachem.report import BasePlot
 from zairachem.report.fetcher import ResultsFetcher
-from stylia import NamedColors, NamedColorMaps, ContinuousColorMap
+from stylia import ErsiliaColors, SpectralColormap, DivergingColormap
 import logging
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 
-named_colors = NamedColors()
-named_cmaps = NamedColorMaps()
+# stylia 1.0.1: build the palette from ErsiliaColors. It provides blue/gray/black/purple but not
+# red/green, so map those to the closest analogs (orange / mint).
+_ersilia_colors = ErsiliaColors()
+
+
+class _Palette:
+  blue = _ersilia_colors.blue
+  gray = _ersilia_colors.gray
+  black = _ersilia_colors.black
+  purple = _ersilia_colors.purple
+  red = _ersilia_colors.orange
+  green = _ersilia_colors.mint
+
+
+named_colors = _Palette()
 
 
 class ActivesInactivesPlot(BasePlot):
@@ -97,7 +110,7 @@ class RocCurvePlot(BasePlot):
       self.is_available = True
       self.name = "roc-curve"
       ax = self.ax
-      cmap = ContinuousColorMap(cmap="spectral")
+      cmap = SpectralColormap()
       cmap.fit([0, 1])
       bt = ResultsFetcher(path=path).get_actives_inactives()
       yp = ResultsFetcher(path=path).get_pred_proba_clf()
@@ -241,7 +254,7 @@ class IndividualEstimatorsAurocPlot(BasePlot):
         labels += [yp]
       y = [i for i in range(len(labels))]
       x = aucs
-      cmap = ContinuousColorMap("spectral")
+      cmap = SpectralColormap()
       cmap.fit([0.5, 1])
       colors = cmap.transform(x)
 
@@ -387,7 +400,7 @@ class ProjectionUmapPlot(BasePlot):
         lw=0.5,
       )
       y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
-      cmap = ContinuousColorMap(cmap=named_cmaps.coolwarm)
+      cmap = DivergingColormap()
       cmap.fit(y_pred)
       colors = cmap.transform(y_pred)
       ax.scatter(
@@ -470,7 +483,7 @@ class ProjectionTSNEPlot(BasePlot):
         lw=0.5,
       )
       y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
-      cmap = ContinuousColorMap(cmap=named_cmaps.coolwarm)
+      cmap = DivergingColormap()
       cmap.fit(y_pred)
       colors = cmap.transform(y_pred)
       ax.scatter(
@@ -553,7 +566,7 @@ class ProjectionPcaPlot(BasePlot):
         lw=0.5,
       )
       y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
-      cmap = ContinuousColorMap(cmap=named_cmaps.coolwarm)
+      cmap = DivergingColormap()
       cmap.fit(y_pred)
       colors = cmap.transform(y_pred)
       ax.scatter(
@@ -674,7 +687,7 @@ class TanimotoSimilarityToTrainPlot(BasePlot):
       df = ResultsFetcher(path=path).get_tanimoto_similarities_to_training_set()
       columns = [c for c in list(df.columns) if c.startswith("sim")]
       df = df[columns]
-      cmap = ContinuousColorMap(cmap=named_cmaps.spectral)
+      cmap = SpectralColormap()
       cmap.fit([i for i in range(len(columns))])
       colors = cmap.transform([i for i in range(len(columns))])
       for i, col in enumerate(columns):
