@@ -1,4 +1,4 @@
-import h5py, os, re, subprocess
+import contextlib, h5py, os, re, subprocess
 import numpy as np
 from pathlib import Path
 from typing import Optional
@@ -175,10 +175,8 @@ def _ensure_network(name):
   except Exception:
     out = ""
   if not re.search(rf"(?m)^{re.escape(name)}$", out):
-    try:
+    with contextlib.suppress(Exception):
       run_command(["docker", "network", "create", name], quiet=True)
-    except Exception:
-      pass
   out = subprocess.check_output(["docker", "network", "ls", "--format", "{{.Name}}"], text=True)
   if not re.search(rf"(?m)^{re.escape(name)}$", out):
     raise RuntimeError(f"docker network '{name}' not found")
@@ -186,5 +184,5 @@ def _ensure_network(name):
 
 def _recreate_container_if_exists():
   rc = run_command(["docker", "container", "inspect", "redis"], quiet=True)
-  if rc == 0:
-    s = run_command(["docker", "rm", "-f", "redis"], quiet=True)
+  if rc.returncode == 0:
+    run_command(["docker", "rm", "-f", "redis"], quiet=True)

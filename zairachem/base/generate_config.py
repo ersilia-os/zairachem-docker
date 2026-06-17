@@ -1,5 +1,5 @@
 import re
-from zairachem.base.vars import REDIS_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
+from zairachem.base.vars import REDIS_IMAGE, NGINX_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
 
 
 def _sanitize(name):
@@ -138,8 +138,8 @@ def generate_compose_and_nginx(
         - {network_name}
 """
 
-  nginx = """  nginx:
-    image: nginx:alpine
+  nginx = f"""  nginx:
+    image: {NGINX_IMAGE}
     depends_on:
 """
   for mid in sorted(models_with_ports):
