@@ -3,11 +3,11 @@ import numpy as np
 import pandas as pd
 from zairachem.describe.descriptors.utils import get_model_url
 from zairachem.treat.imputers import DescriptorBase
-from zairachem.base.utils.matrices import Hdf5, Data, ChunkedH5Store, DEFAULT_CHUNK_SIZE
-from zairachem.base.utils.utils import fetch_schema_from_github, post, latest_version
+from zairachem.base.utils.matrices import Hdf5, Data, ChunkedH5Store
+from zairachem.base.utils.utils import fetch_schema_from_github, post
+from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
-  DATA_FILENAME,
   DATA_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
   PARAMETERS_FILE,
@@ -19,7 +19,7 @@ from zairachem.base.vars import (
 try:
   from isaura.manage import IsauraCopy, IsauraReader, IsauraRemover, IsauraWriter
 except Exception as e:
-  logger.warning(f"Isaura modules could not be imported: {e}")
+  logger.debug(f"Isaura modules could not be imported: {e}")
   IsauraCopy = None
   IsauraReader = None
   IsauraRemover = None
@@ -74,7 +74,7 @@ class Manifolds(DescriptorBase):
         self.params["latest_projection_version"] = {}
       if model_id in self.params["latest_projection_version"]:
         return self.params["latest_projection_version"][model_id]
-      version = latest_version(model_id, bucket)
+      version = ersilia_model_version(model_id)
       self.params["latest_projection_version"][model_id] = version
       self._save_params(self.params)
       return version
@@ -238,7 +238,8 @@ class Manifolds(DescriptorBase):
       # Re-align to the requested inputs: isaura may reorder/duplicate returned rows.
       if "input" in result_df.columns:
         result_df = (
-          result_df.drop_duplicates(subset="input")
+          result_df
+          .drop_duplicates(subset="input")
           .set_index("input")
           .reindex(chunk_inputs)
           .reset_index()
@@ -262,7 +263,7 @@ class Manifolds(DescriptorBase):
     if self.contribute_store or self.read_store:
       self.version = self.resolve_version(self.model_id, self.read_store)
     if not self.read_store:
-      logger.warning(f"Isaura read store is disabled for projections (no -es flag provided)!")
+      logger.warning("Isaura read store is disabled for projections (no -es flag provided)!")
       if use_chunked:
         data, cols = self._run_api_chunked()
       else:
@@ -285,7 +286,8 @@ class Manifolds(DescriptorBase):
           # Re-align to the requested inputs: isaura may reorder/duplicate returned rows.
           if "input" in df.columns:
             df = (
-              df.drop_duplicates(subset="input")
+              df
+              .drop_duplicates(subset="input")
               .set_index("input")
               .reindex(self.inputs)
               .reset_index()

@@ -7,9 +7,9 @@ def run(
   model_dir,
   output_dir=None,
   override_dir=False,
-  read_store=None,
+  store_read=False,
   nn=False,
-  contribute_store=None,
+  store_write=False,
 ):
   ps = PredictSetup(
     input_file,
@@ -17,9 +17,9 @@ def run(
     output_dir,
     override_dir,
     time_budget=120,
-    read_store=read_store,
+    store_read=store_read,
     nn=nn,
-    contribute_store=contribute_store,
+    store_write=store_write,
   )
   if ps.is_done():
     logger.warning(

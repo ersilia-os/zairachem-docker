@@ -77,15 +77,3 @@ def get_bucket_records(bucket):
   return insp.inspect_models(bucket, prefix_filter="")
 
 
-def latest_version(model, bucket):
-  if model is None:
-    return None
-  records = get_bucket_records(bucket)
-  versions = []
-  for r in records:
-    name = r["model"]
-    if name.startswith(model + "/"):
-      v = name.split("/")[1]
-      if v[1:].isdigit():
-        versions.append(int(v[1:]))
-  return "v" + str(max(versions)) if versions else "v1"

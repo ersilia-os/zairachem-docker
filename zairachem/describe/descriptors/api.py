@@ -12,8 +12,8 @@ from zairachem.base.utils.logging import logger
 from zairachem.base import ZairaBase
 from zairachem.base.utils.utils import (
   fetch_schema_from_github,
-  latest_version,
 )
+from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
 from urllib.parse import urlparse
 from rich.progress import (
@@ -30,7 +30,7 @@ from rich.progress import (
 try:
   from isaura.manage import IsauraCopy, IsauraReader, IsauraRemover, IsauraWriter
 except Exception as e:
-  logger.warning(f"Isaura modules could not be imported: {e}")
+  logger.debug(f"Isaura modules could not be imported: {e}")
   IsauraCopy = None
   IsauraReader = None
   IsauraRemover = None
@@ -82,7 +82,7 @@ class BinaryStreamClient(ZairaBase):
         self.params["latest_featurizer_version"] = {}
       if model_id in self.params["latest_featurizer_version"]:
         return self.params["latest_featurizer_version"][model_id]
-      version = latest_version(model_id, bucket)
+      version = ersilia_model_version(model_id)
       self.params["latest_featurizer_version"][model_id] = version
       self._save_params(self.params)
       return version
@@ -366,7 +366,7 @@ class BinaryStreamClient(ZairaBase):
     if self.contribute_store or self.read_store:
       self.version = self.resolve_version(self.model_id, self.read_store)
     if not self.read_store:
-      logger.warning(f"Isaura read store is disabled (no -es flag provided)!")
+      logger.warning("Isaura read store is disabled (no -es flag provided)!")
       any_results = self._run(output_h5=output_h5)
     else:
       try:
@@ -407,7 +407,8 @@ class BinaryStreamClient(ZairaBase):
           # stores return scrambled rows -> X/y misalignment and count-mismatch crashes.
           if "input" in result_df.columns:
             result_df = (
-              result_df.drop_duplicates(subset="input")
+              result_df
+              .drop_duplicates(subset="input")
               .set_index("input")
               .reindex(chunk_inputs)
               .reset_index()
@@ -424,9 +425,7 @@ class BinaryStreamClient(ZairaBase):
               else chunk_inputs
             )
             h5_store.save_chunk(chunk_values, chunk_input_list)
-            logger.info(
-              f"[isaura] chunk {ci + 1}/{n_chunks} saved {len(chunk_values)} rows"
-            )
+            logger.info(f"[isaura] chunk {ci + 1}/{n_chunks} saved {len(chunk_values)} rows")
           else:
             all_values.append(chunk_values)
           del result_df, chunk_values, chunk_df

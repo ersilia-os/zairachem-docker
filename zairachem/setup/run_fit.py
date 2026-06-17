@@ -5,9 +5,9 @@ from zairachem.base.utils.logging import logger
 def run(
   input_file,
   task,
-  read_store=None,
+  store_read=False,
   nn=False,
-  contribute_store=None,
+  store_write=False,
   output_dir=None,
   model_ids_file=None,
 ):
@@ -16,9 +16,9 @@ def run(
     output_dir,
     model_ids=model_ids_file,
     task=task,
-    read_store=read_store,
+    store_read=store_read,
     nn=nn,
-    contribute_store=contribute_store,
+    store_write=store_write,
   )
 
   if ts.is_done():

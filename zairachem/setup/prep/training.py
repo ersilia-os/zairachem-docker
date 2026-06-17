@@ -1,6 +1,13 @@
 import json, os, shutil
 
 from zairachem.base import ZairaBase, create_session_symlink
+from zairachem.base.utils.console import summary_panel
+from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
+from zairachem.base.utils.isaura_report import (
+  report_isaura_coverage,
+  check_isaura_version_consistency,
+  check_isaura_project_available,
+)
 from zairachem.setup.prep import (
   ModelIdsFile,
   SingleFile,
@@ -18,6 +25,10 @@ from zairachem.base.vars import (
   PARAMETERS_FILE,
   RAW_INPUT_FILENAME,
   DATA_SUBFOLDER,
+  DATA_FILENAME,
+  INPUT_SCHEMA_FILENAME,
+  SMILES_COLUMN,
+  DEFAULT_ISAURA_BUCKET,
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
@@ -31,9 +42,7 @@ RDLogger.logger().setLevel(RDLogger.CRITICAL)
 
 
 class TrainSetup(object):
-  def __init__(
-    self, input_file, output_dir, task, model_ids, read_store, nn, contribute_store
-  ):
+  def __init__(self, input_file, output_dir, task, model_ids, store_read, nn, store_write):
     if output_dir is None:
       output_dir = input_file.split(".")[0]
     if model_ids is not None:
@@ -47,13 +56,17 @@ class TrainSetup(object):
     self.output_dir = os.path.abspath(output_dir)
     self.task = task
     assert self.task in ["classification", "regression"]
+    # Read AND write both target the run's own project (named like the model folder). The central
+    # lake (isaura-public) is only read at the start to migrate data into the project; it is not the
+    # run's read/write store. The --store r|w|rw flags toggle read/write on the project.
+    project = os.path.basename(os.path.normpath(self.output_dir))
     self.params = {
       "task": self.task,
       "featurizer_ids": self.featurizer_ids,
       "projection_ids": self.projection_ids,
-      "read_store": read_store,
+      "read_store": project if store_read else None,
       "enable_nns": nn,
-      "contribute_store": contribute_store,
+      "contribute_store": project if store_write else None,
     }
 
   def _copy_input_file(self):
@@ -136,6 +149,68 @@ class TrainSetup(object):
       SetupCleaner(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
       step.update()
 
+  def _isaura_summary(self):
+    # The run reads/writes its own project; the lake is migrated in at the start.
+    project = os.path.basename(os.path.normpath(self.output_dir))
+    read = "on" if self.params.get("read_store") else "off"
+    write = "on" if self.params.get("contribute_store") else "off"
+    summary = (
+      f"project [bold]{project}[/] (read {read} · write {write}) · "
+      f"lake [bold]{DEFAULT_ISAURA_BUCKET}[/]"
+    )
+    if self.params.get("enable_nns"):
+      summary += " · nearest-neighbors"
+    return summary
+
+  def _input_smiles(self):
+    import pandas as pd
+
+    df = pd.read_csv(os.path.join(self.output_dir, DATA_SUBFOLDER, DATA_FILENAME))
+    return df[SMILES_COLUMN].astype(str).tolist()
+
+  def _print_summary(self):
+    import pandas as pd
+
+    data_dir = os.path.join(self.output_dir, DATA_SUBFOLDER)
+    df = pd.read_csv(os.path.join(data_dir, DATA_FILENAME))
+    n_compounds = len(df)
+
+    # Original activity column name, as written to the input schema during normalization.
+    values_column = "?"
+    schema_path = os.path.join(data_dir, INPUT_SCHEMA_FILENAME)
+    if os.path.exists(schema_path):
+      with open(schema_path) as f:
+        values_column = json.load(f).get("values_column", "?")
+
+    home = os.path.expanduser("~")
+    output = self.output_dir
+    if output.startswith(home):
+      output = "~" + output[len(home) :]
+
+    rows = [
+      ("Input", f"[white]{os.path.basename(self.input_file)}[/]"),
+      ("Output", f"[dim]{output}[/]"),
+    ]
+    if self.task == "classification":
+      rows.append(("Task", "[magenta]Classification[/] [dim](binary)[/]"))
+      if "bin" in df.columns:
+        n_act = int(df["bin"].sum())
+        rows.append((
+          "Compounds",
+          f"[bold]{n_compounds:,}[/]   [green]{n_act:,} active[/] · [yellow]{n_compounds - n_act:,} inactive[/]",
+        ))
+      else:
+        rows.append(("Compounds", f"[bold]{n_compounds:,}[/]"))
+    else:
+      rows.append(("Task", "[magenta]Regression[/]"))
+      rows.append(("Compounds", f"[bold]{n_compounds:,}[/]"))
+    rows.append(("Activity column", f"[cyan]{values_column}[/]"))
+    rows.append(("Featurizers", "  ".join(f"[green]{m}[/]" for m in self.featurizer_ids)))
+    rows.append(("Projection", "  ".join(f"[green]{m}[/]" for m in self.projection_ids)))
+    rows.append(("Isaura store", self._isaura_summary()))
+
+    summary_panel("ZairaChem · Setup", rows)
+
   def update_elapsed_time(self):
     ZairaBase().update_elapsed_time()
 
@@ -146,6 +221,10 @@ class TrainSetup(object):
       return False
 
   def setup(self):
+    require_docker_and_base()
+    # Only guard the project name when we'll actually write (create) it.
+    if self.params.get("contribute_store"):
+      check_isaura_project_available(self.output_dir)
     self._initialize()
     self._normalize_input()
     self._standardise()
@@ -153,4 +232,14 @@ class TrainSetup(object):
     self._merge()
     self._check()
     self._clean()
+    self._print_summary()
+    report_model_images(self.featurizer_ids, self.projection_ids)
+    # Coverage/version checks always inspect the central lake (the migration source), not the
+    # run's own read/write project.
+    check_isaura_version_consistency(
+      DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids
+    )
+    report_isaura_coverage(
+      DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids, self._input_smiles()
+    )
     self.update_elapsed_time()

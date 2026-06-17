@@ -12,15 +12,24 @@ from zairachem.setup.prep import (
 
 from zairachem.base import ZairaBase, create_session_symlink
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.console import summary_panel
+from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
+from zairachem.base.utils.isaura_report import (
+  report_isaura_coverage,
+  check_isaura_version_consistency,
+)
 from zairachem.base.vars import (
   PARAMETERS_FILE,
   RAW_INPUT_FILENAME,
   DATA_SUBFOLDER,
+  DATA_FILENAME,
+  SMILES_COLUMN,
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
   OUTPUT_FILENAME,
+  DEFAULT_ISAURA_BUCKET,
 )
 
 from zairachem.base.utils.pipeline import PipelineStep, SessionFile
@@ -34,19 +43,22 @@ class PredictSetup(object):
     output_dir,
     override_dir,
     time_budget=120,
-    read_store=None,
+    store_read=False,
     nn=False,
-    contribute_store=None,
+    store_write=False,
   ):
     self.input_file = os.path.abspath(input_file)
     self.override_dir = override_dir
-    self.read_store = read_store
     self.nn = nn
-    self.contribute_store = contribute_store
     if output_dir is None:
       self.output_dir = os.path.abspath(self.input_file.split(".")[0])
     else:
       self.output_dir = os.path.abspath(output_dir)
+    # Read AND write both target the run's own project (named like the output folder); the central
+    # lake (isaura-public) is only migrated in at the start.
+    project = os.path.basename(os.path.normpath(self.output_dir))
+    self.read_store = project if store_read else None
+    self.contribute_store = project if store_write else None
 
     if os.path.exists(self.output_dir) and not self.override_dir:  # TODO add if wanted
       logger.warning(
@@ -181,6 +193,50 @@ class PredictSetup(object):
       step.update()
       logger.info("[setup] Check step complete")
 
+  def _print_summary(self):
+    import pandas as pd
+
+    def collapse(p):
+      home = os.path.expanduser("~")
+      return "~" + p[len(home) :] if p.startswith(home) else p
+
+    data_dir = os.path.join(self.output_dir, DATA_SUBFOLDER)
+    params = {}
+    params_path = os.path.join(data_dir, PARAMETERS_FILE)
+    if os.path.exists(params_path):
+      with open(params_path) as f:
+        params = json.load(f)
+
+    task = params.get("task")
+    task_label = {"classification": "Classification (binary)", "regression": "Regression"}.get(
+      task, task or "?"
+    )
+
+    project = os.path.basename(os.path.normpath(self.output_dir))
+    read = "on" if params.get("read_store") else "off"
+    write = "on" if params.get("contribute_store") else "off"
+    isaura = (
+      f"project [bold]{project}[/] (read {read} · write {write}) · "
+      f"lake [bold]{DEFAULT_ISAURA_BUCKET}[/]"
+    )
+    if params.get("enable_nns"):
+      isaura += " · nearest-neighbors"
+
+    rows = [
+      ("Input", os.path.basename(self.input_file)),
+      ("Output", collapse(self.output_dir)),
+      ("Model", collapse(self.model_dir)),
+      ("Task", task_label),
+    ]
+    data_path = os.path.join(data_dir, DATA_FILENAME)
+    if os.path.exists(data_path):
+      rows.append(("Compounds", f"{len(pd.read_csv(data_path)):,}"))
+    rows.append(("Featurizers", params.get("featurizer_ids", [])))
+    rows.append(("Projection", params.get("projection_ids", [])))
+    rows.append(("Isaura store", isaura))
+
+    summary_panel("ZairaChem · Predict", rows)
+
   def update_elapsed_time(self):
     ZairaBase().update_elapsed_time()
 
@@ -190,7 +246,19 @@ class PredictSetup(object):
     else:
       return False
 
+  def _model_id_groups(self):
+    with open(os.path.join(self.model_dir, DATA_SUBFOLDER, PARAMETERS_FILE)) as f:
+      p = json.load(f)
+    return p.get("featurizer_ids", []), p.get("projection_ids", [])
+
+  def _input_smiles(self):
+    import pandas as pd
+
+    df = pd.read_csv(os.path.join(self.output_dir, DATA_SUBFOLDER, DATA_FILENAME))
+    return df[SMILES_COLUMN].astype(str).tolist()
+
   def setup(self):
+    require_docker_and_base()
     self._initialize()
     self._normalize_input()
     self._standardize()
@@ -199,6 +267,12 @@ class PredictSetup(object):
     self._merge()
     self._check()
     self._clean()
+    self._print_summary()
+    featurizers, projections = self._model_id_groups()
+    report_model_images(featurizers, projections)
+    # Coverage/version checks always inspect the central lake (migration source), not the project.
+    check_isaura_version_consistency(DEFAULT_ISAURA_BUCKET, featurizers, projections)
+    report_isaura_coverage(DEFAULT_ISAURA_BUCKET, featurizers, projections, self._input_smiles())
     self.update_elapsed_time()
 
 
