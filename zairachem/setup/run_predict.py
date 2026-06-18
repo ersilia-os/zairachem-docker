@@ -1,5 +1,7 @@
 from zairachem.setup.prep.prediction import PredictSetup
-from zairachem.base.utils.logging import logger
+from zairachem.base import create_session_symlink
+from zairachem.base.utils.console import echo
+from zairachem.base.utils.progress import tracker, summarize_setup
 
 
 def run(
@@ -22,8 +24,13 @@ def run(
     store_write=store_write,
   )
   if ps.is_done():
-    logger.warning(
-      "[yellow]Prediction setup for requested inferece is already done. Skippign this step![/]"
+    create_session_symlink(ps.output_dir)
+    echo(
+      f"Predictions already exist at {ps.output_dir}. Use --override-dir or a different -o to redo.",
+      kind="warning",
     )
-    return
+    return False
+  tracker.start("setup")
   ps.setup()
+  tracker.complete("setup", summarize_setup(ps.output_dir))
+  return True

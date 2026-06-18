@@ -10,6 +10,7 @@ from zairachem.base.utils.isaura_report import (
   check_isaura_project_available,
   create_and_migrate_project,
   project_exists,
+  sanitize_project_name,
 )
 from zairachem.setup.prep import (
   ModelIdsFile,
@@ -54,6 +55,8 @@ class TrainSetup(object):
       # No --eos-ids file provided: fall back to the default descriptors/projection.
       self.model_ids = {}
     self.featurizer_ids = self.model_ids.get("featurizer_ids", DEFAULT_FEATURIZERS)
+    # Ersilia projection models are optional (default none). The report always shows the built-in
+    # MW-vs-LogP projection, computed locally in the treat step regardless of projection_ids.
     self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
     self.input_file = os.path.abspath(input_file)
     self.output_dir = os.path.abspath(output_dir)
@@ -61,8 +64,10 @@ class TrainSetup(object):
     assert self.task in ["classification", "regression"]
     # Read AND write both target the run's own project (named like the model folder). The central
     # lake (isaura-public) is only read at the start to migrate data into the project; it is not the
-    # run's read/write store. The --store r|w|rw flags toggle read/write on the project.
-    project = os.path.basename(os.path.normpath(self.output_dir))
+    # run's read/write store. The --store r|w|rw flags toggle read/write on the project. The folder
+    # name is sanitized to a valid S3/MinIO bucket name (lowercase, no underscores).
+    self.project = sanitize_project_name(os.path.basename(os.path.normpath(self.output_dir)))
+    project = self.project
     self.params = {
       "task": self.task,
       "featurizer_ids": self.featurizer_ids,
@@ -154,7 +159,7 @@ class TrainSetup(object):
 
   def _isaura_summary(self):
     # The run reads/writes its own project; the lake is migrated in at the start.
-    project = os.path.basename(os.path.normpath(self.output_dir))
+    project = self.project
     read = "[green]on[/]" if self.params.get("read_store") else "[red]off[/]"
     write = "[green]on[/]" if self.params.get("contribute_store") else "[red]off[/]"
     summary = (
@@ -209,7 +214,11 @@ class TrainSetup(object):
       rows.append(("Compounds", f"[bold]{n_compounds:,}[/]"))
     rows.append(("Activity column", f"[cyan]{values_column}[/]"))
     rows.append(("Featurizers", "  ".join(f"[green]{m}[/]" for m in self.featurizer_ids)))
-    rows.append(("Projection", "  ".join(f"[green]{m}[/]" for m in self.projection_ids)))
+    if self.projection_ids:
+      proj = "MW vs LogP  " + "  ".join(f"[green]{m}[/]" for m in self.projection_ids)
+    else:
+      proj = "[green]MW vs LogP[/] [dim](built-in)[/]"
+    rows.append(("Projection", proj))
     rows.append(("Isaura store", self._isaura_summary()))
 
     summary_panel("ZairaChem · Setup", rows)

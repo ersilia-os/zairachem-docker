@@ -5,7 +5,7 @@ from typing import Iterator, Tuple
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
   PARAMETERS_FILE,
@@ -66,33 +66,6 @@ class XGetter(ZairaBase):
     df = df[[c for c in list(df.columns) if c not in [SMILES_COLUMN, COMPOUND_IDENTIFIER_COLUMN]]]
     return df
 
-  def _load_manifold(self, name):
-    h5_path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, f"{name}.h5")
-    h5 = open_h5(h5_path)
-    if h5 is None:
-      return
-    shape = h5.shape()
-    logger.info(f"[pool] loading {name} shape={shape}")
-    if isinstance(h5, ChunkedH5Store):
-      X_ = np.empty(shape, dtype=np.float32)
-      for start, end, chunk in h5.iter_values_with_indices():
-        X_[start:end] = np.array(chunk, dtype=np.float32)
-    elif shape[0] <= self.batch_size * 2:
-      X_ = np.array(h5.values(), dtype=np.float32)
-    else:
-      logger.info(f"[pool] loading {name} in chunks")
-      X_ = np.empty(shape, dtype=np.float32)
-      for start, end, chunk in h5.iter_values_with_indices(self.batch_size):
-        X_[start:end] = np.array(chunk, dtype=np.float32)
-    self.X.append(X_)
-    for i in range(X_.shape[1]):
-      self.columns.append(f"{name}-{i}")
-    gc.collect()
-
-  def _get_manifolds(self):
-    for name in ("pca", "umap", "tsne"):
-      self._load_manifold(name)
-
   def _get_results(self):
     prefixes = []
     dfs = []
@@ -111,7 +84,6 @@ class XGetter(ZairaBase):
     )
 
   def get(self):
-    self._get_manifolds()
     self._get_results()
     X = np.hstack(self.X)
     df = pd.DataFrame(X, columns=self.columns)
@@ -121,7 +93,6 @@ class XGetter(ZairaBase):
   def iter_get(self, chunk_size=None) -> Iterator[Tuple[int, int, pd.DataFrame]]:
     if chunk_size is None:
       chunk_size = self.batch_size
-    self._get_manifolds()
     self._get_results()
     n_rows = self.X[0].shape[0] if self.X else 0
     logger.info(f"[pool:iter] Total rows={n_rows}, columns={len(self.columns)}")

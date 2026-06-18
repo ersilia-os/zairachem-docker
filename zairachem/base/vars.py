@@ -72,6 +72,9 @@ OUTPUT_FILENAME = "output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
 OUTPUT_XLSX_FILENAME = "output.xlsx"
+# Report-only 2-D projections (row-aligned to data.csv); written by the treat/manifolds step.
+PROJECTIONS_FILENAME = "projections.csv"
+PROJECTIONS_MANIFEST_FILENAME = "projections.json"
 
 Y_HAT_FILE = "y_hat.joblib"
 
@@ -93,7 +96,9 @@ PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 DEFAULT_FEATURIZERS = ["eos3l5f", "eos8aa5", "eos4u6p", "eos9o72", "eos4ex3", "eos82v1"]
-DEFAULT_PROJECTIONS = ["eos1klk"]
+# No Ersilia projection model by default: the report's baseline projection is the built-in
+# MW-vs-LogP (computed locally with RDKit). Add Ersilia projectors explicitly via --eos-ids.
+DEFAULT_PROJECTIONS = []
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 
 DEFAULT_ISAURA_BATCH_SIZE = 10000

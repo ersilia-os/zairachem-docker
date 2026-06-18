@@ -7,13 +7,28 @@ in, i.e. ``params["read_store"]``).
 
 import json
 import os
+import re
 import socket
 from urllib.parse import urlparse
 
-from zairachem.base.utils.console import console, echo
+from zairachem.base.utils.console import active_color, console, echo
 from zairachem.base.utils.utils import get_bucket_records
 from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.vars import DEFAULT_ISAURA_BUCKET
+
+
+def sanitize_project_name(name):
+  """Turn a model-folder name into a valid isaura/S3 bucket name.
+
+  S3/MinIO bucket names must be 3-63 chars, lowercase, and contain only letters, digits, hyphens
+  and dots, starting and ending with an alphanumeric. Folder names often have uppercase or
+  underscores (e.g. ``model_e2e2``), which MinIO rejects — so normalize deterministically.
+  """
+  s = re.sub(r"[^a-z0-9.-]", "-", str(name).lower())
+  s = re.sub(r"-{2,}", "-", s).strip("-.")
+  if len(s) < 3:
+    s = f"{s}-zc" if s else "zc-project"
+  return s[:63]
 
 
 def _engine_running():
@@ -60,13 +75,15 @@ def report_isaura_coverage(bucket, featurizer_ids, projection_ids, smiles):
   from rich.table import Table
 
   total = len(smiles)
+  color = active_color()
   table = Table(
     title=f"💧 Isaura store coverage · {bucket}",
-    title_style="bold cyan",
+    title_style=f"bold {color}",
     title_justify="left",
-    box=box.ROUNDED,
-    border_style="cyan",
-    header_style="bold cyan",
+    box=box.SIMPLE_HEAD,
+    border_style=color,
+    header_style=f"bold {color}",
+    pad_edge=False,
   )
   table.add_column("Kind", style="dim")
   table.add_column("Model", style="bold green")
@@ -140,7 +157,7 @@ def check_isaura_project_available(model_dir):
   names = _list_project_names()
   if names is None:
     return
-  project = os.path.basename(os.path.normpath(model_dir))
+  project = sanitize_project_name(os.path.basename(os.path.normpath(model_dir)))
   if project not in names:
     return
   if _project_is_empty(project):
@@ -285,13 +302,15 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
   from rich import box
   from rich.table import Table
 
+  color = active_color()
   table = Table(
     title=f"💧 Migrating isaura-public → {project}",
-    title_style="bold cyan",
+    title_style=f"bold {color}",
     title_justify="left",
-    box=box.ROUNDED,
-    border_style="cyan",
-    header_style="bold cyan",
+    box=box.SIMPLE_HEAD,
+    border_style=color,
+    header_style=f"bold {color}",
+    pad_edge=False,
   )
   table.add_column("Kind", style="dim")
   table.add_column("Model", style="bold green")
@@ -408,15 +427,17 @@ def report_data_provenance(output_dir=None):
 
   migrated = data.get("migrated", {})
   width = 20
+  color = active_color()  # themed to the running step (green during Describe)
   table = Table(
     title="🧪 Data provenance per model",
     caption="[green]█ Project store[/]  [cyan]█ Lake store[/]  [yellow]█ Ersilia Run[/]",
     caption_justify="left",
-    title_style="bold cyan",
+    title_style=f"bold {color}",
     title_justify="left",
-    box=box.ROUNDED,
-    border_style="cyan",
-    header_style="bold cyan",
+    box=box.SIMPLE_HEAD,
+    border_style=color,
+    header_style=f"bold {color}",
+    pad_edge=False,
   )
   table.add_column("Kind", style="dim")
   table.add_column("Model", style="bold green")

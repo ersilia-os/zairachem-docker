@@ -360,7 +360,7 @@ class BinaryStreamClient(ZairaBase):
 
   def _announce_plan(self, n_cached, n_compute):
     """Print an attractive one-line per-model sourcing plan (cached vs to-compute)."""
-    ver = getattr(self, "version", None) or "?"
+    ver = getattr(self, "version", None)
     parts = []
     if n_cached:
       parts.append(f"[green]{n_cached:,} cached[/]")
@@ -368,9 +368,12 @@ class BinaryStreamClient(ZairaBase):
       parts.append(f"[yellow]{n_compute:,} to compute[/]")
     if not parts:
       parts.append("[dim]nothing to do[/]")
+    from zairachem.base.utils.console import active_color
+
+    c = active_color()
+    ver_part = f" [dim]·[/] [{c}]{ver}[/]" if ver and ver != "?" else ""
     console.print(
-      f"  [cyan]▪[/] [bold green]{self.model_id}[/] [dim]·[/] [cyan]{ver}[/]   "
-      + " [dim]·[/] ".join(parts)
+      f"  [{c}]▪[/] [bold {c}]{self.model_id}[/]{ver_part}   " + " [dim]·[/] ".join(parts)
     )
 
   def run(self, output_h5=None, isaura_batch_size=None):
@@ -386,6 +389,9 @@ class BinaryStreamClient(ZairaBase):
       logger.info("Isaura read store is disabled; computing all descriptors via Ersilia.")
       self._announce_plan(0, n_total)
       any_results = self._run(output_h5=output_h5)
+      # Record provenance even without a store so the per-model provenance box always renders
+      # (everything computed via Ersilia this run).
+      self._record_provenance(n_total, 0, n_total)
     else:
       try:
         any_results = self._run_hybrid(output_h5=output_h5, isaura_batch_size=isaura_batch_size)

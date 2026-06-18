@@ -81,9 +81,7 @@ class Describer(ZairaBase):
       RawDescriptors(batch_size=self.batch_size).run()
       step.update()
     else:
-      self.logger.warning(
-        "[yellow]Descriptor setup for requested inferece is already done. Skipping this step![/]"
-      )
+      self.logger.info("Descriptors already done — skipping.")
 
   def run(self):
     self.setup_model_servers()

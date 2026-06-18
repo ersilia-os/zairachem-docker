@@ -16,6 +16,12 @@ from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE, NGINX_IMAGE
 # `zairachem.finish.finish` constant is needed at module load time.
 from zairachem.finish.finish import CLEAN_TARGET_ALL
 
+# Silence matplotlib's "Matplotlib is building the font cache; this may take a moment." notice,
+# which it logs on first import — set here (earliest entry point) before any matplotlib import.
+import logging as _logging
+
+_logging.getLogger("matplotlib").setLevel(_logging.ERROR)
+
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.SHOW_ARGUMENTS = True
@@ -58,47 +64,59 @@ def process_group(clean, flush, anonymize, batch_size=None, clean_target=CLEAN_T
   # when that step executes (matplotlib for reporting, lazyqsar/xgboost/onnx for estimation) —
   # not all at once at the start. Several of these imports call loguru's logger.remove(), so
   # logger.configure() is re-asserted after each one to keep zairachem's log sinks alive.
+  # The shared `tracker` (begun in fit/predict) shows which step is running; start()/complete()
+  # are no-ops if the tracker was not begun (e.g. standalone step commands).
+  from zairachem.base.utils.progress import SUMMARIES, final_summary_panel, tracker
+
   from zairachem.describe.descriptors.describe import Describer
 
   logger.configure()
-  logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
+  tracker.start("describe")
   Describer(path=None, batch_size=batch_size).run()
 
   from zairachem.base.utils.isaura_report import report_data_provenance
 
-  report_data_provenance()
+  report_data_provenance()  # describe's detail (themed green, borderless)
+  tracker.complete("describe", SUMMARIES["describe"]())
 
   from zairachem.treat.imputers.impute import Imputer
 
   logger.configure()
-  logger.debug("[#ff69b4]Running the treatment pipeline[/]")
+  tracker.start("treat")
   Imputer(path=None, batch_size=batch_size).run()
+  tracker.complete("treat", SUMMARIES["treat"]())
 
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
   logger.configure()
-  logger.debug("[#ff69b4]Running the estimator pipeline[/]")
+  tracker.start("estimate")
   EstimatorPipeline(path=None, batch_size=batch_size).run()
+  tracker.complete("estimate", SUMMARIES["estimate"]())
 
   from zairachem.pool.pipe import PoolerPipeline
 
   logger.configure()
-  logger.debug("[#ff69b4]Running the pooling pipeline to aggregate the result using bagging[/]")
+  tracker.start("pool")
   PoolerPipeline(path=None, batch_size=batch_size).run()
+  tracker.complete("pool", SUMMARIES["pool"]())
 
   from zairachem.report.report import Reporter
 
   logger.configure()
-  logger.debug("[#ff69b4]Running the reporting pipeline[/]")
+  tracker.start("report")
   Reporter(path=None, plot_name=None).run()
+  tracker.complete("report", SUMMARIES["report"]())
 
   from zairachem.finish.finish import Finisher
 
   logger.configure()
-  logger.debug("[#ff69b4]Running the finishing pipeline[/]")
+  tracker.start("finish")
   Finisher(
     path=None, clean=clean, flush=flush, anonymize=anonymize, clean_target=clean_target
   ).run()
+  tracker.complete("finish", SUMMARIES["finish"]())
+
+  final_summary_panel()
 
 
 def common_options(
@@ -334,7 +352,14 @@ def fit(
     task = "regression"
   store_read = bool(store) and "r" in store.lower()
   store_write = bool(store) and "w" in store.lower()
-  run_fit(
+  from zairachem.base.utils.progress import tracker
+
+  _model = model_dir or os.path.splitext(os.path.basename(input_file))[0]
+  tracker.begin(
+    "ZairaChem · QSAR training",
+    subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(_model))} · {task}",
+  )
+  proceed = run_fit(
     input_file,
     task,
     store_read,
@@ -343,7 +368,12 @@ def fit(
     output_dir=model_dir,
     model_ids_file=eos_ids,
   )
-  process_group(clean, flush, anonymize, batch_size=batch_size, clean_target=clean_target)
+  if proceed:
+    process_group(clean, flush, anonymize, batch_size=batch_size, clean_target=clean_target)
+  else:
+    from zairachem.base.utils.progress import final_summary_panel
+
+    final_summary_panel()
 
 
 @cli.command(name="predict", help="Run predictions on a trained model.")
@@ -403,7 +433,14 @@ def predict(
     logger.info(f"[#ff69b4]Clean/flush/anonymize target: {clean_target}[/]")
   store_read = bool(store) and "r" in store.lower()
   store_write = bool(store) and "w" in store.lower()
-  run_predict(
+  from zairachem.base.utils.progress import tracker
+
+  _out = output_dir or os.path.splitext(os.path.basename(input_file))[0]
+  tracker.begin(
+    "ZairaChem · Prediction",
+    subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(_out))}",
+  )
+  proceed = run_predict(
     input_file,
     model_dir,
     output_dir,
@@ -412,7 +449,12 @@ def predict(
     nn=nearest_neighbors,
     store_write=store_write,
   )
-  process_group(clean, flush, anonymize, batch_size=batch_size, clean_target=clean_target)
+  if proceed:
+    process_group(clean, flush, anonymize, batch_size=batch_size, clean_target=clean_target)
+  else:
+    from zairachem.base.utils.progress import final_summary_panel
+
+    final_summary_panel()
 
 
 @cli.command(name="setup", help="Preprocess input molecules into the working directory.")

@@ -15,8 +15,9 @@ INDIVIDUAL_FIGSIZE = (TWO_COLUMNS_WIDTH / 2, TWO_COLUMNS_WIDTH / 2)
 # matching the previous (0.0.2) report output; other figsizes scale proportionally.
 FIGSIZE_SCALE = 0.43 / (TWO_COLUMNS_WIDTH / 2)
 
-# Use the Ersilia style/palette and the print format (set once at import).
-stylia.set_style("ersilia")
+# Publication-ready figures: the non-branded "article" style (NPG / Nature Publishing Group palette)
+# and the "print" format — so plots can be dropped straight into papers. Set once at import.
+stylia.set_style("article")
 stylia.set_format("print")
 
 
@@ -70,8 +71,20 @@ class BasePlot(BaseResults):
     self.ax = ax[0]
 
   def save(self):
-    if self.is_available:
-      stylia.save_figure(os.path.join(self.path, REPORT_SUBFOLDER, self.name + ".png"))
+    if not self.is_available:
+      return
+    import matplotlib.pyplot as plt
+
+    # Keep the report folder tidy: PNGs in report/png/, PDFs in report/pdf/. Always save both
+    # (PNG raster at 600 dpi via stylia, PDF vector) of the same figure.
+    report = os.path.join(self.path, REPORT_SUBFOLDER)
+    png_dir = os.path.join(report, "png")
+    pdf_dir = os.path.join(report, "pdf")
+    os.makedirs(png_dir, exist_ok=True)
+    os.makedirs(pdf_dir, exist_ok=True)
+    stylia.save_figure(os.path.join(png_dir, self.name + ".png"))
+    plt.savefig(os.path.join(pdf_dir, self.name + ".pdf"), bbox_inches="tight")
+    plt.close()
 
   def load(self):
     pass

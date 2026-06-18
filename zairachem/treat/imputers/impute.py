@@ -28,14 +28,12 @@ class Imputer(ZairaBase):
 
   def _manifolds(self):
     step = PipelineStep("manifolds", self.output_dir)
-    if not step.is_done():
-      logger.info(f"[manifolds] Using batch size: {self.batch_size}")
-      Manifolds(batch_size=self.batch_size).run()
-      step.update()
-    else:
-      logger.warning(
-        "[yellow]Imputation setup for requested inferece is already done. Skippign this step![/]"
-      )
+    if step.is_done():
+      logger.info("Imputation already done — skipping.")
+      return
+    logger.info(f"[manifolds] Using batch size: {self.batch_size}")
+    Manifolds(batch_size=self.batch_size).run()
+    step.update()
 
   def run(self):
     self.reset_time()

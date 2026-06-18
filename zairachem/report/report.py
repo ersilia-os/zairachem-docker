@@ -9,9 +9,7 @@ from zairachem.report.plots import (
   RocCurvePlot,
   ScoreViolinPlot,
   ScoreStripPlot,
-  ProjectionUmapPlot,
-  ProjectionTSNEPlot,
-  ProjectionPcaPlot,
+  ProjectionPlot,
   RegressionPlotRaw,
   HistogramPlotRaw,
   RegressionPlotTransf,
@@ -21,6 +19,7 @@ from zairachem.report.plots import (
   IndividualEstimatorsR2Plot,
   # TanimotoSimilarityToTrainPlot,
 )
+from zairachem.report.fetcher import ResultsFetcher
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
@@ -65,17 +64,11 @@ class Reporter(ZairaBase):
     if not self.__skip("score-strip"):
       ScoreStripPlot(ax=None, path=self.path).save()
 
-  def _projection_umap_plot(self):
-    if not self.__skip("projection-umap"):
-      ProjectionUmapPlot(ax=None, path=self.path).save()
-
-  def _projection_tsne_plot(self):
-    if not self.__skip("projection-tsne"):
-      ProjectionTSNEPlot(ax=None, path=self.path).save()
-
-  def _projection_pca_plot(self):
-    if not self.__skip("projection-pca"):
-      ProjectionPcaPlot(ax=None, path=self.path).save()
+  def _projection_plots(self):
+    # One plot per projection discovered in the manifest (always at least MW-vs-LogP).
+    for proj in ResultsFetcher(path=self.path).get_projections():
+      if not self.__skip(f"projection-{proj['name']}"):
+        ProjectionPlot(ax=None, path=self.path, projection=proj).save()
 
   def _regression_plot_raw(self):
     if not self.__skip("regression-raw"):
@@ -119,6 +112,11 @@ class Reporter(ZairaBase):
   def _performance_table(self):
     PerformanceTable(path=self.path).run()
 
+  def _html_report(self):
+    from zairachem.report.html import write_html_report
+
+    write_html_report(self.path)
+
   def run_all(self):
     self._output_table()
     self._performance_table()
@@ -127,9 +125,7 @@ class Reporter(ZairaBase):
     self._roc_curve_plot()
     self._score_violin_plot()
     self._score_strip_plot()
-    self._projection_umap_plot()
-    self._projection_tsne_plot()
-    self._projection_pca_plot()
+    self._projection_plots()
     self._regression_plot_transf()
     self._histogram_plot_transf()
     self._regression_plot_raw()
@@ -139,6 +135,7 @@ class Reporter(ZairaBase):
     self._individual_estimators_classification_score_plot()
     self._individual_estimators_r2_plot()
     # self._tanimoto_similarity_to_train_plot()
+    self._html_report()
 
   def run(self):
     step = PipelineStep("report", self.output_dir)
@@ -146,8 +143,6 @@ class Reporter(ZairaBase):
       self.run_all()
       step.update()
     else:
-      self.logger.warning(
-        "[yellow]Reporting setup for requested inferece is already done. Skippign this step![/]"
-      )
+      self.logger.info("Report already done — skipping.")
 
     self.logger.info("Reporting successfully completed!")

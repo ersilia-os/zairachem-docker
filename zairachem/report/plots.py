@@ -10,27 +10,30 @@ import pandas as pd
 
 from zairachem.report import BasePlot
 from zairachem.report.fetcher import ResultsFetcher
-from stylia import ErsiliaColors, SpectralColormap, DivergingColormap
+from stylia import ArticleColors, CategoricalPalette, SpectralColormap, DivergingColormap
 import logging
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 
-# stylia 1.0.1: build the palette from ErsiliaColors. It provides blue/gray/black/purple but not
-# red/green, so map those to the closest analogs (orange / mint).
-_ersilia_colors = ErsiliaColors()
+# Publication palette: NPG (Nature Publishing Group) colors via stylia's ArticleColors, mapped to
+# the semantic names the plots use. Not Ersilia-branded — suitable for papers.
+_article_colors = ArticleColors()
 
 
 class _Palette:
-  blue = _ersilia_colors.blue
-  gray = _ersilia_colors.gray
-  black = _ersilia_colors.black
-  purple = _ersilia_colors.purple
-  red = _ersilia_colors.orange
-  green = _ersilia_colors.mint
+  blue = _article_colors.cobalt
+  gray = _article_colors.silver
+  black = _article_colors.black
+  purple = _article_colors.periwinkle
+  red = _article_colors.crimson
+  green = _article_colors.lime
 
 
 named_colors = _Palette()
+
+# Cycling NPG palette for categorical series (a distinct color per model / estimator).
+category_palette = CategoricalPalette("npg")
 
 
 class ActivesInactivesPlot(BasePlot):
@@ -110,16 +113,14 @@ class RocCurvePlot(BasePlot):
       self.is_available = True
       self.name = "roc-curve"
       ax = self.ax
-      cmap = SpectralColormap()
-      cmap.fit([0, 1])
       bt = ResultsFetcher(path=path).get_actives_inactives()
       yp = ResultsFetcher(path=path).get_pred_proba_clf()
       fpr, tpr, _ = roc_curve(bt, yp)
       auroc = auc(fpr, tpr)
-      color = cmap.transform([auroc])[0]
-      ax.plot(fpr, tpr, color=color, zorder=10000, lw=1)
-      ax.fill_between(fpr, tpr, color=color, alpha=0.5, lw=0, zorder=1000)
-      ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1)
+      color = named_colors.blue
+      ax.plot(fpr, tpr, color=color, zorder=10000, lw=1.6)
+      ax.fill_between(fpr, tpr, color=color, alpha=0.16, lw=0, zorder=1000)
+      ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--")
       ax.set_title("AUROC = {0}".format(round(auroc, 2)))
       ax.set_xlabel("1-Specificity (FPR)")
       ax.set_ylabel("Sensitivity (TPR)")
@@ -254,9 +255,7 @@ class IndividualEstimatorsAurocPlot(BasePlot):
         labels += [yp]
       y = list(range(len(labels)))
       x = aucs
-      cmap = SpectralColormap()
-      cmap.fit([0.5, 1])
-      colors = cmap.transform(x)
+      colors = category_palette.get(len(labels))  # one NPG categorical color per estimator
 
       def _format_label(l):
         l = l.replace("_", " ").replace("-", " ")
@@ -271,7 +270,7 @@ class IndividualEstimatorsAurocPlot(BasePlot):
           ha="center",
         )
       for i in y:
-        r = Rectangle((0, i - 0.3), x[i], 0.6, color=colors[i], alpha=0.5)
+        r = Rectangle((0, i - 0.3), x[i], 0.6, color=colors[i], alpha=0.85)
         ax.add_patch(r)
       ax.set_xticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
       ax.set_ylabel("Estimators")
@@ -338,253 +337,76 @@ class IndividualEstimatorsR2Plot(BasePlot):
       self.is_available = False
 
 
-class ProjectionUmapPlot(BasePlot):
-  def __init__(self, ax, path):
+class ProjectionPlot(BasePlot):
+  """Generic 2-D projection scatter.
+
+  ``projection`` is a dict ``{name, title, x_label, y_label, xs, ys}`` (from
+  ``ResultsFetcher.get_projections``). Points are coloured by the pooled prediction (classification
+  probability, or regression value); known actives/inactives are outlined. In predict mode the
+  training set is shown as a faint grey backdrop.
+  """
+
+  def __init__(self, ax, path, projection):
     BasePlot.__init__(self, ax=ax, path=path)
-    self.name = "projection-umap"
+    self.name = "projection-" + projection["name"]
     ax = self.ax
+    fetcher = ResultsFetcher(path=path)
+    xs = np.array(projection["xs"], dtype=float)
+    ys = np.array(projection["ys"], dtype=float)
+
+    if self.is_predict():
+      trained = fetcher.get_projection_trained(projection["name"])
+      if trained is not None:
+        tx, ty = trained
+        ax.scatter(
+          tx, ty, color=named_colors.gray, s=5, alpha=0.5, edgecolors="none", label="Training set"
+        )
+
     if self.has_clf_data():
-      if self.is_predict() and ResultsFetcher(path=path).get_projections_umap_trained() is not None:
-        bp = ResultsFetcher(path=path).get_actives_inactives_trained()
-        bp_a = []
-        bp_i = []
-        for i, v in enumerate(bp):
-          if v == 1:
-            bp_a += [i]
-          if v == 0:
-            bp_i += [i]
-        red0, red1 = ResultsFetcher(path=path).get_projections_umap_trained()
-        ax.scatter(
-          [red0[i] for i in bp_i],
-          [red1[i] for i in bp_i],
-          color=named_colors.blue,
-          s=5,
-          label="Train known inactives",
-          edgecolors="none",
-        )
-        ax.scatter(
-          [red0[i] for i in bp_a],
-          [red1[i] for i in bp_a],
-          color=named_colors.red,
-          s=5,
-          label="Train known actives",
-          edgecolors="none",
-        )
-      bp = ResultsFetcher(path=path).get_actives_inactives()
-      bp_a = []
-      bp_i = []
-      for i, v in enumerate(bp):
-        if v == 1:
-          bp_a += [i]
-        if v == 0:
-          bp_i += [i]
-      red0, red1 = ResultsFetcher(path=path).get_projections_umap()
+      bp = fetcher.get_actives_inactives()
+      y_pred = fetcher.get_pred_proba_clf()
+      cmap = DivergingColormap()
+      cmap.fit(y_pred)
       ax.scatter(
-        [red0[i] for i in bp_i],
-        [red1[i] for i in bp_i],
+        xs, ys, color=cmap.transform(y_pred), alpha=0.7, s=15, zorder=100000, edgecolors="none"
+      )
+      ina = [i for i, v in enumerate(bp) if v == 0]
+      act = [i for i, v in enumerate(bp) if v == 1]
+      ax.scatter(
+        xs[ina],
+        ys[ina],
         facecolor="none",
         edgecolors=named_colors.blue,
         s=15,
+        lw=0.5,
         label="Known inactives",
         zorder=1000000,
-        lw=0.5,
       )
       ax.scatter(
-        [red0[i] for i in bp_a],
-        [red1[i] for i in bp_a],
+        xs[act],
+        ys[act],
         facecolor="none",
         edgecolors=named_colors.red,
         s=15,
+        lw=0.5,
         label="Known actives",
-        zorder=100000000,
-        lw=0.5,
+        zorder=10000000,
       )
-      y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
-      cmap = DivergingColormap()
-      cmap.fit(y_pred)
-      colors = cmap.transform(y_pred)
-      ax.scatter(
-        red0,
-        red1,
-        color=colors,
-        alpha=0.7,
-        s=15,
-        zorder=100000,
-        edgecolors="none",
-      )
-      self.is_available = True
-      ax.set_title("UMAP 2D Projection")
-      ax.set_xlabel("Dimension 1")
-      ax.set_ylabel("Dimension 2")
-      ax.legend()
     else:
-      self.is_available = False
+      y_pred = fetcher.get_pred_reg_raw() or fetcher.get_raw()
+      if y_pred is not None:
+        cmap = DivergingColormap()
+        cmap.fit(y_pred)
+        ax.scatter(xs, ys, color=cmap.transform(y_pred), alpha=0.7, s=15, edgecolors="none")
+      else:
+        ax.scatter(xs, ys, color=named_colors.blue, alpha=0.7, s=15, edgecolors="none")
 
-
-class ProjectionTSNEPlot(BasePlot):
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
-    self.name = "projection-tsne"
-    ax = self.ax
-    if self.has_clf_data():
-      if self.is_predict() and ResultsFetcher(path=path).get_projections_tsne_trained() is not None:
-        bp = ResultsFetcher(path=path).get_actives_inactives_trained()
-        bp_a = []
-        bp_i = []
-        for i, v in enumerate(bp):
-          if v == 1:
-            bp_a += [i]
-          if v == 0:
-            bp_i += [i]
-        red0, red1 = ResultsFetcher(path=path).get_projections_tsne_trained()
-        ax.scatter(
-          [red0[i] for i in bp_i],
-          [red1[i] for i in bp_i],
-          color=named_colors.blue,
-          s=5,
-          label="Train known inactives",
-          edgecolors="none",
-        )
-        ax.scatter(
-          [red0[i] for i in bp_a],
-          [red1[i] for i in bp_a],
-          color=named_colors.red,
-          s=5,
-          label="Train known actives",
-          edgecolors="none",
-        )
-      bp = ResultsFetcher(path=path).get_actives_inactives()
-      bp_a = []
-      bp_i = []
-      for i, v in enumerate(bp):
-        if v == 1:
-          bp_a += [i]
-        if v == 0:
-          bp_i += [i]
-      red0, red1 = ResultsFetcher(path=path).get_projections_tsne()
-      ax.scatter(
-        [red0[i] for i in bp_i],
-        [red1[i] for i in bp_i],
-        facecolor="none",
-        edgecolors=named_colors.blue,
-        s=15,
-        label="Known inactives",
-        zorder=1000000,
-        lw=0.5,
-      )
-      ax.scatter(
-        [red0[i] for i in bp_a],
-        [red1[i] for i in bp_a],
-        facecolor="none",
-        edgecolors=named_colors.red,
-        s=15,
-        label="Known actives",
-        zorder=100000000,
-        lw=0.5,
-      )
-      y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
-      cmap = DivergingColormap()
-      cmap.fit(y_pred)
-      colors = cmap.transform(y_pred)
-      ax.scatter(
-        red0,
-        red1,
-        color=colors,
-        alpha=0.7,
-        s=15,
-        zorder=100000,
-        edgecolors="none",
-      )
-      self.is_available = True
-      ax.set_title("TSNE 2D Projection")
-      ax.set_xlabel("Dimension 1")
-      ax.set_ylabel("Dimension 2")
+    ax.set_title(projection["title"])
+    ax.set_xlabel(projection["x_label"])
+    ax.set_ylabel(projection["y_label"])
+    if ax.get_legend_handles_labels()[1]:
       ax.legend()
-    else:
-      self.is_available = False
-
-
-class ProjectionPcaPlot(BasePlot):
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
-    self.name = "projection-pca"
-    ax = self.ax
-    if self.has_clf_data():
-      if self.is_predict() and ResultsFetcher(path=path).get_projections_pca_trained() is not None:
-        bp = ResultsFetcher(path=path).get_actives_inactives_trained()
-        bp_a = []
-        bp_i = []
-        for i, v in enumerate(bp):
-          if v == 1:
-            bp_a += [i]
-          if v == 0:
-            bp_i += [i]
-        red0, red1 = ResultsFetcher(path=path).get_projections_pca_trained()
-        ax.scatter(
-          [red0[i] for i in bp_i],
-          [red1[i] for i in bp_i],
-          color=named_colors.blue,
-          s=5,
-          label="Train known inactives",
-          edgecolors="none",
-        )
-        ax.scatter(
-          [red0[i] for i in bp_a],
-          [red1[i] for i in bp_a],
-          color=named_colors.red,
-          s=5,
-          label="Train known actives",
-          edgecolors="none",
-        )
-      bp = ResultsFetcher(path=path).get_actives_inactives()
-      bp_a = []
-      bp_i = []
-      for i, v in enumerate(bp):
-        if v == 1:
-          bp_a += [i]
-        if v == 0:
-          bp_i += [i]
-      red0, red1 = ResultsFetcher(path=path).get_projections_pca()
-      ax.scatter(
-        [red0[i] for i in bp_i],
-        [red1[i] for i in bp_i],
-        facecolor="none",
-        edgecolors=named_colors.blue,
-        s=15,
-        label="Known inactives",
-        zorder=1000000,
-        lw=0.5,
-      )
-      ax.scatter(
-        [red0[i] for i in bp_a],
-        [red1[i] for i in bp_a],
-        facecolor="none",
-        edgecolors=named_colors.red,
-        s=15,
-        label="Known actives",
-        zorder=100000000,
-        lw=0.5,
-      )
-      y_pred = ResultsFetcher(path=path).get_pred_proba_clf()
-      cmap = DivergingColormap()
-      cmap.fit(y_pred)
-      colors = cmap.transform(y_pred)
-      ax.scatter(
-        red0,
-        red1,
-        color=colors,
-        alpha=0.7,
-        s=15,
-        zorder=100000,
-        edgecolors="none",
-      )
-      self.is_available = True
-      ax.set_title("PCA 2D Projection")
-      ax.set_xlabel("PCA 1")
-      ax.set_ylabel("PCA 2")
-      ax.legend()
-    else:
-      self.is_available = False
+    self.is_available = True
 
 
 class RegressionPlotTransf(BasePlot):

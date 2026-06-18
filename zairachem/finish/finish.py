@@ -274,9 +274,9 @@ class Anonymizer(ZairaBase):
     report_folder = os.path.join(path, REPORT_SUBFOLDER)
     if not os.path.exists(report_folder):
       return
-    self._remove_file_if_exists(os.path.join(report_folder, "tanimoto-similarity-to-train.png"))
-    self._remove_file_if_exists(os.path.join(report_folder, "projection-pca.png"))
-    self._remove_file_if_exists(os.path.join(report_folder, "projection-umap.png"))
+    for stem in ("tanimoto-similarity-to-train", "projection-pca", "projection-umap"):
+      self._remove_file_if_exists(os.path.join(report_folder, "png", stem + ".png"))
+      self._remove_file_if_exists(os.path.join(report_folder, "pdf", stem + ".pdf"))
     self._remove_file_if_exists(os.path.join(report_folder, OUTPUT_TABLE_FILENAME))
 
   def _anonymize_path(self, path):
@@ -403,7 +403,5 @@ class Finisher(ZairaBase):
       self.run_all()
       step.update()
     else:
-      self.logger.warning(
-        "[yellow]Finishing setup for requested inferece is already done. Skippign this step![/]"
-      )
+      self.logger.info("Finishing already done — skipping.")
     self.logger.info("[green]All zairachem successfully completed![/]")

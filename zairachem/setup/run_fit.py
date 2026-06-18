@@ -1,5 +1,7 @@
 from zairachem.setup.prep.training import TrainSetup
-from zairachem.base.utils.logging import logger
+from zairachem.base import create_session_symlink
+from zairachem.base.utils.console import echo
+from zairachem.base.utils.progress import tracker, summarize_setup
 
 
 def run(
@@ -22,6 +24,15 @@ def run(
   )
 
   if ts.is_done():
-    logger.warning("[yellow]Setup for requested inference is already done. Skipping this step![/]")
-    return
+    # Already a complete model. Point the global session at THIS model (so any subsequent display
+    # reflects it, not a stale run) and stop — the caller skips the rest of the pipeline.
+    create_session_symlink(ts.output_dir)
+    echo(
+      f"Model already trained at {ts.output_dir}. Use --flush or a different -m to retrain.",
+      kind="warning",
+    )
+    return False
+  tracker.start("setup")
   ts.setup()
+  tracker.complete("setup", summarize_setup(ts.output_dir))
+  return True

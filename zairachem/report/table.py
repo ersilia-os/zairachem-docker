@@ -134,15 +134,10 @@ class OutputTable(BaseTable, ResultsFetcher):
       yield (col, v)
 
   def _get_manifolds_columns(self):
-    umap = self.get_projections_umap()
-    pca = self.get_projections_pca()
-    data = {"umap-0": umap[0], "umap-1": umap[1], "pca-0": pca[0], "pca-1": pca[1]}
-    df = pd.DataFrame(data)
-    columns = list(df.columns)
-    for col in columns:
-      v = list(df[col])
-      v = self.map_to_original(v)
-      yield (col, v)
+    # Every projection (always at least MW-vs-LogP) contributes its x/y columns to the output table.
+    for proj in self.get_projections():
+      for axis, vals in ((proj["x_label"], proj["xs"]), (proj["y_label"], proj["ys"])):
+        yield (f"{proj['name']}-{axis}", self.map_to_original(list(vals)))
 
   def _get_basic_properties_columns(self):
     df = self.get_basic_properties()

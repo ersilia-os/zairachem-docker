@@ -74,14 +74,11 @@ class RawDescriptors(ZairaBase):
       raise Exception(f"No descriptor data returned for model {eos_id}")
 
   def run(self):
-    from zairachem.base.utils.console import rule
-
     done_eos = []
     if self.is_predict():
       eos_ids = self.done_eos_ids()
     else:
       eos_ids = self.eos_ids()
-    rule("🧬 Molecular descriptors")
     for i, eos_id in enumerate(eos_ids):
       self.api.url = get_model_url(eos_id)
       self.api.model_id = eos_id

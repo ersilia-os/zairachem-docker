@@ -50,9 +50,7 @@ class EstimatorPipeline(ZairaBase):
       SimpleEvaluator(path=self.path).run()
       step.update()
     else:
-      logger.warning(
-        "[yellow]Estimation setup for requested inferece is already done. Skippign this step![/]"
-      )
+      logger.info("Estimation already done — skipping.")
 
   def run(self):
     self._lazyqsar_estimator_pipeline()

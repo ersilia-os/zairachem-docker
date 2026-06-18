@@ -20,6 +20,7 @@ from zairachem.base.utils.isaura_report import (
   check_isaura_version_consistency,
   create_and_migrate_project,
   project_exists,
+  sanitize_project_name,
 )
 from zairachem.base.vars import (
   PARAMETERS_FILE,
@@ -58,8 +59,9 @@ class PredictSetup(object):
     else:
       self.output_dir = os.path.abspath(output_dir)
     # Read AND write both target the run's own project (named like the output folder); the central
-    # lake (isaura-public) is only migrated in at the start.
-    project = os.path.basename(os.path.normpath(self.output_dir))
+    # lake (isaura-public) is only migrated in at the start. The folder name is sanitized to a
+    # valid S3/MinIO bucket name (lowercase, no underscores).
+    project = sanitize_project_name(os.path.basename(os.path.normpath(self.output_dir)))
     self.read_store = project if store_read else None
     self.contribute_store = project if store_write else None
 
@@ -215,7 +217,7 @@ class PredictSetup(object):
       task, task or "?"
     )
 
-    project = os.path.basename(os.path.normpath(self.output_dir))
+    project = sanitize_project_name(os.path.basename(os.path.normpath(self.output_dir)))
     read = "[green]on[/]" if params.get("read_store") else "[red]off[/]"
     write = "[green]on[/]" if params.get("contribute_store") else "[red]off[/]"
     isaura = (
@@ -235,7 +237,8 @@ class PredictSetup(object):
     if os.path.exists(data_path):
       rows.append(("Compounds", f"{len(pd.read_csv(data_path)):,}"))
     rows.append(("Featurizers", params.get("featurizer_ids", [])))
-    rows.append(("Projection", params.get("projection_ids", [])))
+    projection_ids = params.get("projection_ids", [])
+    rows.append(("Projection", projection_ids or "[yellow]skipped[/]"))
     rows.append(("Isaura store", isaura))
 
     summary_panel("ZairaChem · Predict", rows)

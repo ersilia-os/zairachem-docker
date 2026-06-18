@@ -182,80 +182,58 @@ class ResultsFetcher(ZairaBase):
       if "reg" in c and "raw" in c:
         return list(df[c])
 
-  def get_projections_umap(self):
-    df = self._read_processed_data()
-    umap0 = [0] * df.shape[0]
-    umap1 = [0] * df.shape[0]
-    for c in list(df.columns):
-      if "umap-0" in c:
-        umap0 = list(df["umap-0"])
-      if "umap-1" in c:
-        umap1 = list(df["umap-1"])
-    return umap0, umap1
+  @staticmethod
+  def _humanize_axis(col):
+    """Axis label from a projection column name: 'mw_x'→'MW', 'logp_y'→'LogP', 'umap_x'→'UMAP'."""
+    label = col
+    for suffix in ("_x", "_y"):
+      if label.endswith(suffix):
+        label = label[: -len(suffix)]
+        break
+    fancy = {"mw": "MW", "logp": "LogP", "umap": "UMAP", "tsne": "t-SNE", "pca": "PCA"}
+    return fancy.get(label.lower(), label.replace("_", " "))
 
-  def get_projections_tsne(self):
-    df = self._read_processed_data()
-    tsne0 = [0] * df.shape[0]
-    tsne1 = [0] * df.shape[0]
-    for c in list(df.columns):
-      if "tsne-0" in c:
-        tsne0 = list(df["tsne-0"])
-      if "tsne-1" in c:
-        tsne1 = list(df["tsne-1"])
-    return tsne0, tsne1
+  def _read_projections(self, path):
+    from zairachem.base.vars import PROJECTIONS_FILENAME, PROJECTIONS_MANIFEST_FILENAME
 
-  def get_projections_pca(self):
-    df = self._read_processed_data()
-    pca0 = [0] * df.shape[0]
-    pca1 = [0] * df.shape[0]
-    for c in list(df.columns):
-      if "pca-0" in c:
-        pca0 = list(df["pca-0"])
-      if "pca-1" in c:
-        pca1 = list(df["pca-1"])
-    return pca0, pca1
+    data_dir = os.path.join(path, DATA_SUBFOLDER)
+    manifest_path = os.path.join(data_dir, PROJECTIONS_MANIFEST_FILENAME)
+    csv_path = os.path.join(data_dir, PROJECTIONS_FILENAME)
+    if not (os.path.exists(manifest_path) and os.path.exists(csv_path)):
+      return None, None
+    with open(manifest_path) as f:
+      manifest = json.load(f)
+    return manifest, pd.read_csv(csv_path)
 
-  def get_projections_umap_trained(self):
-    df = self._read_processed_data_train()
-    umap0 = [0] * df.shape[0]
-    umap1 = [0] * df.shape[0]
-    if "umap-0" not in df.columns or "umap-1" not in df.columns:
+  def get_projections(self):
+    """Projections for this run: ``[{name, title, x_label, y_label, xs, ys}, ...]`` (row-aligned)."""
+    manifest, df = self._read_projections(self.path)
+    if not manifest:
+      return []
+    out = []
+    for p in manifest:
+      x, y = p["x"], p["y"]
+      if x not in df.columns or y not in df.columns:
+        continue
+      out.append({
+        "name": p["name"],
+        "title": p.get("title", p["name"]),
+        "x_label": self._humanize_axis(x),
+        "y_label": self._humanize_axis(y),
+        "xs": list(df[x]),
+        "ys": list(df[y]),
+      })
+    return out
+
+  def get_projection_trained(self, name):
+    """``(xs, ys)`` of the named projection from the trained model, or None (for predict overlays)."""
+    manifest, df = self._read_projections(self.trained_path)
+    if not manifest:
       return None
-    else:
-      for c in list(df.columns):
-        if "umap-0" in c:
-          umap0 = list(df["umap-0"])
-        if "umap-1" in c:
-          umap1 = list(df["umap-1"])
-      return umap0, umap1
-
-  def get_projections_tsne_trained(self):
-    df = self._read_processed_data_train()
-    tsne0 = [0] * df.shape[0]
-    tsne1 = [0] * df.shape[0]
-    if "tsne-0" not in df.columns or "tsne-1" not in df.columns:
-      return None
-    else:
-      for c in list(df.columns):
-        if "tsne-0" in c:
-          tsne0 = list(df["tsne-0"])
-        if "tsne-1" in c:
-          tsne1 = list(df["tsne-1"])
-      return tsne0, tsne1
-
-  def get_projections_pca_trained(self):
-    df = self._read_processed_data_train()
-    pca0 = [0] * df.shape[0]
-    pca1 = [0] * df.shape[0]
-    if "pca-0" not in df.columns or "pca-1" not in df.columns:
-      return None
-    else:
-      for c in list(df.columns):
-        if "pca-0" in c:
-          pca0 = list(df["pca-0"])
-        if "pca-1" in c:
-          pca1 = list(df["pca-1"])
-      return pca0, pca1
+    for p in manifest:
+      if p["name"] == name and p["x"] in df.columns and p["y"] in df.columns:
+        return list(df[p["x"]]), list(df[p["y"]])
+    return None
 
   def get_parameters(self):
     with open(os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:

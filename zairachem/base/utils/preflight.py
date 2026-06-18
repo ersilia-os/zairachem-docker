@@ -8,7 +8,7 @@ fetch anything automatically, we only show how.
 
 import subprocess
 
-from zairachem.base.utils.console import console, echo
+from zairachem.base.utils.console import active_color, console, echo
 from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
 from zairachem.base.vars import ORG, REDIS_IMAGE, NGINX_IMAGE
 
@@ -79,13 +79,15 @@ def report_model_images(featurizer_ids, projection_ids):
   from rich import box
   from rich.table import Table
 
+  color = active_color()
   table = Table(
     title="🧩 Ersilia model images",
-    title_style="bold cyan",
+    title_style=f"bold {color}",
     title_justify="left",
-    box=box.ROUNDED,
-    border_style="cyan",
-    header_style="bold cyan",
+    box=box.SIMPLE_HEAD,
+    border_style=color,
+    header_style=f"bold {color}",
+    pad_edge=False,
   )
   table.add_column("Kind", style="dim")
   table.add_column("Model", style="bold green")
