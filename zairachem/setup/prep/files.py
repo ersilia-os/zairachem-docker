@@ -1,4 +1,4 @@
-import collections, json, os
+import collections, json, os, re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
@@ -86,14 +86,38 @@ def _validate_smiles_batch(batch_data):
 
 
 class ModelIdsFile(object):
-  def __init__(self, path):
-    self.path = os.path.abspath(path)
+  """Resolve the ``--eos-ids`` value into ``{featurizer_ids, projection_ids?}``.
+
+  The value may be either a JSON file (``{"featurizer_ids": [...], "projection_ids": [...]}``) or
+  one/more Ersilia Model Hub IDs given directly (e.g. ``eos8aa5`` or ``eos8aa5,eos3l5f``). Raw IDs
+  are treated as featurizers; the projection then falls back to the default.
+  """
+
+  _EOS_RE = re.compile(r"^eos[0-9a-z]{4}$")
+
+  def __init__(self, value):
+    self.value = value
+    self.path = os.path.abspath(value)
     self.data = None
 
   def load(self):
-    if self.data is None:
+    if self.data is not None:
+      return self.data
+    if os.path.isfile(self.path):
       with open(self.path, "r") as f:
         self.data = json.load(f)
+      return self.data
+    # Not a file: parse the value as comma/space-separated featurizer model IDs.
+    ids = [t for t in re.split(r"[,\s]+", str(self.value).strip()) if t]
+    bad = [t for t in ids if not self._EOS_RE.match(t)]
+    if not ids or bad:
+      offenders = ", ".join(bad) if bad else "(empty)"
+      raise ValueError(
+        f"--eos-ids '{self.value}' is neither an existing file nor valid Ersilia Model Hub IDs "
+        f"(offending: {offenders}). Pass IDs like 'eos8aa5' or 'eos8aa5,eos3l5f', or a JSON file "
+        f'with {{"featurizer_ids": [...], "projection_ids": [...]}}.'
+      )
+    self.data = {"featurizer_ids": ids}
     return self.data
 
   def get_featurizer_ids(self):
@@ -252,7 +276,7 @@ class SingleFile(InputSchema):
       dedupe[r[0]] += [(r[1])]
     R = []
     for k, v in dedupe.items():
-      v = np.median([x for x in v])
+      v = np.median(list(v))
       R += [[k, v]]
     dfv = pd.DataFrame(
       R,

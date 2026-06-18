@@ -37,6 +37,19 @@ def echo(text, kind="info"):
   console.print(f"  [{style}]{icon}[/] {text}")
 
 
+def rule(title, *, style="cyan"):
+  """Print a horizontal section divider with a left-aligned title.
+
+  Parameters
+  ----------
+  title : str
+      Section heading, shown left-aligned on the rule.
+  style : str
+      Rich style for the rule and title.
+  """
+  console.rule(f"[bold {style}]{title}[/]", align="left", style=style)
+
+
 def summary_panel(title, rows, *, border_style="cyan"):
   """Render a bordered panel wrapping a two-column label/value table.
 

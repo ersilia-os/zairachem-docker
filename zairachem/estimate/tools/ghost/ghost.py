@@ -28,13 +28,13 @@ class Ghost(object):
 
   def predict(self, X):
     preds = self.mdl.predict_proba(X)[:, 1]
-    bin = []
+    bins = []
     for p in preds:
       if p >= self.threshold:
-        bin += [1]
+        bins += [1]
       else:
-        bin += [0]
-    return np.array(bin)
+        bins += [0]
+    return np.array(bins)
 
 
 class GhostLight(object):

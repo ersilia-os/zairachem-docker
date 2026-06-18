@@ -44,7 +44,7 @@ class Describer(ZairaBase):
     assert os.path.exists(self.output_dir)
 
   def _get_models_ports(self):
-    return {k: v for k, v in zip(self.models, get_free_ports(len(self.models)))}
+    return dict(zip(self.models, get_free_ports(len(self.models))))
 
   def _get_models(self):
     with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:

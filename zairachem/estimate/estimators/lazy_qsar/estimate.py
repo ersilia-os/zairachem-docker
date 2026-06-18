@@ -40,7 +40,9 @@ class Fitter(BaseEstimatorIndividual):
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
-      logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {shape[0]} samples")
+      logger.info(
+        f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {shape[0]} samples"
+      )
       X_train_parts = []
       train_order = []
       for start, end, chunk in self._iter_X():
@@ -59,7 +61,9 @@ class Fitter(BaseEstimatorIndividual):
       del X_train_parts
       gc.collect()
       y_train = y[np.array(train_order)]
-      logger.info(f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features")
+      logger.info(
+        f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
+      )
       model = LazyClassifier()
       model.fit(X=X_train, y=y_train)
       del X_train
@@ -106,7 +110,9 @@ class Predictor(BaseEstimatorIndividual):
     if self.task == "classification":
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model = LazyClassifier.load(model_folder)
-      logger.info(f"[lazyqsar:predict] Loaded model from {model_folder}, predicting {shape[0]} samples chunk-by-chunk")
+      logger.info(
+        f"[lazyqsar:predict] Loaded model from {model_folder}, predicting {shape[0]} samples chunk-by-chunk"
+      )
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
       for start, end, chunk in self._iter_X():
@@ -134,9 +140,7 @@ class IndividualEstimator(ZairaBase):
         path=self.path, model_id=self.model_id, is_simple=is_simple, batch_size=self.batch_size
       )
     else:
-      self.estimator = Predictor(
-        path=self.path, model_id=self.model_id, batch_size=self.batch_size
-      )
+      self.estimator = Predictor(path=self.path, model_id=self.model_id, batch_size=self.batch_size)
 
   def run(self):
     if not self.is_predict():
@@ -202,6 +206,4 @@ class Estimator(ZairaBase):
         "descriptors failed (e.g. non-predictive features were entirely eliminated). "
         "Check the dataset and the chosen descriptors."
       )
-    logger.info(
-      f"[lazyqsar] {n_success}/{len(model_ids)} descriptors produced a valid estimator"
-    )
+    logger.info(f"[lazyqsar] {n_success}/{len(model_ids)} descriptors produced a valid estimator")

@@ -52,7 +52,10 @@ def require_docker_and_base():
 
   missing_base = [img for img in BASE_IMAGES if not _docker_image_present(img)]
   if missing_base:
-    echo("Required base Docker image(s) are not available locally. ZairaChem cannot continue.", kind="error")
+    echo(
+      "Required base Docker image(s) are not available locally. ZairaChem cannot continue.",
+      kind="error",
+    )
     echo("Fetch them with:", kind="info")
     for img in missing_base:
       console.print(f"      [cyan]docker pull {img}[/]")

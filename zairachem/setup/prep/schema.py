@@ -36,7 +36,7 @@ class InputSchema(ZairaBase):
     for v in values:
       try:
         mol = Chem.MolFromSmiles(v)
-      except:
+      except Exception:
         continue
       if mol is not None:
         c += 1
@@ -68,14 +68,14 @@ class InputSchema(ZairaBase):
       for v in values:
         try:
           float(v)
-        except:
+        except Exception:
           continue
         c += 1
       if c == len(values):
         return True
       else:
         return False
-    except:
+    except Exception:
       return False
 
   def find_values_column(self):

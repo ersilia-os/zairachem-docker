@@ -3,10 +3,13 @@ import json, os, shutil
 from zairachem.base import ZairaBase, create_session_symlink
 from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
+from zairachem.base.utils.console import echo
 from zairachem.base.utils.isaura_report import (
   report_isaura_coverage,
   check_isaura_version_consistency,
   check_isaura_project_available,
+  create_and_migrate_project,
+  project_exists,
 )
 from zairachem.setup.prep import (
   ModelIdsFile,
@@ -152,8 +155,8 @@ class TrainSetup(object):
   def _isaura_summary(self):
     # The run reads/writes its own project; the lake is migrated in at the start.
     project = os.path.basename(os.path.normpath(self.output_dir))
-    read = "on" if self.params.get("read_store") else "off"
-    write = "on" if self.params.get("contribute_store") else "off"
+    read = "[green]on[/]" if self.params.get("read_store") else "[red]off[/]"
+    write = "[green]on[/]" if self.params.get("contribute_store") else "[red]off[/]"
     summary = (
       f"project [bold]{project}[/] (read {read} · write {write}) · "
       f"lake [bold]{DEFAULT_ISAURA_BUCKET}[/]"
@@ -239,7 +242,24 @@ class TrainSetup(object):
     check_isaura_version_consistency(
       DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids
     )
-    report_isaura_coverage(
-      DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids, self._input_smiles()
-    )
+    smiles = self._input_smiles()
+    report_isaura_coverage(DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids, smiles)
+    if self.params.get("contribute_store"):
+      # Write enabled: create the project (named like the model folder) and seed it from the lake.
+      create_and_migrate_project(
+        self.params["contribute_store"],
+        self.featurizer_ids,
+        self.projection_ids,
+        smiles,
+        output_dir=self.output_dir,
+      )
+    elif self.params.get("read_store") and project_exists(self.params["read_store"]) is False:
+      # Read-only against a project that doesn't exist: warn and fall back to computing from scratch.
+      echo(
+        f"Isaura project '{self.params['read_store']}' does not exist — nothing to read; "
+        "computing from scratch.",
+        kind="warning",
+      )
+      self.params["read_store"] = None
+      self._save_params()
     self.update_elapsed_time()

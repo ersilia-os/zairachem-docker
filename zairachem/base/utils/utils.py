@@ -3,7 +3,6 @@ from io import StringIO
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.terminal import run_command
 from zairachem.base.vars import (
-  DEFAULT_PROJECTIONS,
   GITHUB_CONTENT_URL,
   PREDEFINED_COLUMN_FILE,
   DEFAULT_PUBLIC_BUCKET,
@@ -60,12 +59,27 @@ def fetch_schema_from_github(model_id):
 
 
 def post(data, url):
+  """POST inputs to a served Ersilia model and return its JSON results (a list of per-row dicts).
+
+  Raises ``RuntimeError`` if the request fails or the server returns an error response, so callers
+  never mistake an error body (e.g. ``{"detail": ...}``) for results.
+  """
   try:
-    logger.info(f"Computing projection using {DEFAULT_PROJECTIONS}. Assigned url {url}")
     res = requests.post(url=url, json=data)
-    return res.json()
   except requests.RequestException as e:
-    logger.critical(f"Error occured when computing the projection -> {e}")
+    raise RuntimeError(f"Could not reach the model server at {url}: {e}") from e
+  if res.status_code != 200:
+    detail = ""
+    try:
+      detail = res.json().get("detail", "")
+    except Exception:
+      detail = (res.text or "")[:200]
+    raise RuntimeError(f"Model server at {url} returned HTTP {res.status_code}: {detail}")
+  body = res.json()
+  if not isinstance(body, list):
+    detail = body.get("detail", body) if isinstance(body, dict) else body
+    raise RuntimeError(f"Model server at {url} returned an unexpected response: {detail}")
+  return body
 
 
 def resolve_default_bucket(access):
@@ -75,5 +89,3 @@ def resolve_default_bucket(access):
 def get_bucket_records(bucket):
   insp = IsauraInspect(model_id="_", model_version="_", cloud=False)
   return insp.inspect_models(bucket, prefix_filter="")
-
-

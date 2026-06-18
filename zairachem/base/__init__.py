@@ -80,7 +80,7 @@ class ZairaBase(object):
 
   def _dummy_indices(self, path):
     df = pd.read_csv(os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME))
-    idxs = np.array([i for i in range(df.shape[0])])
+    idxs = np.array(list(range(df.shape[0])))
     random.shuffle(idxs)
     return idxs
 
@@ -95,6 +95,3 @@ class ZairaBase(object):
     )
     idxs = self._dummy_indices(path)
     return idxs
-
-
-__all__ = ["__version__"]

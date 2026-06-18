@@ -142,7 +142,7 @@ class FullLineSimilarityImputer(object):
       hits = np.array([x[0] for x in hits][: self._n_hits])
       if len(hits) == 0:
         hits = np.random.choice(
-          [i for i in range(R.shape[0])],
+          list(range(R.shape[0])),
           min(R.shape[0], self._n_hits),
           replace=False,
         )
@@ -350,7 +350,6 @@ class ChunkedTreatedDescriptors(DescriptorBase):
     self.logger.info(f"[treat] Completed. Output shape: {h5_out.shape()}")
 
   def run(self):
-    rl = RawLoader()
     for eos_id in self.done_eos_iter():
       path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
       raw_h5_path = os.path.join(path, RAW_DESC_FILENAME)
@@ -412,7 +411,6 @@ class TreatedDescriptors(DescriptorBase):
       return False
 
   def run(self):
-    rl = RawLoader()
     for eos_id in self.done_eos_iter():
       path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
       raw_h5_path = os.path.join(path, RAW_DESC_FILENAME)

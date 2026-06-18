@@ -187,6 +187,14 @@ class Manifolds(DescriptorBase):
     except Exception as e:
       logger.error(f"Error in Isaura contribute workflow for projections: {e}")
 
+  def _projection_model_error(self, exc):
+    """Wrap a served-model failure with which projection model failed and how to recover."""
+    return RuntimeError(
+      f"Projection model '{self.model_id}' failed to compute — its served Docker image looks "
+      f"broken ({exc}). Re-fetch the model (e.g. `ersilia fetch {self.model_id}`) or rebuild its "
+      f"image, then re-run."
+    )
+
   def _run_api_chunked(self):
     logger.info(f"Computing projections via API in chunks: {self.url}")
     n_total = len(self.inputs)
@@ -199,7 +207,10 @@ class Manifolds(DescriptorBase):
       hi = min(lo + self.batch_size, n_total)
       chunk_inputs = self.inputs[lo:hi]
       logger.info(f"[manifolds:api] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
-      chunk_data = post(chunk_inputs, self.url)
+      try:
+        chunk_data = post(chunk_inputs, self.url)
+      except RuntimeError as e:
+        raise self._projection_model_error(e) from e
       all_data.extend(chunk_data)
       del chunk_data
       gc.collect()
@@ -207,7 +218,10 @@ class Manifolds(DescriptorBase):
 
   def _run_api(self):
     logger.info(f"Computing projections via API: {self.url}")
-    data = post(self.inputs, self.url)
+    try:
+      data = post(self.inputs, self.url)
+    except RuntimeError as e:
+      raise self._projection_model_error(e) from e
     cols = fetch_schema_from_github(self.model_id)[0]
     return data, cols
 

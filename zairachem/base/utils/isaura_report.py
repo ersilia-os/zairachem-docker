@@ -5,6 +5,7 @@ reachable, prints a short note and returns. Queries only the configured store (t
 in, i.e. ``params["read_store"]``).
 """
 
+import json
 import os
 import socket
 from urllib.parse import urlparse
@@ -110,24 +111,50 @@ def _list_project_names():
     return None
 
 
-def check_isaura_project_available(model_dir):
-  """Stop if an isaura project already exists with the model folder's name.
+def _project_is_empty(name):
+  """True if the project holds no precalculation data (only root-level metadata, or nothing).
 
-  The run will create an isaura project named exactly like the model folder to contribute its
-  precalculations; a pre-existing project would collide. Raises ``SystemExit(1)`` if such a project
-  exists. Skips quietly if isaura isn't installed or the engine isn't reachable (we can't verify).
+  Model precalculations live under ``<model_id>/<version>/...`` keys; root-level files such as
+  ``access.json`` are metadata and don't count. Returns False if the bucket can't be read (the
+  caller then treats it as a collision rather than wrongly reusing it).
+  """
+  try:
+    from isaura.base import MinioStore
+    from isaura.const import MINIO_ENDPOINT, MINIO_LOCAL_AK, MINIO_LOCAL_SK
+
+    store = MinioStore(endpoint=MINIO_ENDPOINT, access=MINIO_LOCAL_AK, secret=MINIO_LOCAL_SK)
+    resp = store.client.list_objects_v2(Bucket=name)
+    return not any("/" in o.get("Key", "") for o in resp.get("Contents", []))
+  except Exception:
+    return False
+
+
+def check_isaura_project_available(model_dir):
+  """Stop if an isaura project already exists *with data* under the model folder's name.
+
+  The run will write its precalculations to an isaura project named exactly like the model folder.
+  A pre-existing project that already holds data would collide, so that raises ``SystemExit(1)``. An
+  existing but *empty* project (e.g. left behind by an aborted run) is accepted and reused as-is.
+  Skips quietly if isaura isn't installed or the engine isn't reachable (we can't verify).
   """
   names = _list_project_names()
   if names is None:
     return
   project = os.path.basename(os.path.normpath(model_dir))
-  if project in names:
-    echo(f"An isaura project named '{project}' already exists — ZairaChem cannot continue.", kind="error")
-    echo(
-      "Use a different model-directory name, or remove/rename that isaura project, then re-run.",
-      kind="info",
-    )
-    raise SystemExit(1)
+  if project not in names:
+    return
+  if _project_is_empty(project):
+    echo(f"Reusing existing empty isaura project '{project}'.", kind="info")
+    return
+  echo(
+    f"An isaura project named '{project}' already exists with data — ZairaChem cannot continue.",
+    kind="error",
+  )
+  echo(
+    "Use a different model-directory name, or remove/rename that isaura project, then re-run.",
+    kind="info",
+  )
+  raise SystemExit(1)
 
 
 def _stored_versions(bucket):
@@ -183,7 +210,7 @@ def check_isaura_version_consistency(bucket, featurizer_ids, projection_ids):
   )
   table.add_column("Model", style="bold")
   table.add_column("Model Hub", style="green")
-  table.add_column("isaura", style="yellow")
+  table.add_column("Isaura", style="yellow")
   for m, mh, have in mismatches:
     table.add_row(m, mh, ", ".join(have))
   console.print(table)
@@ -191,5 +218,232 @@ def check_isaura_version_consistency(bucket, featurizer_ids, projection_ids):
     f"{len(mismatches)} model(s) have isaura precalculations from a different version — ZairaChem cannot continue.",
     kind="error",
   )
-  echo("Use a matching model image, or clear/rebuild those store versions, then re-run.", kind="info")
+  echo(
+    "Use a matching model image, or clear/rebuild those store versions, then re-run.", kind="info"
+  )
   raise SystemExit(1)
+
+
+def project_exists(name):
+  """True/False whether an isaura project (bucket) exists; None if it can't be determined."""
+  names = _list_project_names()
+  return None if names is None else (name in names)
+
+
+def _write_smiles_csv(smiles):
+  import tempfile
+
+  import pandas as pd
+
+  f = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False)
+  pd.DataFrame({"input": list(smiles)}).to_csv(f.name, index=False)
+  f.close()
+  return f.name
+
+
+def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, output_dir=None):
+  """Create the run's isaura project (public) and migrate matching precalcs from the lake into it.
+
+  Runs at fit setup when write is enabled: creates the bucket named like the model folder, then per
+  model copies the input molecules already present in isaura-public into the project. Skips with a
+  warning if isaura/engine is unavailable; per-model failures are reported as '—'. Never raises.
+  """
+  try:
+    import isaura  # noqa: F401  (presence check)
+  except Exception:
+    echo("Isaura not installed — skipping project create/migrate.", kind="warning")
+    return
+  if not _engine_running():
+    echo(
+      "Isaura engine not running — cannot create the project (describe/treat will fail).",
+      kind="warning",
+    )
+    return
+
+  import json
+  import os
+  import tempfile
+
+  from isaura.base import MinioStore
+  from isaura.const import ACCESS_FILE, MINIO_ENDPOINT, MINIO_LOCAL_AK, MINIO_LOCAL_SK
+  from isaura.manage import IsauraChecker, IsauraReader, IsauraWriter
+
+  # Create the project bucket (public) and record its access level.
+  try:
+    store = MinioStore(endpoint=MINIO_ENDPOINT, access=MINIO_LOCAL_AK, secret=MINIO_LOCAL_SK)
+    store.ensure_bucket(project)
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+      json.dump({"access": "public"}, f)
+      access_path = f.name
+    store.upload_file(access_path, project, ACCESS_FILE)
+    os.unlink(access_path)
+  except (SystemExit, Exception):
+    echo(f"Could not create isaura project '{project}'.", kind="error")
+    return
+
+  # Migrate the input molecules already cached in the lake into the project, per model.
+  from rich import box
+  from rich.table import Table
+
+  table = Table(
+    title=f"💧 Migrating isaura-public → {project}",
+    title_style="bold cyan",
+    title_justify="left",
+    box=box.ROUNDED,
+    border_style="cyan",
+    header_style="bold cyan",
+  )
+  table.add_column("Kind", style="dim")
+  table.add_column("Model", style="bold green")
+  table.add_column("Migrated", justify="right")
+
+  groups = [("descriptor", featurizer_ids), ("projector", projection_ids)]
+  for i, (kind, ids) in enumerate(groups):
+    if i > 0:
+      table.add_section()
+    for m in ids:
+      migrated = "—"
+      try:
+        version = ersilia_model_version(m)
+        with IsauraChecker(DEFAULT_ISAURA_BUCKET, m, version) as checker:
+          seen = checker.seen_many(smiles)
+        present = [s for s in smiles if seen.get(s, [False, None])[0]]
+        if not present:
+          migrated = "0"
+        else:
+          in_csv = _write_smiles_csv(present)
+          try:
+            df = IsauraReader(
+              model_id=m,
+              model_version=version,
+              input_csv=in_csv,
+              approximate=False,
+              bucket=DEFAULT_ISAURA_BUCKET,
+            ).read()
+          finally:
+            os.unlink(in_csv)
+          n = len(df) if df is not None else 0
+          if n:
+            IsauraWriter(input_csv=None, model_id=m, model_version=version, bucket=project).write(
+              df=df
+            )
+          migrated = f"{n:,}"
+        if output_dir is not None:
+          # 0 when nothing matched; an int otherwise (records B = molecules pulled from the lake).
+          record_migration(
+            output_dir, m, 0 if migrated in ("—", "0") else int(migrated.replace(",", ""))
+          )
+      except Exception:
+        migrated = "—"
+      table.add_row(kind, m, migrated)
+  console.print(table)
+
+
+# --- Per-model data provenance (A = Ersilia-computed, B = isaura-public, C = project native) ---
+
+
+def _provenance_path(output_dir):
+  from zairachem.base.vars import DATA_SUBFOLDER
+
+  return os.path.join(output_dir, DATA_SUBFOLDER, "provenance.json")
+
+
+def _load_provenance(output_dir):
+  path = _provenance_path(output_dir)
+  if os.path.exists(path):
+    try:
+      with open(path) as f:
+        return json.load(f)
+    except Exception:
+      pass
+  return {"featurizers": {}, "projections": {}, "migrated": {}}
+
+
+def _write_provenance(output_dir, data):
+  path = _provenance_path(output_dir)
+  os.makedirs(os.path.dirname(path), exist_ok=True)
+  with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+
+
+def record_migration(output_dir, model_id, n):
+  """Record how many molecules were migrated from the lake into the project for a model (B)."""
+  data = _load_provenance(output_dir)
+  data.setdefault("migrated", {})[model_id] = int(n)
+  _write_provenance(output_dir, data)
+
+
+def record_provenance(output_dir, kind, model_id, n_total, n_from_project, n_computed):
+  """Record a model's describe/treat provenance. kind is 'featurizers' or 'projections'."""
+  data = _load_provenance(output_dir)
+  data.setdefault(kind, {})[model_id] = {
+    "n_total": int(n_total),
+    "n_from_project": int(n_from_project),
+    "n_computed": int(n_computed),
+  }
+  _write_provenance(output_dir, data)
+
+
+def report_data_provenance(output_dir=None):
+  """Render per-model stacked bars of where each model's data came from this run.
+
+  A = computed via Ersilia (cache misses), B = migrated from isaura-public this run, C = the
+  project's own pre-existing data. Reads provenance.json; skips quietly if absent. When output_dir
+  is None, it's resolved from the active session.
+  """
+  if output_dir is None:
+    try:
+      from zairachem.base.vars import BASE_DIR, SESSION_FILE
+
+      with open(os.path.join(BASE_DIR, SESSION_FILE)) as f:
+        output_dir = json.load(f)["output_dir"]
+    except Exception:
+      return
+  data = _load_provenance(output_dir) if os.path.exists(_provenance_path(output_dir)) else None
+  if not data or not (data.get("featurizers") or data.get("projections")):
+    return
+
+  from rich import box
+  from rich.table import Table
+
+  migrated = data.get("migrated", {})
+  width = 20
+  table = Table(
+    title="🧪 Data provenance per model",
+    caption="[green]█ Project store[/]  [cyan]█ Lake store[/]  [yellow]█ Ersilia Run[/]",
+    caption_justify="left",
+    title_style="bold cyan",
+    title_justify="left",
+    box=box.ROUNDED,
+    border_style="cyan",
+    header_style="bold cyan",
+  )
+  table.add_column("Kind", style="dim")
+  table.add_column("Model", style="bold green")
+  table.add_column("Sources", no_wrap=True)
+  table.add_column("Project store", justify="right", style="green")
+  table.add_column("Lake store", justify="right", style="cyan")
+  table.add_column("Ersilia Run", justify="right", style="yellow")
+  table.add_column("Total", justify="right")
+
+  groups = [("descriptor", "featurizers"), ("projector", "projections")]
+  first = True
+  for kind, key in groups:
+    models = data.get(key, {})
+    if not models:
+      continue
+    if not first:
+      table.add_section()
+    first = False
+    for m, st in models.items():
+      n_from_project = int(st.get("n_from_project", 0))
+      a = int(st.get("n_computed", 0))  # Ersilia
+      b = min(int(migrated.get(m, 0)), n_from_project)  # isaura-public (migrated)
+      c = n_from_project - b  # project native
+      total = int(st.get("n_total", 0)) or (a + b + c) or 1
+      cc = round(c / total * width)
+      bc = round(b / total * width)
+      ac = max(0, width - cc - bc)
+      bar = f"[green]{'█' * cc}[/][cyan]{'█' * bc}[/][yellow]{'█' * ac}[/]"
+      table.add_row(kind, m, bar, f"{c:,}", f"{b:,}", f"{a:,}", f"{st.get('n_total', a + b + c):,}")
+  console.print(table)

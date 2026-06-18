@@ -1,10 +1,8 @@
 import os
 import numpy as np
 import pandas as pd
-import collections
 from collections import OrderedDict
 import joblib
-import json
 from zairachem.base.vars import (
   COMPOUNDS_FILENAME,
   COMPOUND_IDENTIFIER_COLUMN,
@@ -143,9 +141,9 @@ class ClfTasks(object):
   def __init__(self, data):
     self.values = self.binarize(np.array(data[VALUES_COLUMN]))
 
-  def _has_enough_min_class(self, bin):
-    n1 = np.sum(bin)
-    n0 = len(bin) - n1
+  def _has_enough_min_class(self, bins):
+    n1 = np.sum(bins)
+    n0 = len(bins) - n1
     if n1 < MIN_CLASS or n0 < MIN_CLASS:
       return False
     return True
@@ -156,11 +154,10 @@ class ClfTasks(object):
     for v in values:
       if v not in accepted:
         raise Exception("Data is not binary. Cannot do classification")
+      if v > 0:
+        bin_values += [1]
       else:
-        if v > 0:
-          bin_values += [1]
-        else:
-          bin_values += [0]
+        bin_values += [0]
     if not self._has_enough_min_class(bin_values):
       n1 = int(np.sum(bin_values))
       n0 = len(bin_values) - n1
@@ -182,11 +179,10 @@ class ClfTasksForPrediction(object):
       if v not in accepted:
         print("NOT ACCEPTED", v)
         raise Exception("Data is not binary. Cannot do classification")
+      if v > 0:
+        bin_values += [1]
       else:
-        if v > 0:
-          bin_values += [1]
-        else:
-          bin_values += [0]
+        bin_values += [0]
     return bin_values
 
 

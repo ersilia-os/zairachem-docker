@@ -9,6 +9,7 @@ import re
 import pandas as pd
 import numpy as np
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.console import console, echo
 from zairachem.base import ZairaBase
 from zairachem.base.utils.utils import (
   fetch_schema_from_github,
@@ -357,106 +358,184 @@ class BinaryStreamClient(ZairaBase):
     else:
       writer.write(df=self._get_ersilia_df(res))
 
+  def _announce_plan(self, n_cached, n_compute):
+    """Print an attractive one-line per-model sourcing plan (cached vs to-compute)."""
+    ver = getattr(self, "version", None) or "?"
+    parts = []
+    if n_cached:
+      parts.append(f"[green]{n_cached:,} cached[/]")
+    if n_compute:
+      parts.append(f"[yellow]{n_compute:,} to compute[/]")
+    if not parts:
+      parts.append("[dim]nothing to do[/]")
+    console.print(
+      f"  [cyan]▪[/] [bold green]{self.model_id}[/] [dim]·[/] [cyan]{ver}[/]   "
+      + " [dim]·[/] ".join(parts)
+    )
+
   def run(self, output_h5=None, isaura_batch_size=None):
     from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
 
     if isaura_batch_size is None:
       isaura_batch_size = DEFAULT_ISAURA_BATCH_SIZE
+    n_total = len(self.input_data)
     any_results = None
     if self.contribute_store or self.read_store:
       self.version = self.resolve_version(self.model_id, self.read_store)
     if not self.read_store:
-      logger.warning("Isaura read store is disabled (no -es flag provided)!")
+      logger.info("Isaura read store is disabled; computing all descriptors via Ersilia.")
+      self._announce_plan(0, n_total)
       any_results = self._run(output_h5=output_h5)
     else:
       try:
-        logger.info(f"Reading precalculations from bucket: {self.read_store}")
-        n_total = len(self.input_data)
-        n_chunks = (n_total + isaura_batch_size - 1) // isaura_batch_size
-        logger.info(f"[isaura] total={n_total} batch={isaura_batch_size} chunks={n_chunks}")
-        self.schema = fetch_schema_from_github(self.model_id)
-        dtype = self.resolve_dtype()
-        cols = None
-        h5_store = None
-        if output_h5:
-          from zairachem.base.utils.matrices import ChunkedH5Store
-
-          h5_store = ChunkedH5Store(output_h5)
-        all_values = []
-        for ci in range(n_chunks):
-          lo = ci * isaura_batch_size
-          hi = min(lo + isaura_batch_size, n_total)
-          chunk_inputs = self.input_data[lo:hi]
-          chunk_df = pd.DataFrame(columns=["input"], data=chunk_inputs)
-          logger.info(f"[isaura] chunk {ci + 1}/{n_chunks} inputs={len(chunk_inputs)}")
-          # Fresh reader per chunk: IsauraReader.read() is stateful — a reused instance
-          # returns the previous read's row count (e.g. a 12-input final chunk comes back
-          # padded to 100), corrupting row alignment with the rest of the pipeline.
-          r = IsauraReader(
-            model_id=self.model_id,
-            model_version=self.version,
-            input_csv=None,
-            approximate=self.nns,
-            bucket=self.read_store,
-          )
-          result_df = r.read(df=chunk_df)
-          # isaura does not guarantee the returned rows match the requested order or
-          # count (it can reorder and include cross-tranche duplicates). Re-align to the
-          # exact requested inputs so the saved descriptors stay row-aligned with the
-          # rest of the pipeline (compounds/labels). Without this, large multi-dataset
-          # stores return scrambled rows -> X/y misalignment and count-mismatch crashes.
-          if "input" in result_df.columns:
-            result_df = (
-              result_df
-              .drop_duplicates(subset="input")
-              .set_index("input")
-              .reindex(chunk_inputs)
-              .reset_index()
-            )
-          if cols is None:
-            cols = result_df.columns.difference(["key", "input"]).tolist()
-            if h5_store:
-              h5_store.create(len(cols), cols)
-          chunk_values = result_df[cols].values.astype("float32")
-          if h5_store:
-            chunk_input_list = (
-              result_df["input"].astype(str).tolist()
-              if "input" in result_df.columns
-              else chunk_inputs
-            )
-            h5_store.save_chunk(chunk_values, chunk_input_list)
-            logger.info(f"[isaura] chunk {ci + 1}/{n_chunks} saved {len(chunk_values)} rows")
-          else:
-            all_values.append(chunk_values)
-          del result_df, chunk_values, chunk_df
-          gc.collect()
-        if h5_store:
-          any_results = {
-            "shape": (n_total, len(cols)),
-            "dtype": dtype,
-            "data": None,
-            "dims": cols,
-            "inputs": self.input_data,
-            "h5_file": output_h5,
-          }
-        else:
-          stacked = np.vstack(all_values) if all_values else np.empty((0, 0))
-          del all_values
-          any_results = {
-            "shape": stacked.shape,
-            "dtype": dtype,
-            "data": stacked,
-            "dims": cols or [],
-            "inputs": self.input_data,
-          }
+        any_results = self._run_hybrid(output_h5=output_h5, isaura_batch_size=isaura_batch_size)
       except SystemExit as e:
-        logger.info(f"Fall back to the api for calculating the descriptors due to SystemExit: {e}")
+        # The project has no data for this model yet: compute everything via Ersilia.
+        logger.info(
+          f"No precalculations in '{self.read_store}' for {self.model_id}; computing all: {e}"
+        )
+        self._announce_plan(0, n_total)
         any_results = self._run(output_h5=output_h5)
+        self._record_provenance(n_total, 0, n_total)
       except Exception as e:
         logger.error(f"Unhandled error in run: {e}")
         raise
     self._contribute(any_results, isaura_batch_size)
+    echo(f"[bold green]{self.model_id}[/] ready [dim]·[/] {n_total:,} descriptors", kind="success")
     return any_results
+
+  def _record_provenance(self, n_total, n_from_project, n_computed):
+    try:
+      from zairachem.base.utils.isaura_report import record_provenance
+
+      record_provenance(
+        self.path, "featurizers", self.model_id, n_total, n_from_project, n_computed
+      )
+    except Exception:
+      pass
+
+  def _assemble_results(self, full, cols, dtype, output_h5, isaura_batch_size):
+    n_total = full.shape[0]
+    if output_h5:
+      from zairachem.base.utils.matrices import ChunkedH5Store
+
+      h5_store = ChunkedH5Store(output_h5)
+      h5_store.create(len(cols), cols)
+      for lo in range(0, n_total, isaura_batch_size):
+        hi = min(lo + isaura_batch_size, n_total)
+        h5_store.save_chunk(full[lo:hi, :], self.input_data[lo:hi])
+      return {
+        "shape": (n_total, len(cols)),
+        "dtype": dtype,
+        "data": None,
+        "dims": cols,
+        "inputs": self.input_data,
+        "h5_file": output_h5,
+      }
+    return {
+      "shape": full.shape,
+      "dtype": dtype,
+      "data": full,
+      "dims": cols,
+      "inputs": self.input_data,
+    }
+
+  def _stored_inputs(self):
+    """Set of input molecules actually stored in the project for this model/version.
+
+    Uses isaura's authoritative index (not the bloom filter, which can over-report). An empty/absent
+    model prefix yields an empty set, so everything is treated as a cache miss.
+    """
+    from isaura.manage import IsauraInspect
+
+    try:
+      idx = (
+        IsauraInspect(model_id=self.model_id, model_version=self.version, cloud=False).load_index(
+          self.read_store, self.model_id, self.version
+        )
+        or {}
+      )
+      return set(idx.keys())
+    except Exception:
+      return set()
+
+  def _read_subset(self, smiles, isaura_batch_size):
+    """Read descriptors for a subset of (project-present) molecules, aligned to `smiles` order."""
+    cols = None
+    rows = []
+    for lo in range(0, len(smiles), isaura_batch_size):
+      chunk = smiles[lo : lo + isaura_batch_size]
+      r = IsauraReader(
+        model_id=self.model_id,
+        model_version=self.version,
+        input_csv=None,
+        approximate=self.nns,
+        bucket=self.read_store,
+      )
+      rdf = r.read(df=pd.DataFrame({"input": chunk}))
+      if "input" in rdf.columns:
+        rdf = rdf.drop_duplicates(subset="input").set_index("input").reindex(chunk).reset_index()
+      if cols is None:
+        cols = rdf.columns.difference(["key", "input"]).tolist()
+      rows.append(rdf[cols].values.astype("float32"))
+      del rdf
+      gc.collect()
+    return (np.vstack(rows) if rows else None), cols
+
+  def _run_hybrid(self, output_h5=None, isaura_batch_size=None):
+    """Read the project's stored molecules, compute the rest via Ersilia, and merge in input order.
+
+    Partitions inputs by the project's actual index so neither side is all-or-nothing: present
+    molecules are read, absent ones are computed. Records per-model provenance. The caller's
+    _contribute() writes the merged result back (deduplicated) so newly computed rows get cached.
+    """
+    from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
+
+    if isaura_batch_size is None:
+      isaura_batch_size = DEFAULT_ISAURA_BATCH_SIZE
+    n_total = len(self.input_data)
+    self.schema = fetch_schema_from_github(self.model_id)
+    dtype = self.resolve_dtype()
+    logger.info(f"Reading precalculations from project: {self.read_store}")
+
+    stored = self._stored_inputs()
+    present_idx = [i for i, s in enumerate(self.input_data) if s in stored]
+    present_set = set(present_idx)
+    absent_idx = [i for i in range(n_total) if i not in present_set]
+    n_from_project = len(present_idx)
+    n_computed = len(absent_idx)
+    self._announce_plan(n_from_project, n_computed)
+
+    cols = None
+    read_vals = None
+    if present_idx:
+      read_vals, cols = self._read_subset(
+        [self.input_data[i] for i in present_idx], isaura_batch_size
+      )
+    comp_vals = None
+    if absent_idx:
+      saved = self.input_data
+      try:
+        self.input_data = [self.input_data[i] for i in absent_idx]
+        comp = self._run(output_h5=None)
+        comp_vals = np.asarray(comp["data"], dtype="float32")
+        if cols is None:
+          cols = comp.get("dims") or self.resolve_dims()
+      finally:
+        self.input_data = saved
+    if cols is None:
+      cols = self.resolve_dims()
+
+    full = np.full((n_total, len(cols)), np.nan, dtype="float32")
+    if read_vals is not None:
+      for k, i in enumerate(present_idx):
+        full[i, :] = read_vals[k]
+    if comp_vals is not None:
+      for k, i in enumerate(absent_idx):
+        full[i, :] = comp_vals[k]
+
+    self._record_provenance(n_total, n_from_project, n_computed)
+    return self._assemble_results(full, cols, dtype, output_h5, isaura_batch_size)
 
   def _get_ersilia_df(self, res):
     try:
@@ -512,7 +591,9 @@ class BinaryStreamClient(ZairaBase):
       )
       try:
         with progress:
-          task = progress.add_task("Computing descriptors", total=len(checked_input))
+          task = progress.add_task(
+            f"  [yellow]computing[/] [bold]{self.model_id}[/]", total=len(checked_input)
+          )
           processed_count = 0
           for start in range(0, len(checked_input), self.batch_size):
             batch = checked_input[start : start + self.batch_size]

@@ -183,6 +183,18 @@ def _ensure_network(name):
 
 
 def _recreate_container_if_exists():
-  rc = run_command(["docker", "container", "inspect", "redis"], quiet=True)
-  if rc.returncode == 0:
+  # Probe quietly: a missing 'redis' container is the normal case and must not be logged as an
+  # error (run_command logs every non-zero exit), so check existence with a silent subprocess.
+  try:
+    exists = (
+      subprocess.run(
+        ["docker", "container", "inspect", "redis"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+      ).returncode
+      == 0
+    )
+  except OSError:
+    exists = False
+  if exists:
     run_command(["docker", "rm", "-f", "redis"], quiet=True)

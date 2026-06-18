@@ -1,11 +1,11 @@
-import json, h5py, os, gc
+import json, os, gc
 import pandas as pd
 import numpy as np
 from typing import Iterator, Tuple, Optional
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import Hdf5, ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
@@ -102,7 +102,9 @@ class BaseEstimatorIndividual(BaseEstimator):
       chunk_size = self.batch_size
     h5 = self._open_h5()
     n_rows = h5.n_rows()
-    self.logger.info(f"[estimator] iterating {self.model_id} n_rows={n_rows} n_features={h5.n_features()}")
+    self.logger.info(
+      f"[estimator] iterating {self.model_id} n_rows={n_rows} n_features={h5.n_features()}"
+    )
     for start, end, chunk in h5.iter_values_with_indices(chunk_size):
       yield start, end, chunk
 

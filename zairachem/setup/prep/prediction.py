@@ -14,9 +14,12 @@ from zairachem.base import ZairaBase, create_session_symlink
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
+from zairachem.base.utils.console import echo
 from zairachem.base.utils.isaura_report import (
   report_isaura_coverage,
   check_isaura_version_consistency,
+  create_and_migrate_project,
+  project_exists,
 )
 from zairachem.base.vars import (
   PARAMETERS_FILE,
@@ -213,8 +216,8 @@ class PredictSetup(object):
     )
 
     project = os.path.basename(os.path.normpath(self.output_dir))
-    read = "on" if params.get("read_store") else "off"
-    write = "on" if params.get("contribute_store") else "off"
+    read = "[green]on[/]" if params.get("read_store") else "[red]off[/]"
+    write = "[green]on[/]" if params.get("contribute_store") else "[red]off[/]"
     isaura = (
       f"project [bold]{project}[/] (read {read} · write {write}) · "
       f"lake [bold]{DEFAULT_ISAURA_BUCKET}[/]"
@@ -272,7 +275,21 @@ class PredictSetup(object):
     report_model_images(featurizers, projections)
     # Coverage/version checks always inspect the central lake (migration source), not the project.
     check_isaura_version_consistency(DEFAULT_ISAURA_BUCKET, featurizers, projections)
-    report_isaura_coverage(DEFAULT_ISAURA_BUCKET, featurizers, projections, self._input_smiles())
+    smiles = self._input_smiles()
+    report_isaura_coverage(DEFAULT_ISAURA_BUCKET, featurizers, projections, smiles)
+    # Project lifecycle (provisional for predict; the well-defined case is fit).
+    if self.contribute_store:
+      create_and_migrate_project(
+        self.contribute_store, featurizers, projections, smiles, output_dir=self.output_dir
+      )
+    elif self.read_store and project_exists(self.read_store) is False:
+      echo(
+        f"Isaura project '{self.read_store}' does not exist — nothing to read; "
+        "computing from scratch.",
+        kind="warning",
+      )
+      self.read_store = None
+      self._update_params()
     self.update_elapsed_time()
 
 

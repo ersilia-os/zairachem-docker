@@ -64,6 +64,10 @@ def process_group(clean, flush, anonymize, batch_size=None, clean_target=CLEAN_T
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
   Describer(path=None, batch_size=batch_size).run()
 
+  from zairachem.base.utils.isaura_report import report_data_provenance
+
+  report_data_provenance()
+
   from zairachem.treat.imputers.impute import Imputer
 
   logger.configure()
@@ -157,7 +161,7 @@ def common_options(
           "-e",
           required=False,
           default=None,
-          help="Ersilia Model Hub IDs for the featurizer and projection models.",
+          help="Featurizer model IDs (e.g. 'eos8aa5' or 'eos8aa5,eos3l5f'), or a JSON file with featurizer_ids/projection_ids.",
         ),
       )
 
@@ -452,10 +456,12 @@ def setup_cmd(input_file, classification, model_dir, eos_ids, clean, flush, anon
 )
 def describe_cmd(clean, flush, anonymize, batch_size):
   from zairachem.describe.descriptors.describe import Describer
+  from zairachem.base.utils.isaura_report import report_data_provenance
 
   logger.configure()
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
   Describer(path=None, batch_size=batch_size).run()
+  report_data_provenance()
 
 
 @cli.command(name="treat", help="Impute and clean the computed descriptors.")

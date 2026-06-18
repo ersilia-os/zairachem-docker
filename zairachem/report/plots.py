@@ -51,8 +51,8 @@ class ActivesInactivesPlot(BasePlot):
       )
       y_min = 0
       y_max = max(actives, inactives)
-      range = y_max - y_min
-      ax.set_ylim(0 - range * 0.02, y_max + range * 0.1)
+      y_range = y_max - y_min
+      ax.set_ylim(0 - y_range * 0.02, y_max + y_range * 0.1)
       ax.text(
         0,
         actives + y_max * 0.02,
@@ -252,13 +252,13 @@ class IndividualEstimatorsAurocPlot(BasePlot):
         fpr, tpr, _ = roc_curve(bt, list(df_ys[yp]))
         aucs += [auc(fpr, tpr)]
         labels += [yp]
-      y = [i for i in range(len(labels))]
+      y = list(range(len(labels)))
       x = aucs
       cmap = SpectralColormap()
       cmap.fit([0.5, 1])
       colors = cmap.transform(x)
 
-      def format(l):
+      def _format_label(l):
         l = l.replace("_", " ").replace("-", " ")
         return l.title()
 
@@ -266,7 +266,7 @@ class IndividualEstimatorsAurocPlot(BasePlot):
         ax.text(
           0.75,
           i,
-          "{0} / {1}".format(format(labels[i]), np.round(x[i], 3)),
+          "{0} / {1}".format(_format_label(labels[i]), np.round(x[i], 3)),
           va="center",
           ha="center",
         )
@@ -327,7 +327,7 @@ class IndividualEstimatorsR2Plot(BasePlot):
       for yp in list(df_ys.columns):
         scores += [r2_score(yt, list(df_ys[yp]))]
         labels += [yp]
-      x = [i for i in range(len(labels))]
+      x = list(range(len(labels)))
       y = scores
       ax.scatter(x, y, color=named_colors.red)
       ax.set_xticks(x)
@@ -688,8 +688,8 @@ class TanimotoSimilarityToTrainPlot(BasePlot):
       columns = [c for c in list(df.columns) if c.startswith("sim")]
       df = df[columns]
       cmap = SpectralColormap()
-      cmap.fit([i for i in range(len(columns))])
-      colors = cmap.transform([i for i in range(len(columns))])
+      cmap.fit(list(range(len(columns))))
+      colors = cmap.transform(list(range(len(columns))))
       for i, col in enumerate(columns):
         ax.hist(list(df[col]), cumulative=True, color=colors[i])
       ax.set_xlabel("Tanimoto similarity")

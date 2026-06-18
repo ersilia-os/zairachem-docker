@@ -21,7 +21,6 @@
 import unittest
 
 import numpy as np
-import pandas as pd
 import pickle
 import ghost
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
@@ -53,11 +52,6 @@ class TestGHOST(unittest.TestCase):
     test_probs = cls.predict_proba(fps_test)[:, 1]  # prediction probabilities for the test set
     # store predictions in dataframe
     scores = [1 if x >= 0.5 else 0 for x in test_probs]
-    df_preds = pd.DataFrame({
-      "mol_names": names_test,
-      "y_true": labels_test,
-      "standard": scores,
-    })
 
     # generate and show some evaluation stats for the model on the test data:
 

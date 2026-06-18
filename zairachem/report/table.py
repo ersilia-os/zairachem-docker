@@ -117,13 +117,13 @@ class OutputTable(BaseTable, ResultsFetcher):
       values = self.get_pred_proba_clf()
       return self.map_to_original(values)
       # values = self.get_pred_reg_trans()
-    except:
+    except Exception:
       return None
 
   def _get_ensemble_predictions_columns(self):
     try:
       tasks = self.get_clf_tasks()
-    except:
+    except Exception:
       tasks = self.get_reg_tasks()
     task = tasks[0]
     df = self._read_individual_estimator_results(task)

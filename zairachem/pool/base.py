@@ -1,11 +1,11 @@
-import json, h5py, os, gc
+import json, os, gc
 import numpy as np
 import pandas as pd
-from typing import Iterator, Tuple, List
+from typing import Iterator, Tuple
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import Hdf5, ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
   PARAMETERS_FILE,
