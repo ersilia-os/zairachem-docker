@@ -49,20 +49,30 @@ class ResultsFetcher(ZairaBase):
     self.clf_task = "bin"
     self.reg_task = "val"
     self.params = self.get_parameters()
+    # Per-instance read caches. The report builds one fetcher and then queries it dozens of times
+    # (every plot guard, every output-table column), each of which previously re-read the same CSVs
+    # from disk. Frames returned from here are treated as READ-ONLY by callers (they slice columns or
+    # build new frames; none mutate in place), so a shared cached object is safe.
+    self._csv_cache = {}
+    self._map_cache = {}
+
+  def _read_csv_cached(self, path):
+    df = self._csv_cache.get(path)
+    if df is None:
+      df = pd.read_csv(path)
+      self._csv_cache[path] = df
+    return df
 
   def _read_data(self):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
 
   def _read_data_train(self):
-    df = pd.read_csv(os.path.join(self.trained_path, DATA_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.trained_path, DATA_SUBFOLDER, DATA_FILENAME))
 
   def _read_pooled_results(self, path=None):
     if path is None:
       path = self.path
-    df = pd.read_csv(os.path.join(path, POOL_SUBFOLDER, RESULTS_UNMAPPED_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(path, POOL_SUBFOLDER, RESULTS_UNMAPPED_FILENAME))
 
   def _read_pooled_results_train(self):
     return self._read_pooled_results(path=self.trained_path)
@@ -75,7 +85,7 @@ class ResultsFetcher(ZairaBase):
     for rpath in ResultsIterator(path=path).iter_relpaths():
       prefixes += ["-".join(rpath)]
       file_name = "/".join([path, ESTIMATORS_SUBFOLDER] + rpath + [RESULTS_UNMAPPED_FILENAME])
-      df = pd.read_csv(file_name)
+      df = self._read_csv_cached(file_name)
       R += [list(df[task])]
     d = collections.OrderedDict()
     for i in range(len(R)):
@@ -130,12 +140,10 @@ class ResultsFetcher(ZairaBase):
     }
 
   def _read_processed_data(self):
-    df = pd.read_csv(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME))
 
   def _read_processed_data_train(self):
-    df = pd.read_csv(os.path.join(self.trained_path, POOL_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.trained_path, POOL_SUBFOLDER, DATA_FILENAME))
 
   def get_tasks(self):
     df = self._read_data()
@@ -392,18 +400,30 @@ class ResultsFetcher(ZairaBase):
   def regression_performance_report(self):
     pass
 
+  def _dedupe_to_original_index(self):
+    """``(n_original, {dedupe_row -> [original_rows]})`` for remapping result rows back to the input.
+
+    Built once per fetcher and cached: ``map_to_original`` is called once per report column (10+), and
+    the raw-input + mapping files don't change within a run."""
+    cached = self._map_cache.get("index")
+    if cached is None:
+      n = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME)).shape[
+        0
+      ]
+      dm = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, MAPPING_FILENAME))
+      dm = dm[dm[MAPPING_DEDUPE_COLUMN].notnull()]
+      u2o = collections.defaultdict(list)
+      for v in dm[[MAPPING_ORIGINAL_COLUMN, MAPPING_DEDUPE_COLUMN]].values:
+        u2o[int(v[1])] += [int(v[0])]
+      cached = (n, u2o)
+      self._map_cache["index"] = cached
+    return cached
+
   def map_to_original(self, values):
-    n = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME)).shape[0]
-    dm = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, MAPPING_FILENAME))
-    dm = dm[dm[MAPPING_DEDUPE_COLUMN].notnull()]
-    u2o = collections.defaultdict(list)
-    for v in dm[[MAPPING_ORIGINAL_COLUMN, MAPPING_DEDUPE_COLUMN]].values:
-      u2o[int(v[1])] += [int(v[0])]
+    n, u2o = self._dedupe_to_original_index()
     mapped_values = [None] * n
     for i, v in enumerate(values):
       if i in u2o:
         for idx in u2o[i]:
           mapped_values[idx] = v
-      else:
-        continue
     return mapped_values

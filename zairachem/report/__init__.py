@@ -28,29 +28,25 @@ class BaseResults(ZairaBase):
       self.path = self.get_output_dir()
     else:
       self.path = path
+    self._data_columns = None  # cached column names of data.csv (read once; see _columns())
+
+  def _columns(self):
+    """Column names of the run's ``data.csv``, read once and cached. Every plot's availability guard
+    (``has_clf_data`` etc.) consults these, so re-reading the CSV per call was pure waste."""
+    if self._data_columns is None:
+      # Only the header is needed (these are column-name checks), so read zero rows.
+      df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME), nrows=0)
+      self._data_columns = list(df.columns)
+    return self._data_columns
 
   def has_outcome_data(self):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    for c in list(df.columns):
-      if "clf" in c:
-        return True
-      if "reg" in c:
-        return True
-    return False
+    return any("clf" in c or "reg" in c for c in self._columns())
 
   def has_clf_data(self):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    for c in list(df.columns):
-      if "bin" in c and "_skip" not in c and "_aux" not in c:
-        return True
-    return False
+    return any("bin" in c and "_skip" not in c and "_aux" not in c for c in self._columns())
 
   def has_reg_data(self):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    for c in list(df.columns):
-      if "val" in c and "_skip" not in c and "_aux" not in c:
-        return True
-    return False
+    return any("val" in c and "_skip" not in c and "_aux" not in c for c in self._columns())
 
 
 class BaseTable(BaseResults):
