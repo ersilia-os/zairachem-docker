@@ -25,10 +25,6 @@ DEDUPE_BATCH_SIZE = 5000
 DEDUPE_MAX_WORKERS = None
 
 
-def _create_progress():
-  return SetupProgress()
-
-
 def _validate_smiles_batch(batch_data):
   results = []
   for idx, cid, smi in batch_data:
@@ -138,7 +134,7 @@ class SingleFile(InputSchema):
   def _validate_smiles_sequential(self, data):
     results = []
     n_total = len(data)
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Validating SMILES", total=n_total)
       for idx, cid, smi in data:
         mol = Chem.MolFromSmiles(smi) if smi else None
@@ -156,7 +152,7 @@ class SingleFile(InputSchema):
       batches.append(data[start:end])
     logger.info(f"[dedupe] Validating {n_total:,} SMILES in {n_batches:,} batches (parallel)")
     results = []
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Validating SMILES", total=n_batches)
       with ProcessPoolExecutor(max_workers=DEDUPE_MAX_WORKERS) as executor:
         futures = {

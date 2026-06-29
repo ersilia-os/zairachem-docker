@@ -12,10 +12,6 @@ from zairachem.base.vars import (
 from zairachem.base.utils.logging import logger
 
 
-def _create_progress():
-  return SetupProgress()
-
-
 class DataMerger(object):
   def __init__(self, path):
     self.path = path
@@ -42,7 +38,7 @@ class DataMergerForPrediction(object):
   def run(self, has_tasks):
     cpd_file = os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME)
     out_file = os.path.join(self.path, DATA_FILENAME)
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       if not has_tasks:
         task = progress.add_task("Merging data", total=3)
         df = pd.read_csv(cpd_file, usecols=[COMPOUND_IDENTIFIER_COLUMN, STANDARD_SMILES_COLUMN])

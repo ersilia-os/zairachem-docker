@@ -27,10 +27,6 @@ DEFAULT_BATCH_SIZE = 1000
 MAX_WORKERS = None
 
 
-def _create_progress():
-  return SetupProgress()
-
-
 def _standardize_single(smi):
   try:
     st_smi = standardize_molblock_from_smiles(smi, get_smiles=True)
@@ -65,7 +61,7 @@ class ChemblStandardize(object):
   def _run_sequential(self, df):
     R = []
     n_total = len(df)
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_total)
       for idx, r in enumerate(df.values):
         identifier = r[0]
@@ -89,7 +85,7 @@ class ChemblStandardize(object):
       f"[standardize] Processing {n_total:,} molecules in {n_batches:,} batches (parallel)"
     )
     results_by_batch = {}
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_batches)
       with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
         futures = {executor.submit(_standardize_batch, batch): i for i, batch in enumerate(batches)}
@@ -112,7 +108,7 @@ class ChemblStandardize(object):
     n_total = len(df)
     logger.info(f"[standardize] Processing {n_total:,} molecules")
     R = []
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_total)
       for r in df.values:
         identifier = r[0]

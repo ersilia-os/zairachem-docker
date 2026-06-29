@@ -22,10 +22,6 @@ from zairachem.base.utils.logging import logger
 MAX_CHECK_SAMPLES = 10000
 
 
-def _create_progress():
-  return SetupProgress()
-
-
 class SetupChecker(object):
   def __init__(self, path):
     input_dir = os.path.join(path, DATA_SUBFOLDER)
@@ -83,7 +79,7 @@ class SetupChecker(object):
     else:
       logger.info(f"[check] Checking {n_total:,} molecules for SMILES consistency")
     discrepancies = 0
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Checking SMILES", total=n_total)
       for oidx, uidx, cid in valid_rows:
         oidx = int(oidx)
@@ -138,7 +134,7 @@ class SetupChecker(object):
     discrepancies = 0
     # Distinct compounds whose duplicate rows disagreed on activity (collapsed across their rows).
     conflicts = set()
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Checking activity", total=n_total)
       for oidx, uidx, cid in valid_rows:
         oidx = int(oidx)

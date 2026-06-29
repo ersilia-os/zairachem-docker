@@ -10,7 +10,6 @@ from zairachem.base.vars import (
   OUTPUT_FILENAME,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
-  OUTPUT_XLSX_FILENAME,
   DATA_SUBFOLDER,
   DATA_FILENAME,
   RAW_INPUT_FILENAME,
@@ -164,10 +163,6 @@ class Anonymizer(ZairaBase):
     file_name = os.path.join(path, DATA_SUBFOLDER, RAW_INPUT_FILENAME + ".csv")
     self._remove_file_if_exists(file_name)
 
-  def _remove_output_table_xlsx(self, path):
-    file_name = os.path.join(path, OUTPUT_XLSX_FILENAME)
-    self._remove_file_if_exists(file_name)
-
   def _clear_all_sensitive_columns(self, path):
     self._replace_sensitive_columns(os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME))
     self._replace_sensitive_columns(os.path.join(path, OUTPUT_FILENAME))
@@ -225,7 +220,6 @@ class Anonymizer(ZairaBase):
 
   def _anonymize_path(self, path):
     self._remove_raw_input(path)
-    self._remove_output_table_xlsx(path)
     self._clear_all_sensitive_columns(path)
     self._clear_descriptors(path)
     self._clear_estimators(path)

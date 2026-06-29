@@ -1154,7 +1154,7 @@ def _detail_rows(key, output_dir=None):
       rows.append(("plots", f"{total} [dim]· {breakdown}[/]"))
     outs = [
       f
-      for f in ("output.csv", "output.xlsx")
+      for f in ("output.csv",)
       if os.path.exists(os.path.join(d, RESULTS_SUBFOLDER, f))
     ]
     if outs:
@@ -1172,7 +1172,7 @@ def _detail_rows(key, output_dir=None):
       rows.append(("size", f"{size:,.1f} MB"))
     present = [
       f
-      for f in ("output.csv", "output.xlsx")
+      for f in ("output.csv",)
       if os.path.exists(os.path.join(d, RESULTS_SUBFOLDER, f))
     ]
     from zairachem.base.vars import REPORT_SUBFOLDER

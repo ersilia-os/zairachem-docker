@@ -79,14 +79,13 @@ DESCRIPTORS_SUBFOLDER = "pipeline/00_descriptors"
 ESTIMATORS_SUBFOLDER = "pipeline/01_estimators"
 POOL_SUBFOLDER = "pipeline/02_pool"
 REPORT_SUBFOLDER = "report"
-# Deliverables live under results/. OUTPUT_FILENAME / OUTPUT_XLSX_FILENAME are deliverable-only, so
-# they carry the results/ prefix and cascade through is_done()/required-artifacts/finish. The two
-# table filenames are bare because they are ALSO written inside report/ (report/<table>); finish
-# copies them to results/ via RESULTS_SUBFOLDER.
+# Deliverables live under results/. OUTPUT_FILENAME is deliverable-only, so it carries the results/
+# prefix and cascades through is_done()/required-artifacts/finish. The two table filenames are bare
+# because they are ALSO written inside report/ (report/<table>); finish copies them to results/ via
+# RESULTS_SUBFOLDER.
 OUTPUT_FILENAME = "results/output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
-OUTPUT_XLSX_FILENAME = "results/output.xlsx"
 # Report-only 2-D projections (row-aligned to data.csv); written by the treat/manifolds step.
 PROJECTIONS_FILENAME = "projections.csv"
 PROJECTIONS_MANIFEST_FILENAME = "projections.json"
