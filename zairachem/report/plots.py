@@ -48,6 +48,8 @@ category_palette = CategoricalPalette("npg")
 
 
 class ActivesInactivesPlot(BasePlot):
+  """Bar chart of the active vs. inactive compound counts (classification only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
     if self.has_clf_data():
@@ -93,6 +95,8 @@ class ActivesInactivesPlot(BasePlot):
 
 
 class ConfusionPlot(BasePlot):
+  """Confusion matrix of the pooled binary classifier (classification only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_clf_data():
@@ -117,6 +121,8 @@ class ConfusionPlot(BasePlot):
 
 
 class RocCurvePlot(BasePlot):
+  """ROC curve and AUROC of the pooled classifier (classification only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
     if self.has_clf_data():
@@ -140,6 +146,8 @@ class RocCurvePlot(BasePlot):
 
 
 class ScoreViolinPlot(BasePlot):
+  """Violin plot of the classifier score distribution split by true class (classification only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
     if self.has_clf_data():
@@ -165,6 +173,8 @@ class ScoreViolinPlot(BasePlot):
 
 
 class ScoreStripPlot(BasePlot):
+  """Per-compound classifier scores as a jittered strip with quartile boxes, by true class."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
     self.MAX_SAMPLES = 1000
@@ -244,6 +254,8 @@ class ScoreStripPlot(BasePlot):
 
 
 class IndividualEstimatorsAurocPlot(BasePlot):
+  """Per-descriptor AUROC, one horizontal bar per descriptor model (classification only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_clf_data():
@@ -294,6 +306,8 @@ class IndividualEstimatorsAurocPlot(BasePlot):
 
 
 class IndividualEstimatorsClassificationScorePlot(BasePlot):
+  """Per-descriptor classifier score distributions as boxplots (classification only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_clf_data():
@@ -319,6 +333,8 @@ class IndividualEstimatorsClassificationScorePlot(BasePlot):
 
 
 class IndividualEstimatorsR2Plot(BasePlot):
+  """Per-descriptor R² against the transformed target (regression only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_reg_data():
@@ -418,6 +434,8 @@ class ProjectionPlot(BasePlot):
 
 
 class RegressionPlotTransf(BasePlot):
+  """Predicted vs. observed scatter on the transformed activity, with R²/MAE (regression only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_reg_data():
@@ -439,6 +457,8 @@ class RegressionPlotTransf(BasePlot):
 
 
 class HistogramPlotTransf(BasePlot):
+  """Histogram of the predicted (transformed) activity (regression only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_reg_data():
@@ -455,6 +475,8 @@ class HistogramPlotTransf(BasePlot):
 
 
 class RegressionPlotRaw(BasePlot):
+  """Predicted vs. observed scatter on the raw activity, with R²/MAE (regression only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_reg_data():
@@ -476,6 +498,8 @@ class RegressionPlotRaw(BasePlot):
 
 
 class HistogramPlotRaw(BasePlot):
+  """Histogram of the predicted (raw) activity (regression only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_reg_data():
@@ -492,6 +516,8 @@ class HistogramPlotRaw(BasePlot):
 
 
 class Transformation(BasePlot):
+  """Scatter of the raw → transformed activity mapping applied before training (regression only)."""
+
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path)
     if self.has_reg_data():

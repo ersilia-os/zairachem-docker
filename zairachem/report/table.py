@@ -14,6 +14,12 @@ from zairachem.base.vars import (
 
 
 class PerformanceTable(BaseTable, ResultsFetcher):
+  """Writes ``report/performance_table.csv`` — per-model and pooled performance metrics.
+
+  One row per descriptor estimator plus a ``pooled`` row, each with the classification metrics
+  (regression is a TODO). Skips quietly when there is no/single-class labelled truth (e.g. predict
+  without ground truth)."""
+
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
@@ -65,6 +71,7 @@ class PerformanceTable(BaseTable, ResultsFetcher):
     )
 
   def run(self):
+    """Compute every model's metrics and write the performance table CSV (no-op if metrics skip)."""
     data = collections.defaultdict(list)
     d = self._general_performance()
     data["model"] += ["pooled"]
@@ -84,6 +91,12 @@ class PerformanceTable(BaseTable, ResultsFetcher):
 
 
 class OutputTable(BaseTable, ResultsFetcher):
+  """Writes ``report/output_table.csv`` — the per-compound predictions, mapped back to the input rows.
+
+  Columns: input SMILES, InChIKey, standardized SMILES, true value (if known), pooled prediction, each
+  descriptor's ensemble prediction, and the projection (x, y) pairs. All values are remapped from the
+  deduplicated run rows to the original input order via :meth:`map_to_original`."""
+
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
@@ -147,6 +160,7 @@ class OutputTable(BaseTable, ResultsFetcher):
         yield (f"{proj['name']}-{axis}", self.map_to_original(list(vals)))
 
   def run(self):
+    """Assemble all output columns (remapped to input order) and write the output table CSV."""
     data = {}
     data["input-smiles"] = self._get_input_smiles_column()
     data["inchikey"] = self._get_inchikey_column()
