@@ -87,17 +87,26 @@ class BinaryStreamClient(ZairaBase):
       # ("batch", done, total) events up to the table instead of owning its own Progress bar / prints.
       self._progress_cb = None
       self.project_name = project_name
+      self.schema = None  # (col_names, col_dtypes, width); lazily fetched + cached via _get_schema
     except Exception as e:
       logger.error(f"Error during BinaryStreamClient initialization: {e}")
       raise
 
+  def _get_schema(self):
+    """This model's output schema, fetched at most once per client. ``fetch_schema_from_github`` is
+    also process-cached, but the resolve/placeholder paths ask for it several times per run, so caching
+    on the instance avoids the repeated lookups entirely. Not cached when the fetch fails (returns
+    None), so a transient failure can still recover."""
+    if self.schema is None:
+      self.schema = fetch_schema_from_github(self.model_id)
+    return self.schema
+
   def resolve_dtype(self):
-    self.schema = fetch_schema_from_github(self.model_id)
-    return "float" if "float" in set(self.schema[1]) else "int"
+    schema = self._get_schema()
+    return "float" if "float" in set(schema[1]) else "int"
 
   def resolve_dims(self):
-    self.schema = fetch_schema_from_github(self.model_id)
-    return self.schema[0]
+    return self._get_schema()[0]
 
   def resolve_version(self, model_id, bucket):
     try:
@@ -221,7 +230,7 @@ class BinaryStreamClient(ZairaBase):
   def _placeholder_row(self):
     try:
       if self._feature_len is None:
-        self._feature_len = len(fetch_schema_from_github(self.model_id)[0])
+        self._feature_len = len(self._get_schema()[0])
       return np.full((1, self._feature_len), np.nan, dtype=float)
     except Exception as e:
       logger.error(f"Error creating placeholder row: {e}")
@@ -608,7 +617,7 @@ class BinaryStreamClient(ZairaBase):
     if isaura_batch_size is None:
       isaura_batch_size = DEFAULT_ISAURA_BATCH_SIZE
     n_total = len(self.input_data)
-    self.schema = fetch_schema_from_github(self.model_id)
+    self._get_schema()
     dtype = self.resolve_dtype()
     logger.info(f"Reading precalculations from project: {self.read_store}")
 
@@ -645,12 +654,12 @@ class BinaryStreamClient(ZairaBase):
       cols = self.resolve_dims()
 
     full = np.full((n_total, len(cols)), np.nan, dtype="float32")
+    # Scatter the read + computed blocks into their original row positions via fancy indexing (the
+    # index lists align row-for-row with the value blocks), instead of a per-row Python loop.
     if read_vals is not None:
-      for k, i in enumerate(present_idx):
-        full[i, :] = read_vals[k]
+      full[present_idx] = read_vals
     if comp_vals is not None:
-      for k, i in enumerate(absent_idx):
-        full[i, :] = comp_vals[k]
+      full[absent_idx] = comp_vals
 
     self._record_provenance(n_total, n_from_project, n_computed)
     return self._assemble_results(full, cols, dtype, output_h5, isaura_batch_size)
@@ -694,7 +703,7 @@ class BinaryStreamClient(ZairaBase):
       cols = None
       n_ok = 0  # rows the server actually returned (vs NaN placeholders for failures)
       if output_h5:
-        schema_cols = fetch_schema_from_github(self.model_id)[0]
+        schema_cols = self._get_schema()[0]
         h5_store = ChunkedH5Store(output_h5)
         h5_store.create(len(schema_cols), schema_cols)
         cols = schema_cols
