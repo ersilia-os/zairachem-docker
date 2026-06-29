@@ -1,11 +1,11 @@
-import json, os
+import os
 import pandas as pd
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
-from zairachem.base.vars import DATA_SUBFOLDER, DATA_FILENAME, PARAMETERS_FILE
+from zairachem.base.vars import DATA_SUBFOLDER, DATA_FILENAME
 from zairachem.estimate.estimators.evaluate import SimpleEvaluator
 from zairachem.estimate.estimators.lazy_qsar.pipe import LazyQsarAutoMLPipeline
 
@@ -29,11 +29,6 @@ class EstimatorPipeline(ZairaBase):
   def _get_data_size(self):
     data = pd.read_csv(os.path.join(self.get_trained_dir(), DATA_SUBFOLDER, DATA_FILENAME))
     return data.shape[0]
-
-  def _load_params(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-      params = json.load(f)
-    return params
 
   def _lazyqsar_estimator_pipeline(self):
     step = PipelineStep("lazy-qsar", self.output_dir)

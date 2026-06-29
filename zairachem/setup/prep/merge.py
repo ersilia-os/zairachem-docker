@@ -1,15 +1,6 @@
 import os
 import pandas as pd
-from rich.progress import (
-  Progress,
-  ProgressColumn,
-  SpinnerColumn,
-  TextColumn,
-  TimeElapsedColumn,
-  TimeRemainingColumn,
-  MofNCompleteColumn,
-)
-from rich.progress_bar import ProgressBar
+from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
   STANDARD_COMPOUNDS_FILENAME,
   TASKS_FILENAME,
@@ -21,47 +12,8 @@ from zairachem.base.vars import (
 from zairachem.base.utils.logging import logger
 
 
-class _PulseBarColumn(ProgressColumn):
-  def __init__(
-    self,
-    bar_width: int = 40,
-    style: str = "bar.back",
-    complete_style: str = "bar.complete",
-    finished_style: str = "bar.finished",
-    pulse_style: str = "bar.pulse",
-  ) -> None:
-    super().__init__()
-    self.bar_width = int(bar_width)
-    self.style = style
-    self.complete_style = complete_style
-    self.finished_style = finished_style
-    self.pulse_style = pulse_style
-
-  def render(self, task) -> ProgressBar:
-    return ProgressBar(
-      total=task.total,
-      completed=task.completed,
-      width=max(1, self.bar_width),
-      pulse=not task.finished,
-      animation_time=task.get_time(),
-      style=self.style,
-      complete_style=self.complete_style,
-      finished_style=self.finished_style,
-      pulse_style=self.pulse_style,
-    )
-
-
 def _create_progress():
-  return Progress(
-    SpinnerColumn(),
-    TextColumn("[bold blue]{task.description}"),
-    _PulseBarColumn(bar_width=40),
-    MofNCompleteColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-    TimeElapsedColumn(),
-    TimeRemainingColumn(),
-    transient=True,
-  )
+  return SetupProgress()
 
 
 class DataMerger(object):
@@ -107,7 +59,10 @@ class DataMergerForPrediction(object):
         tsk_file = os.path.join(self.path, TASKS_FILENAME)
         df_tsk = pd.read_csv(tsk_file)
         progress.update(task, advance=1, description=f"Loaded {len(df_tsk):,} task records")
-        df = df_cpd.merge(df_tsk, on=COMPOUND_IDENTIFIER_COLUMN)
+        # Left join: at predict the task table may cover only the labelled compounds (partial ground
+        # truth), so unlabelled compounds must keep their prediction rows (truth becomes NaN, which the
+        # report's metric helpers drop). At fit every compound is labelled, so this is still 1:1.
+        df = df_cpd.merge(df_tsk, on=COMPOUND_IDENTIFIER_COLUMN, how="left")
         progress.update(task, advance=1, description=f"Merged {len(df):,} records")
         df.to_csv(out_file, index=False)
         progress.update(task, advance=1, description="Writing merged data")

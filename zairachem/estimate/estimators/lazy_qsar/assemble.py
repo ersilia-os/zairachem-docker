@@ -33,6 +33,11 @@ class IndividualOutcomeAssembler(BaseOutcomeAssembler):
       data[c] = r["y_hat"]
       if "b_hat" in r:
         data[c + "_bin"] = r["b_hat"]
+      # Per-sample reliability signals for the pooler (see make_classification_report).
+      if "r_hat" in r:
+        data[c + "_rank"] = r["r_hat"]
+      if "a_hat" in r:
+        data[c + "_ad"] = r["a_hat"]
     return pd.DataFrame(data)
 
   def run(self):

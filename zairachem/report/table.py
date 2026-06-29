@@ -45,17 +45,24 @@ class PerformanceTable(BaseTable, ResultsFetcher):
       yield (col, data)
 
   def _general_performance(self):
-    if self.is_clf:
-      y_true_train = list(self.get_actives_inactives_trained())
-      y_true_test = list(self.get_actives_inactives())
-      y_pred_train = list(self.get_pred_proba_clf_trained())
-      y_pred_test = list(self.get_pred_proba_clf())
-      data = self.classification_performance_report(
-        y_true_train, y_pred_train, y_true_test, y_pred_test
+    if not self.is_clf:
+      return None  # TODO regression
+    # Guard: validation needs at least two classes among the labelled (current-run) compounds.
+    # At predict with no/partial/single-class truth this is degenerate — skip metrics, don't crash.
+    yt_labeled = self.clf_truth_proba()[0]
+    if len(yt_labeled) == 0 or len(set(yt_labeled.tolist())) < 2:
+      from zairachem.base.utils.logging import logger
+
+      logger.warning(
+        "[report] Ground-truth labels are absent or single-class — skipping performance metrics."
       )
-    else:
-      data = None  # TODO
-    return data
+      return None
+    return self.classification_performance_report(
+      list(self.get_actives_inactives_trained()),
+      list(self.get_pred_proba_clf_trained()),
+      list(self.get_actives_inactives()),
+      list(self.get_pred_proba_clf()),
+    )
 
   def run(self):
     data = collections.defaultdict(list)
@@ -138,24 +145,6 @@ class OutputTable(BaseTable, ResultsFetcher):
     for proj in self.get_projections():
       for axis, vals in ((proj["x_label"], proj["xs"]), (proj["y_label"], proj["ys"])):
         yield (f"{proj['name']}-{axis}", self.map_to_original(list(vals)))
-
-  def _get_basic_properties_columns(self):
-    df = self.get_basic_properties()
-    if df is not None:
-      columns = list(df.columns)
-      for col in columns:
-        v = list(df[col])
-        v = self.map_to_original(v)
-        yield (col, v)
-
-  def _get_similarity_to_training_set_columns(self):
-    df = self.get_tanimoto_similarities_to_training_set()
-    if df is not None:
-      columns = list(df.columns)
-      for col in columns:
-        v = list(df[col])
-        v = self.map_to_original(v)
-        yield (col, v)
 
   def run(self):
     data = {}

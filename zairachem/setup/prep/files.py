@@ -3,46 +3,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 from rdkit import Chem
-from rich.progress import (
-  Progress,
-  ProgressColumn,
-  SpinnerColumn,
-  TextColumn,
-  TimeElapsedColumn,
-  TimeRemainingColumn,
-  MofNCompleteColumn,
-)
-from rich.progress_bar import ProgressBar
-
-
-class _PulseBarColumn(ProgressColumn):
-  def __init__(
-    self,
-    bar_width: int = 40,
-    style: str = "bar.back",
-    complete_style: str = "bar.complete",
-    finished_style: str = "bar.finished",
-    pulse_style: str = "bar.pulse",
-  ) -> None:
-    super().__init__()
-    self.bar_width = int(bar_width)
-    self.style = style
-    self.complete_style = complete_style
-    self.finished_style = finished_style
-    self.pulse_style = pulse_style
-
-  def render(self, task) -> ProgressBar:
-    return ProgressBar(
-      total=task.total,
-      completed=task.completed,
-      width=max(1, self.bar_width),
-      pulse=not task.finished,
-      animation_time=task.get_time(),
-      style=self.style,
-      complete_style=self.complete_style,
-      finished_style=self.finished_style,
-      pulse_style=self.pulse_style,
-    )
+from zairachem.base.utils.progress import SetupProgress
 
 
 from zairachem.setup.prep.schema import InputSchema
@@ -65,16 +26,7 @@ DEDUPE_MAX_WORKERS = None
 
 
 def _create_progress():
-  return Progress(
-    SpinnerColumn(),
-    TextColumn("[bold blue]{task.description}"),
-    _PulseBarColumn(bar_width=40),
-    MofNCompleteColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-    TimeElapsedColumn(),
-    TimeRemainingColumn(),
-    transient=True,
-  )
+  return SetupProgress()
 
 
 def _validate_smiles_batch(batch_data):
@@ -100,6 +52,22 @@ class ModelIdsFile(object):
     self.path = os.path.abspath(value)
     self.data = None
 
+  @classmethod
+  def parse_ids(cls, value, flag="--featurizer-ids"):
+    """Parse comma/space-separated Ersilia Model Hub IDs into a validated list.
+
+    Raises ``ValueError`` (naming ``flag``) if any token isn't a valid ``eosXXXX`` id.
+    """
+    ids = [t for t in re.split(r"[,\s]+", str(value).strip()) if t]
+    bad = [t for t in ids if not cls._EOS_RE.match(t)]
+    if not ids or bad:
+      offenders = ", ".join(bad) if bad else "(empty)"
+      raise ValueError(
+        f"{flag} '{value}' is not valid Ersilia Model Hub IDs (offending: {offenders}). "
+        f"Pass IDs like 'eos8aa5' or 'eos8aa5,eos3l5f'."
+      )
+    return ids
+
   def load(self):
     if self.data is not None:
       return self.data
@@ -108,16 +76,7 @@ class ModelIdsFile(object):
         self.data = json.load(f)
       return self.data
     # Not a file: parse the value as comma/space-separated featurizer model IDs.
-    ids = [t for t in re.split(r"[,\s]+", str(self.value).strip()) if t]
-    bad = [t for t in ids if not self._EOS_RE.match(t)]
-    if not ids or bad:
-      offenders = ", ".join(bad) if bad else "(empty)"
-      raise ValueError(
-        f"--eos-ids '{self.value}' is neither an existing file nor valid Ersilia Model Hub IDs "
-        f"(offending: {offenders}). Pass IDs like 'eos8aa5' or 'eos8aa5,eos3l5f', or a JSON file "
-        f'with {{"featurizer_ids": [...], "projection_ids": [...]}}.'
-      )
-    self.data = {"featurizer_ids": ids}
+    self.data = {"featurizer_ids": self.parse_ids(self.value, flag="--featurizer-ids")}
     return self.data
 
   def get_featurizer_ids(self):
@@ -274,10 +233,16 @@ class SingleFile(InputSchema):
       ]
     ].values:
       dedupe[r[0]] += [(r[1])]
+    # Aggregate duplicate compounds by the median of their activity values. For CLASSIFICATION the
+    # values are binary labels, so round the median back to a 0/1 label (a tie of 0.5 → 1); for
+    # REGRESSION keep the continuous median as-is.
+    task = (self.params or {}).get("task")
     R = []
     for k, v in dedupe.items():
-      v = np.median(list(v))
-      R += [[k, v]]
+      m = float(np.median(list(v)))
+      if task == "classification":
+        m = 1 if m >= 0.5 else 0
+      R += [[k, m]]
     dfv = pd.DataFrame(
       R,
       columns=[
@@ -317,24 +282,24 @@ class SingleFileForPrediction(SingleFile):
       return json.load(f)["values_column"]
 
   def normalize_dataframe(self):
-    resolved_columns = self.resolve_columns()
+    # Recognise a ground-truth column ONLY when it is named exactly like the fit-time activity column
+    # (case-insensitive, trimmed). Any other extra columns in the input are ignored — so prediction
+    # never depends on, or crashes over, unrelated numeric columns.
+    trained_values_column = self.get_trained_values_column() if self.params is not None else None
+    resolved_columns = self.resolve_columns(values_column_name=trained_values_column)
     self.smiles_column = resolved_columns["smiles_column"]
-    identifiers = self._make_identifiers()
-    df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
     self.values_column = resolved_columns["values_column"]
-    if self.values_column is not None and self.params is not None:
-      trained_values_column = self.get_trained_values_column()
-      if self.values_column != trained_values_column:
-        self.logger.warning(
-          "Inconsistent values column, {0} vs {1}".format(self.values_column, trained_values_column)
-        )
+    identifiers = self._make_identifiers()
     df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
     df[SMILES_COLUMN] = self.df[self.smiles_column]
     assert df.shape[0] == self.df.shape[0]
 
-    if self.values_column is not None and self.params is not None:
+    if self.values_column is not None:
       df[VALUES_COLUMN] = self.df[self.values_column]
       self.has_tasks = True
+      self.logger.info(
+        f"[setup] Ground-truth column '{self.values_column}' found — predictions will be validated."
+      )
     else:
       self.has_tasks = False
 
@@ -354,8 +319,14 @@ class SingleFileForPrediction(SingleFile):
     dfc = self.dedupe(df, path)
     dfc.to_csv(os.path.join(path, COMPOUNDS_FILENAME), index=False)
     if self.has_tasks:
-      dfv = self.values_table(df)
-      dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
+      # Validate only on labelled compounds — rows with a blank ground-truth value still get a
+      # prediction but contribute no truth. If nothing is labelled, fall back to predict-only.
+      labeled = df[df[VALUES_COLUMN].notnull()]
+      if len(labeled):
+        dfv = self.values_table(labeled)
+        dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
+      else:
+        self.has_tasks = False
     schema = self.input_schema()
     with open(os.path.join(path, INPUT_SCHEMA_FILENAME), "w") as f:
       json.dump(schema, f, indent=4)

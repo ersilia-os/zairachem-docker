@@ -13,6 +13,7 @@ from zairachem.base.vars import (
   PARAMETERS_FILE,
   SMILES_COLUMN,
   DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
   DATA_FILENAME,
   ESTIMATORS_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
@@ -38,7 +39,7 @@ class BaseEstimator(ZairaBase):
     self.task = self._get_task()
 
   def _get_task(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       task = json.load(f)["task"]
     return task
 
@@ -53,7 +54,7 @@ class BaseEstimatorIndividual(BaseEstimator):
     self.task = self._get_task()
 
   def _get_task(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       task = json.load(f)["task"]
     return task
 

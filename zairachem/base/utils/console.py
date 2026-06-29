@@ -17,7 +17,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 #: Process-wide console for pretty output. Shared so every step prints consistently.
-console = Console()
+#: ``highlight=False``: all colour comes from our explicit markup/themes, not rich's automatic
+#: number/string highlighter (which speckles digits cyan and fights the deliberate step palette).
+console = Console(highlight=False)
 
 #: Accent colour of the step currently running (set by the tracker); falls back to cyan.
 _active_color = "cyan"
@@ -84,7 +86,7 @@ def detail(rows, *, color=None, indent=3):
     if isinstance(value, (list, tuple)):
       value = "  ".join(str(v) for v in value)
     table.add_row(label, str(value))
-  console.print(Padding(table, (0, 0, 0, indent)))
+  console.print(Padding(table, (1, 0, 0, indent)))
 
 
 def themed_table(title, *, color=None, caption=None):

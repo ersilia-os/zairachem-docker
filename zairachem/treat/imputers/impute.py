@@ -3,12 +3,17 @@ import os
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
-from zairachem.treat.imputers.manifolds import Manifolds
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.treat.imputers.treated import TreatedDescriptors
 
 
 class Imputer(ZairaBase):
+  """Treat step: apply the reference transformers to the descriptors only.
+
+  Projections (the 2-D embeddings shown in the report) are computed by the separate Projections
+  step (``treat.imputers.manifolds.Manifolds``); they are shown as-is and are not transformed here.
+  """
+
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     if path is None:
@@ -26,17 +31,7 @@ class Imputer(ZairaBase):
       TreatedDescriptors(chunk_size=self.batch_size).run()
       step.update()
 
-  def _manifolds(self):
-    step = PipelineStep("manifolds", self.output_dir)
-    if step.is_done():
-      logger.info("Imputation already done — skipping.")
-      return
-    logger.info(f"[manifolds] Using batch size: {self.batch_size}")
-    Manifolds(batch_size=self.batch_size).run()
-    step.update()
-
   def run(self):
     self.reset_time()
     self._treated_descriptions()
-    self._manifolds()
     self.update_elapsed_time()

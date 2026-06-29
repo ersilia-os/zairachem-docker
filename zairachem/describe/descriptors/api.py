@@ -1,7 +1,9 @@
+import contextlib
 import csv
 import json
 import hashlib
 import os
+import threading
 import time
 import gc
 import requests
@@ -15,7 +17,7 @@ from zairachem.base.utils.utils import (
   fetch_schema_from_github,
 )
 from zairachem.base.utils.model_version import ersilia_model_version
-from zairachem.base.vars import DATA_SUBFOLDER, PARAMETERS_FILE
+from zairachem.base.vars import METADATA_SUBFOLDER, PARAMETERS_FILE
 from urllib.parse import urlparse
 from rich.progress import (
   Progress,
@@ -47,6 +49,14 @@ DEFAULT_BATCH_SIZE = 1000
 
 
 class BinaryStreamClient(ZairaBase):
+  # ALL isaura store access (reads, index lookups AND writes) is serialized across models. Describe
+  # featurizes models concurrently, but isaura's DuckDB/S3 layer is not thread-safe — concurrent
+  # IsauraReader/IsauraInspect/IsauraWriter from worker threads collide (a shared connection gets
+  # "already closed"). Only the store I/O is serialized; the slow part — the model-server HTTP calls —
+  # still runs fully in parallel. Shared by every client instance, so it serializes across the whole
+  # describe thread pool; uncontended (and free) in the default serial path.
+  _store_lock = threading.RLock()
+
   def __init__(
     self, csv_path, model_id=None, url=None, project_name=None, batch_size=DEFAULT_BATCH_SIZE
   ):
@@ -62,8 +72,20 @@ class BinaryStreamClient(ZairaBase):
       self.params = self._load_params()
       self.read_store = self.params.get("read_store")
       self.contribute_store = self.params.get("contribute_store")
-      self.nns = bool(self.params.get("enable_nns", False))
       self._feature_len = None
+      # Served-model output modality: try "heavy" (fast binary) first; if it fails the model latches
+      # to "simple" (JSON) for the rest of the run — see _try_request.
+      self._output_mode = "heavy"
+      # Which provenance group this client's results count toward: "featurizers" (default) or
+      # "projections" (set by the treat/manifolds step when computing projection models).
+      self._provenance_kind = "featurizers"
+      # Whether _run shows its own live progress bar. Disabled when several models are featurized
+      # concurrently (rich allows only one live display at a time, so concurrent bars would clash).
+      self._show_progress = True
+      # Optional progress callback ``(model_id, *event)`` injected by a step's live-table monitor
+      # (Describe/projections). When set, this client reports ("plan", n_cached, n_compute) and
+      # ("batch", done, total) events up to the table instead of owning its own Progress bar / prints.
+      self._progress_cb = None
       self.project_name = project_name
     except Exception as e:
       logger.error(f"Error during BinaryStreamClient initialization: {e}")
@@ -93,19 +115,10 @@ class BinaryStreamClient(ZairaBase):
 
   def _save_params(self, params):
     try:
-      with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "w") as f:
+      with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "w") as f:
         json.dump(params, f, indent=2)
     except Exception as e:
       logger.error(f"Error saving params to disk: {e}")
-      raise
-
-  def _load_params(self):
-    try:
-      with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-        params = json.load(f)
-      return params
-    except Exception as e:
-      logger.error(f"Error loading params from disk: {e}")
       raise
 
   def _load_data(self):
@@ -238,28 +251,75 @@ class BinaryStreamClient(ZairaBase):
       time.sleep(sleep_s)
     raise RuntimeError(f"Server not ready after {attempts} attempts at {root}")
 
-  def _try_request(self, batch):
-    try:
-      self._ensure_ready()
-      params = {"output_type": "heavy"}
-      headers = {
-        "Content-Type": "application/json",
-        "Accept": "*/*",
-        "Connection": "close",
-      }
-      payload = json.dumps(batch, separators=(",", ":"))
-      response = requests.post(
-        self.url, params=params, data=payload, headers=headers, stream=True, timeout=(10, None)
+  def _decode_json_records(self, response):
+    """Parse a `simple` (JSON `records`) /run response into a (n, n_features) float array.
+
+    Each record is a dict keyed by the model's output columns; values are pulled in `resolve_dims()`
+    order so the matrix aligns with the rest of the pipeline. JSON `null` becomes NaN. The companion
+    `results` meta is empty — `_run` overwrites dims/dtype/shape/data downstream regardless.
+    """
+    records = response.json()
+    if not isinstance(records, list):
+      raise IOError(
+        f"Unexpected JSON /run response (expected a list, got {type(records).__name__})"
       )
-      response.raise_for_status()
+    dims = self.resolve_dims()
+    rows = [[rec.get(d) for d in dims] if isinstance(rec, dict) else list(rec) for rec in records]
+    array = np.array(rows, dtype=float)  # None -> NaN
+    return array, {}
+
+  def _attempt(self, mode, batch):
+    """POST one batch in a given output modality and return (array, results). Raises on any error.
+
+    `mode` is "heavy" (binary stream) or "simple" (JSON records). On a non-OK HTTP status the raised
+    error includes the server's response body so the real cause is visible (not just the status).
+    """
+    self._ensure_ready()
+    headers = {"Content-Type": "application/json", "Accept": "*/*", "Connection": "close"}
+    payload = json.dumps(batch, separators=(",", ":"))
+    response = requests.post(
+      self.url,
+      params={"output_type": mode},
+      data=payload,
+      headers=headers,
+      stream=(mode == "heavy"),
+      timeout=(10, None),
+    )
+    if not response.ok:
+      body = (response.text or "").strip().replace("\n", " ")[:500]
+      raise requests.HTTPError(
+        f"{response.status_code} {response.reason} from {self.url} (output_type={mode}): {body}",
+        response=response,
+      )
+    if mode == "heavy":
       array, results = self.decode_binary_stream(response)
-      if self._feature_len is None:
-        arr0 = array[0] if isinstance(array, (list, tuple)) else array
-        arr0 = np.asarray(arr0)
-        self._feature_len = arr0.shape[-1] if arr0.ndim > 1 else arr0.shape[0]
-      return array, results
+    else:
+      array, results = self._decode_json_records(response)
+    if self._feature_len is None:
+      arr0 = np.asarray(array[0] if isinstance(array, (list, tuple)) else array)
+      self._feature_len = arr0.shape[-1] if arr0.ndim > 1 else arr0.shape[0]
+    return array, results
+
+  def _try_request(self, batch):
+    """Request one batch, picking the output modality at the model level.
+
+    `heavy` (fast binary) is tried first; the first time it fails, the whole model latches to
+    `simple` (JSON) and the batch is retried once. This is "heavy when it works, JSON when it
+    doesn't" — a per-model choice, not a per-molecule one. Genuinely unprocessable molecules are
+    handled by the caller's bisection (NaN placeholders), independent of the modality.
+    """
+    try:
+      return self._attempt(self._output_mode, batch)
     except Exception as e:
-      logger.error(f"Error in _try_request for batch of size {len(batch)}: {e}")
+      if self._output_mode == "heavy":
+        # Benign transport fallback (results are identical) — log it for --verbose, don't print it
+        # to the console on every run.
+        self.logger.info(
+          f"{self.model_id}: 'heavy' output failed ({e}); using JSON for this model."
+        )
+        self._output_mode = "simple"
+        return self._attempt("simple", batch)
+      logger.debug(f"Error in _try_request for batch of size {len(batch)}: {e}")
       raise
 
   def _fetch_or_split(self, batch, idx_offset, depth=0):
@@ -272,11 +332,14 @@ class BinaryStreamClient(ZairaBase):
           arrays_out = [np.asarray(row).reshape(1, -1) for row in array]
         return arrays_out, [True] * len(arrays_out), results
       except (requests.RequestException, IOError) as e:
-        logger.error(
+        # Per-split failures are expected while isolating a bad molecule; keep them at debug so the
+        # console isn't flooded. The heavy→JSON modality switch happens in _try_request; a
+        # fully-failed run is reported once by _run's all-failed guard.
+        logger.debug(
           f"Request/IO error in _fetch_or_split at depth {depth}, idx_offset {idx_offset}: {e}"
         )
         if len(batch) == 1:
-          logger.error(f"Failed to process single-element batch at idx_offset {idx_offset}")
+          logger.debug(f"Failed to process single-element batch at idx_offset {idx_offset}")
           return [None], [False], None
         mid = len(batch) // 2
         left_arrays, left_mask, left_res = self._fetch_or_split(batch[:mid], idx_offset, depth + 1)
@@ -358,8 +421,22 @@ class BinaryStreamClient(ZairaBase):
     else:
       writer.write(df=self._get_ersilia_df(res))
 
+  def _report(self, *event):
+    """Forward a progress event ``(model_id, *event)`` to the injected monitor callback, if any."""
+    cb = getattr(self, "_progress_cb", None)
+    if cb is not None:
+      with contextlib.suppress(Exception):
+        cb(self.model_id, *event)
+
   def _announce_plan(self, n_cached, n_compute):
-    """Print an attractive one-line per-model sourcing plan (cached vs to-compute)."""
+    """Print an attractive one-line per-model sourcing plan (cached vs to-compute).
+
+    When a progress callback is wired, the sourcing plan is reported to the live table instead of
+    printed standalone, so the table is the single source of truth.
+    """
+    if getattr(self, "_progress_cb", None) is not None:
+      self._report("plan", n_cached, n_compute)
+      return
     ver = getattr(self, "version", None)
     parts = []
     if n_cached:
@@ -383,6 +460,9 @@ class BinaryStreamClient(ZairaBase):
       isaura_batch_size = DEFAULT_ISAURA_BATCH_SIZE
     n_total = len(self.input_data)
     any_results = None
+    # Only the rows actually computed this run get written back. When everything is read from the
+    # store there is nothing new to cache, so we skip the (otherwise all-duplicate) write entirely.
+    to_contribute = None
     if self.contribute_store or self.read_store:
       self.version = self.resolve_version(self.model_id, self.read_store)
     if not self.read_store:
@@ -392,9 +472,13 @@ class BinaryStreamClient(ZairaBase):
       # Record provenance even without a store so the per-model provenance box always renders
       # (everything computed via Ersilia this run).
       self._record_provenance(n_total, 0, n_total)
+      to_contribute = any_results  # all rows are freshly computed
     else:
       try:
+        self._computed_results = None
         any_results = self._run_hybrid(output_h5=output_h5, isaura_batch_size=isaura_batch_size)
+        # Hybrid contributes only its cache misses (None when everything came from the store).
+        to_contribute = self._computed_results
       except SystemExit as e:
         # The project has no data for this model yet: compute everything via Ersilia.
         logger.info(
@@ -403,11 +487,19 @@ class BinaryStreamClient(ZairaBase):
         self._announce_plan(0, n_total)
         any_results = self._run(output_h5=output_h5)
         self._record_provenance(n_total, 0, n_total)
+        to_contribute = any_results
       except Exception as e:
         logger.error(f"Unhandled error in run: {e}")
         raise
-    self._contribute(any_results, isaura_batch_size)
-    echo(f"[bold green]{self.model_id}[/] ready [dim]·[/] {n_total:,} descriptors", kind="success")
+    if to_contribute is not None:
+      # Serial across the describe pool — only one model touches the store at a time.
+      with BinaryStreamClient._store_lock:
+        self._contribute(to_contribute, isaura_batch_size)
+    # When a monitor callback is wired, the step's live table reports completion (per row); only
+    # print the standalone success line for the unmonitored/standalone case.
+    if getattr(self, "_progress_cb", None) is None:
+      noun = "projections" if self._provenance_kind == "projections" else "descriptors"
+      echo(f"[bold green]{self.model_id}[/] ready [dim]·[/] {n_total:,} {noun}", kind="success")
     return any_results
 
   def _record_provenance(self, n_total, n_from_project, n_computed):
@@ -415,7 +507,7 @@ class BinaryStreamClient(ZairaBase):
       from zairachem.base.utils.isaura_report import record_provenance
 
       record_provenance(
-        self.path, "featurizers", self.model_id, n_total, n_from_project, n_computed
+        self.path, self._provenance_kind, self.model_id, n_total, n_from_project, n_computed
       )
     except Exception:
       pass
@@ -454,38 +546,54 @@ class BinaryStreamClient(ZairaBase):
     """
     from isaura.manage import IsauraInspect
 
-    try:
-      idx = (
-        IsauraInspect(model_id=self.model_id, model_version=self.version, cloud=False).load_index(
-          self.read_store, self.model_id, self.version
-        )
-        or {}
-      )
-      return set(idx.keys())
-    except Exception:
-      return set()
+    # Serialized with all other store access: isaura's DuckDB layer isn't thread-safe (see _store_lock).
+    with BinaryStreamClient._store_lock:
+      try:
+        insp = IsauraInspect(model_id=self.model_id, model_version=self.version, cloud=False)
+        idx = insp.load_index(self.read_store, self.model_id, self.version) or {}
+        return set(idx.keys())
+      except Exception:
+        return set()
+      finally:
+        # Tear the connection down deterministically while still holding the lock, so its (possibly
+        # shared) DuckDB connection can't be closed from this thread after another thread has reopened.
+        insp = None
+        gc.collect()
 
   def _read_subset(self, smiles, isaura_batch_size):
-    """Read descriptors for a subset of (project-present) molecules, aligned to `smiles` order."""
+    """Read descriptors for a subset of (project-present) molecules, aligned to `smiles` order.
+
+    Runs entirely under :attr:`_store_lock` — isaura's DuckDB/S3 layer is not thread-safe, so the
+    parallel describe pool must not open concurrent readers. The reader is built once and the reads
+    stay chunked (with the inter-chunk gc) to bound peak memory on large reads."""
     cols = None
     rows = []
-    for lo in range(0, len(smiles), isaura_batch_size):
-      chunk = smiles[lo : lo + isaura_batch_size]
+    with BinaryStreamClient._store_lock:
       r = IsauraReader(
         model_id=self.model_id,
         model_version=self.version,
         input_csv=None,
-        approximate=self.nns,
+        approximate=False,
         bucket=self.read_store,
       )
-      rdf = r.read(df=pd.DataFrame({"input": chunk}))
-      if "input" in rdf.columns:
-        rdf = rdf.drop_duplicates(subset="input").set_index("input").reindex(chunk).reset_index()
-      if cols is None:
-        cols = rdf.columns.difference(["key", "input"]).tolist()
-      rows.append(rdf[cols].values.astype("float32"))
-      del rdf
-      gc.collect()
+      try:
+        for lo in range(0, len(smiles), isaura_batch_size):
+          chunk = smiles[lo : lo + isaura_batch_size]
+          rdf = r.read(df=pd.DataFrame({"input": chunk}))
+          if "input" in rdf.columns:
+            rdf = (
+              rdf.drop_duplicates(subset="input").set_index("input").reindex(chunk).reset_index()
+            )
+          if cols is None:
+            cols = rdf.columns.difference(["key", "input"]).tolist()
+          rows.append(rdf[cols].values.astype("float32"))
+          del rdf
+          gc.collect()
+      finally:
+        # Release the reader (and its DuckDB connection) deterministically before another thread can
+        # acquire the lock and open its own — avoids a cross-thread "connection already closed".
+        r = None
+        gc.collect()
     return (np.vstack(rows) if rows else None), cols
 
   def _run_hybrid(self, output_h5=None, isaura_batch_size=None):
@@ -519,6 +627,7 @@ class BinaryStreamClient(ZairaBase):
         [self.input_data[i] for i in present_idx], isaura_batch_size
       )
     comp_vals = None
+    self._computed_results = None
     if absent_idx:
       saved = self.input_data
       try:
@@ -527,6 +636,9 @@ class BinaryStreamClient(ZairaBase):
         comp_vals = np.asarray(comp["data"], dtype="float32")
         if cols is None:
           cols = comp.get("dims") or self.resolve_dims()
+        # `comp` holds exactly the cache-miss rows (its "inputs" are the absent molecules), so it's
+        # what we contribute back to the store — never the rows we just read from it.
+        self._computed_results = comp
       finally:
         self.input_data = saved
     if cols is None:
@@ -580,28 +692,42 @@ class BinaryStreamClient(ZairaBase):
       any_results = None
       h5_store = None
       cols = None
+      n_ok = 0  # rows the server actually returned (vs NaN placeholders for failures)
       if output_h5:
         schema_cols = fetch_schema_from_github(self.model_id)[0]
         h5_store = ChunkedH5Store(output_h5)
         h5_store.create(len(schema_cols), schema_cols)
         cols = schema_cols
-      progress = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        transient=True,
+      # Live bar only when this model is featurized on its own; suppressed under concurrency
+      # (rich permits a single live display at a time) and when a monitor callback is wired (the
+      # step's shared live table reports batch progress instead, via ("batch", done, total)).
+      show = getattr(self, "_show_progress", True) and getattr(self, "_progress_cb", None) is None
+      n_batches = max(1, -(-len(checked_input) // self.batch_size))  # ceil division
+      progress = (
+        Progress(
+          SpinnerColumn(),
+          TextColumn("[progress.description]{task.description}"),
+          BarColumn(),
+          TaskProgressColumn(),
+          MofNCompleteColumn(),
+          TimeElapsedColumn(),
+          TimeRemainingColumn(),
+          transient=True,
+        )
+        if show
+        else None
       )
       try:
-        with progress:
-          task = progress.add_task(
-            f"  [yellow]computing[/] [bold]{self.model_id}[/]", total=len(checked_input)
+        with progress if show else contextlib.nullcontext():
+          task = (
+            progress.add_task(
+              f"  [yellow]computing[/] [bold]{self.model_id}[/]", total=len(checked_input)
+            )
+            if show
+            else None
           )
           processed_count = 0
-          for start in range(0, len(checked_input), self.batch_size):
+          for batch_i, start in enumerate(range(0, len(checked_input), self.batch_size), start=1):
             batch = checked_input[start : start + self.batch_size]
             batch_abs_offset = good_idx[start]
             t0 = time.perf_counter()
@@ -615,6 +741,7 @@ class BinaryStreamClient(ZairaBase):
               for j, row in enumerate(arrays_out):
                 if isinstance(row, np.ndarray):
                   batch_arrays.append(row)
+                  n_ok += 1
                 else:
                   batch_arrays.append(self._placeholder_row())
                 batch_inputs.append(checked_input[start + j])
@@ -627,10 +754,23 @@ class BinaryStreamClient(ZairaBase):
             else:
               for j, row in enumerate(arrays_out):
                 per_item_rows[good_idx[start + j]] = row
+                if isinstance(row, np.ndarray):
+                  n_ok += 1
             processed_count += len(arrays_out)
-            progress.advance(task, len(arrays_out))
+            if show:
+              progress.advance(task, len(arrays_out))
+            else:
+              self._report("batch", batch_i, n_batches)
       finally:
         self.logger.info(f"Total elapsed: {total_time:.4f}s")
+      # A live server that returns nothing for any valid molecule means the model is broken in both
+      # modalities — abort loudly rather than train on an all-NaN descriptor matrix.
+      if checked_input and n_ok == 0:
+        raise RuntimeError(
+          f"Model '{self.model_id}' returned no descriptors for any of {len(checked_input):,} "
+          f"molecules (server failed in both 'heavy' and JSON modes). Check the model container "
+          f"logs (docker logs) for the underlying error."
+        )
       if h5_store:
         if any_results is None:
           any_results = {}

@@ -1,16 +1,20 @@
 import json, os, shutil
 
-from zairachem.base import ZairaBase, create_session_symlink
+from zairachem.base import create_session_symlink, params_path
 from zairachem.base.utils.console import summary_panel
-from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
+from zairachem.base.utils.preflight import (
+  require_docker_and_base,
+  report_model_images,
+  report_reference_transformers,
+  validate_model_roles,
+)
 from zairachem.base.utils.console import echo
+from zairachem.base.utils.utils import write_smiles_list
 from zairachem.base.utils.isaura_report import (
-  report_isaura_coverage,
+  report_store_availability,
   check_isaura_version_consistency,
-  check_isaura_project_available,
   create_and_migrate_project,
   project_exists,
-  sanitize_project_name,
 )
 from zairachem.setup.prep import (
   ModelIdsFile,
@@ -23,69 +27,67 @@ from zairachem.setup.prep import (
   PipelineStep,
   SessionFile,
 )
+from zairachem.setup.prep.base import BaseSetup, format_store_summary
 from zairachem.base.vars import (
   DEFAULT_FEATURIZERS,
   DEFAULT_PROJECTIONS,
-  PARAMETERS_FILE,
-  RAW_INPUT_FILENAME,
+  DEFAULT_REFERENCE_LIBRARY,
   DATA_SUBFOLDER,
   DATA_FILENAME,
+  METADATA_SUBFOLDER,
+  RESULTS_SUBFOLDER,
+  TRANSFORMERS_SUBFOLDER,
   INPUT_SCHEMA_FILENAME,
-  SMILES_COLUMN,
   DEFAULT_ISAURA_BUCKET,
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
-  OUTPUT_FILENAME,
 )
 
-from rdkit import RDLogger
 
-RDLogger.logger().setLevel(RDLogger.CRITICAL)
-
-
-class TrainSetup(object):
-  def __init__(self, input_file, output_dir, task, model_ids, store_read, nn, store_write):
+class TrainSetup(BaseSetup):
+  def __init__(self, input_file, output_dir, task, model_ids, store, projection_ids=None):
     if output_dir is None:
       output_dir = input_file.split(".")[0]
     if model_ids is not None:
       self.model_ids = ModelIdsFile(model_ids).load()
     else:
-      # No --eos-ids file provided: fall back to the default descriptors/projection.
+      # No --featurizer-ids given: fall back to the default descriptors.
       self.model_ids = {}
     self.featurizer_ids = self.model_ids.get("featurizer_ids", DEFAULT_FEATURIZERS)
-    # Ersilia projection models are optional (default none). The report always shows the built-in
-    # MW-vs-LogP projection, computed locally in the treat step regardless of projection_ids.
-    self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
+    # Projection models (--projection-ids) drive the report's 2-D embedding; they are NOT model
+    # features. Explicit --projection-ids wins; else a projection_ids key in the --featurizer-ids
+    # JSON file; else the default. The report always also shows the built-in MW-vs-LogP projection.
+    if projection_ids:
+      self.projection_ids = ModelIdsFile.parse_ids(projection_ids, flag="--projection-ids")
+    else:
+      self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
     self.input_file = os.path.abspath(input_file)
     self.output_dir = os.path.abspath(output_dir)
     self.task = task
     assert self.task in ["classification", "regression"]
-    # Read AND write both target the run's own project (named like the model folder). The central
-    # lake (isaura-public) is only read at the start to migrate data into the project; it is not the
-    # run's read/write store. The --store r|w|rw flags toggle read/write on the project. The folder
-    # name is sanitized to a valid S3/MinIO bucket name (lowercase, no underscores).
-    self.project = sanitize_project_name(os.path.basename(os.path.normpath(self.output_dir)))
-    project = self.project
+    # `store` is the already-resolved isaura project name (or None for "no store"), produced by the
+    # CLI: bare --store -> the model-dir name; --store NAME -> NAME; --store isaura-public -> the
+    # shared lake (read/write directly, no migration). read_store/contribute_store keep the internal
+    # describe/treat contract (both = the project, or both None); `store` is persisted so downstream
+    # steps and predict reuse the resolved name without re-deriving it.
+    self.project = store
+    project = store
     self.params = {
       "task": self.task,
       "featurizer_ids": self.featurizer_ids,
       "projection_ids": self.projection_ids,
-      "read_store": project if store_read else None,
-      "enable_nns": nn,
-      "contribute_store": project if store_write else None,
+      "store": project,
+      "read_store": project,
+      "contribute_store": project,
+      # Reference library whose pre-fitted transformers the treat step applies. Persisted so
+      # predict runs reuse the exact same library (the transformer copies are also saved per model).
+      "reference_library": DEFAULT_REFERENCE_LIBRARY,
     }
 
-  def _copy_input_file(self):
-    extension = self.input_file.split(".")[-1]
-    shutil.copy(
-      self.input_file,
-      os.path.join(self.output_dir, RAW_INPUT_FILENAME + "." + extension),
-    )
-
   def _save_params(self):
-    with open(os.path.join(self.output_dir, DATA_SUBFOLDER, PARAMETERS_FILE), "w") as f:
+    with open(params_path(self.output_dir), "w") as f:
       json.dump(self.params, f, indent=4)
 
   def _make_output_dir(self):
@@ -98,26 +100,28 @@ class TrainSetup(object):
     sf.open_session(mode="fit", output_dir=self.output_dir, model_dir=self.output_dir)
     create_session_symlink(self.output_dir)
 
-  def _make_subfolder(self, name):
-    os.makedirs(os.path.join(self.output_dir, name))
-
   def _make_subfolders(self):
     self._make_subfolder(DATA_SUBFOLDER)
+    self._make_subfolder(METADATA_SUBFOLDER)
+    self._make_subfolder(RESULTS_SUBFOLDER)
+    self._make_subfolder(TRANSFORMERS_SUBFOLDER)
     self._make_subfolder(DESCRIPTORS_SUBFOLDER)
     self._make_subfolder(ESTIMATORS_SUBFOLDER)
     self._make_subfolder(POOL_SUBFOLDER)
     self._make_subfolder(REPORT_SUBFOLDER)
 
   def _initialize(self):
+    # Always rebuild from scratch. `run_fit` already returns early for a *complete* model
+    # (output.csv present → "already trained"), so any dir reaching here is absent or a partial
+    # leftover. Rebuilding guarantees a clean state, fresh params, and — crucially — a freshly
+    # re-pointed global session symlink (a stale/dangling one otherwise crashes the run).
     step = PipelineStep("initialize", self.output_dir)
-
-    if not step.is_done():
-      self._make_output_dir()
-      self._open_session()
-      self._make_subfolders()
-      self._save_params()
-      self._copy_input_file()
-      step.update()
+    self._make_output_dir()
+    self._open_session()
+    self._make_subfolders()
+    self._save_params()
+    self._copy_input_file()
+    step.update()
 
   def _normalize_input(self):
     step = PipelineStep("normalize_input", self.output_dir)
@@ -158,23 +162,7 @@ class TrainSetup(object):
       step.update()
 
   def _isaura_summary(self):
-    # The run reads/writes its own project; the lake is migrated in at the start.
-    project = self.project
-    read = "[green]on[/]" if self.params.get("read_store") else "[red]off[/]"
-    write = "[green]on[/]" if self.params.get("contribute_store") else "[red]off[/]"
-    summary = (
-      f"project [bold]{project}[/] (read {read} · write {write}) · "
-      f"lake [bold]{DEFAULT_ISAURA_BUCKET}[/]"
-    )
-    if self.params.get("enable_nns"):
-      summary += " · nearest-neighbors"
-    return summary
-
-  def _input_smiles(self):
-    import pandas as pd
-
-    df = pd.read_csv(os.path.join(self.output_dir, DATA_SUBFOLDER, DATA_FILENAME))
-    return df[SMILES_COLUMN].astype(str).tolist()
+    return format_store_summary(self.params.get("store"))
 
   def _print_summary(self):
     import pandas as pd
@@ -223,20 +211,8 @@ class TrainSetup(object):
 
     summary_panel("ZairaChem · Setup", rows)
 
-  def update_elapsed_time(self):
-    ZairaBase().update_elapsed_time()
-
-  def is_done(self):
-    if os.path.exists(os.path.join(self.output_dir, OUTPUT_FILENAME)):
-      return True
-    else:
-      return False
-
   def setup(self):
     require_docker_and_base()
-    # Only guard the project name when we'll actually write (create) it.
-    if self.params.get("contribute_store"):
-      check_isaura_project_available(self.output_dir)
     self._initialize()
     self._normalize_input()
     self._standardise()
@@ -245,30 +221,41 @@ class TrainSetup(object):
     self._check()
     self._clean()
     self._print_summary()
+    validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
+    # Confirm every featurizer has a transformer in the reference library before any descriptors are
+    # computed; the treat step will apply these and cannot proceed without them.
+    report_reference_transformers(
+      self.featurizer_ids, self.params.get("reference_library", DEFAULT_REFERENCE_LIBRARY)
+    )
     # Coverage/version checks always inspect the central lake (the migration source), not the
     # run's own read/write project.
     check_isaura_version_consistency(
       DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids
     )
     smiles = self._input_smiles()
-    report_isaura_coverage(DEFAULT_ISAURA_BUCKET, self.featurizer_ids, self.projection_ids, smiles)
-    if self.params.get("contribute_store"):
-      # Write enabled: create the project (named like the model folder) and seed it from the lake.
+    # Persist a bare one-column `smiles` list of the run's compounds for ad-hoc manual use.
+    write_smiles_list(os.path.join(self.output_dir, DATA_SUBFOLDER), smiles)
+    # Show where the input compounds already live, as a resolution waterfall (project → lake →
+    # remote → to-compute): each store is checked only on the compounds the earlier ones didn't have.
+    # Skipped entirely with no store: nothing is read from any store, so everything is computed fresh
+    # and the availability table would be noise.
+    project = self.params.get("contribute_store")  # == read_store; both set together by --store
+    if project:
+      report_store_availability(self.featurizer_ids, self.projection_ids, smiles, project=project)
+    if project and project != DEFAULT_ISAURA_BUCKET:
+      # Store on (a named project): seed it from the lake — idempotent, so a re-run simply tops up
+      # an existing project. Describe then reads it and caches new results.
       create_and_migrate_project(
-        self.params["contribute_store"],
-        self.featurizer_ids,
-        self.projection_ids,
-        smiles,
-        output_dir=self.output_dir,
+        project, self.featurizer_ids, self.projection_ids, smiles, output_dir=self.output_dir
       )
-    elif self.params.get("read_store") and project_exists(self.params["read_store"]) is False:
-      # Read-only against a project that doesn't exist: warn and fall back to computing from scratch.
-      echo(
-        f"Isaura project '{self.params['read_store']}' does not exist — nothing to read; "
-        "computing from scratch.",
-        kind="warning",
-      )
-      self.params["read_store"] = None
-      self._save_params()
+      # Safety net: if the project still doesn't exist (isaura/engine down, migration failed),
+      # disable the store for this run so Describe computes cleanly from scratch.
+      if project_exists(project) is False:
+        echo("Isaura store unavailable — computing from scratch.", kind="warning")
+        self.params["read_store"] = None
+        self.params["contribute_store"] = None
+        self.params["store"] = None
+        self._save_params()
+    # store == isaura-public: read/write the shared lake directly — no self-migration needed.
     self.update_elapsed_time()

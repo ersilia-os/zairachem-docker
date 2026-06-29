@@ -32,19 +32,6 @@ class Hdf5Data:
       f.create_dataset("Features", data=self.features)
 
 
-class Hdf5DataLoader(object):
-  def __init__(self):
-    self.values = None
-    self.inputs = None
-    self.features = None
-
-  def load(self, h5_file):
-    with h5py.File(h5_file, "r") as f:
-      self.values = f["Values"][:]
-      self.inputs = [x.decode("utf-8") for x in f["Inputs"][:]]
-      self.features = [x.decode("utf-8") for x in f["Features"][:]]
-
-
 def load_yml(file):
   if not os.path.exists(file):
     return None

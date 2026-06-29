@@ -131,7 +131,9 @@ def generate_compose_and_nginx(
         test: ["CMD", "redis-cli", "ping"]
         interval: 5s
         timeout: 3s
-        retries: 20
+        # redis answers `ping` almost immediately once up; 5×5s is ample headroom. (Was 20, i.e. up to
+        # ~100s, which let a slow/missing redis stall every model service's `depends_on` for minutes.)
+        retries: 5
       volumes:
         - redis_data:/data
       networks:

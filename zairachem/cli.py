@@ -12,9 +12,7 @@ from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE, NGINX_IMAGE
 
 # Heavy pipeline classes (Describer, EstimatorPipeline, Reporter, run_fit, ...) pull in
 # matplotlib, lazyqsar, xgboost and onnx. They are imported lazily inside the commands that
-# use them so that `zairachem --help` and argument parsing stay fast. Only the lightweight
-# `zairachem.finish.finish` constant is needed at module load time.
-from zairachem.finish.finish import CLEAN_TARGET_ALL
+# use them so that `zairachem --help` and argument parsing stay fast.
 
 # Silence matplotlib's "Matplotlib is building the font cache; this may take a moment." notice,
 # which it logs on first import — set here (earliest entry point) before any matplotlib import.
@@ -59,7 +57,13 @@ rc.COMMAND_GROUPS = {
 }
 
 
-def process_group(clean, flush, anonymize, batch_size=None, clean_target=CLEAN_TARGET_ALL):
+def process_group(
+  anonymize,
+  batch_size=None,
+  keep_intermediate_data=False,
+  no_report=False,
+  describe_workers=None,
+):
   # Each pipeline class is imported right before its step runs, so heavy dependencies load only
   # when that step executes (matplotlib for reporting, lazyqsar/xgboost/onnx for estimation) —
   # not all at once at the start. Several of these imports call loguru's logger.remove(), so
@@ -72,12 +76,20 @@ def process_group(clean, flush, anonymize, batch_size=None, clean_target=CLEAN_T
 
   logger.configure()
   tracker.start("describe")
-  Describer(path=None, batch_size=batch_size).run()
+  Describer(path=None, batch_size=batch_size, workers=describe_workers).run()
+  tracker.complete("describe", SUMMARIES["describe"]())
 
+  # Projections are an independent 2-D embedding shown as-is in the report (NOT a transformation of
+  # the descriptors) — their own step, run while the model containers from Describe are still up.
+  from zairachem.treat.imputers.manifolds import Manifolds
   from zairachem.base.utils.isaura_report import report_data_provenance
 
-  report_data_provenance()  # describe's detail (themed green, borderless)
-  tracker.complete("describe", SUMMARIES["describe"]())
+  logger.configure()
+  tracker.start("projections")
+  Manifolds(batch_size=batch_size).run()
+  # Rendered here so it reflects BOTH featurizers (describe) and projectors (this step).
+  report_data_provenance()
+  tracker.complete("projections", SUMMARIES["projections"]())
 
   from zairachem.treat.imputers.impute import Imputer
 
@@ -104,7 +116,7 @@ def process_group(clean, flush, anonymize, batch_size=None, clean_target=CLEAN_T
 
   logger.configure()
   tracker.start("report")
-  Reporter(path=None, plot_name=None).run()
+  Reporter(path=None, plot_name=None, make_plots=not no_report).run()
   tracker.complete("report", SUMMARIES["report"]())
 
   from zairachem.finish.finish import Finisher
@@ -112,75 +124,130 @@ def process_group(clean, flush, anonymize, batch_size=None, clean_target=CLEAN_T
   logger.configure()
   tracker.start("finish")
   Finisher(
-    path=None, clean=clean, flush=flush, anonymize=anonymize, clean_target=clean_target
+    path=None,
+    anonymize=anonymize,
+    keep_intermediate_data=keep_intermediate_data,
   ).run()
   tracker.complete("finish", SUMMARIES["finish"]())
 
   final_summary_panel()
 
 
+# `--store` is an optional-value option: omitted -> None (no store); `--store` alone -> this
+# sentinel (resolve to a default name); `--store X` -> the literal X.
+_STORE_SENTINEL = "\x00default"
+
+
+def _resolve_store(value, default):
+  """Resolve the --store value to a concrete isaura project name, or None for 'no store'.
+
+  ``value`` is None (omitted), the sentinel (bare ``--store`` → use ``default``), or an explicit
+  name. The result is sanitized to a valid bucket name; ``isaura-public`` passes through unchanged.
+  """
+  if value is None:
+    return None
+  from zairachem.base.utils.isaura_report import sanitize_project_name
+
+  name = default if value == _STORE_SENTINEL else value
+  return sanitize_project_name(name) if name else None
+
+
+def _trained_store(model_dir):
+  """The store name persisted in a trained model's parameters.json (for predict reuse), or None."""
+  if not model_dir:
+    return None
+  import json
+
+  from zairachem.base.vars import METADATA_SUBFOLDER, PARAMETERS_FILE
+
+  try:
+    with open(os.path.join(model_dir, METADATA_SUBFOLDER, PARAMETERS_FILE)) as f:
+      p = json.load(f)
+    return p.get("store") or p.get("contribute_store") or p.get("read_store")
+  except Exception:
+    return None
+
+
+_STORE_HELP = (
+  "Cache descriptor precalculations in an isaura project to speed up re-runs. Omit for no store; "
+  "bare --store uses the model-directory name; --store NAME uses NAME; --store isaura-public "
+  "reads/writes the shared public lake directly."
+)
+
+_STORE_HELP_PREDICT = (
+  "isaura store to read/write. Defaults to the store the model was trained with (omit or bare "
+  "--store); --store NAME overrides; --store isaura-public uses the shared public lake."
+)
+
+_DESCRIBE_WORKERS_HELP = (
+  "How many descriptor models to featurize in parallel (default: 1 = serial). They share host "
+  "CPU/RAM/GPU through Docker, so raise this modestly."
+)
+
+
 def common_options(
   require_input: bool = True,
   include_task: bool = False,
   include_eos: bool = False,
-  include_clean_target: bool = False,
+  include_anonymize: bool = False,
+  require_model: bool = False,
 ):
   def _decorator(func):
     options = [
       click.option(
-        "--input-file", "-i", required=require_input, help="Path to the input CSV file."
+        "--input-file",
+        "-i",
+        required=require_input,
+        help="Input CSV of molecules (must contain a SMILES column).",
       ),
       click.option(
         "--model-dir",
         "-m",
-        required=False,
+        required=require_model,
         default=None,
-        help="Path to the model directory.",
-      ),
-      click.option(
-        "--clean",
-        is_flag=True,
-        help="Delete descriptor files after the run to save space.",
-      ),
-      click.option(
-        "--flush",
-        is_flag=True,
-        help="Delete model checkpoints after the run to save space.",
-      ),
-      click.option(
-        "--anonymize", is_flag=True, help="Anonymize the input molecules in all outputs."
+        help="Model directory — created here when fitting; the trained model to use when predicting.",
       ),
     ]
-    if include_clean_target:
-      options.append(
-        click.option(
-          "--clean-target",
-          "-ct",
-          type=click.Choice(["all", "model", "predict"], case_sensitive=False),
-          default="all",
-          help="Target for clean/flush/anonymize: 'all' (both model and predict dirs), 'model' (model dir only), or 'predict' (predict dir only, only valid during prediction).",
-        )
-      )
+    # Build in display order: required I/O (input, model) first, then task / featurizer-ids /
+    # projection-ids, and anonymize last. (Commands that want anonymize grouped with their own
+    # output-control flags declare it themselves instead of via include_anonymize.)
     if include_task:
-      options.insert(
-        1,
+      options.append(
         click.option(
           "--classification/--regression",
           "-c/-r",
           default=True,
           help="Model type: classification (default) or regression.",
-        ),
+        )
       )
     if include_eos:
-      options.insert(
-        2,
+      options.append(
         click.option(
-          "--eos-ids",
-          "-e",
+          "--featurizer-ids",
+          "-f",
+          "featurizer_ids",
           required=False,
           default=None,
-          help="Featurizer model IDs (e.g. 'eos8aa5' or 'eos8aa5,eos3l5f'), or a JSON file with featurizer_ids/projection_ids.",
-        ),
+          help="Descriptor model IDs, comma-separated (e.g. eos8aa5,eos3l5f), or a JSON file with featurizer_ids/projection_ids keys. Default: a curated descriptor set.",
+        )
+      )
+      options.append(
+        click.option(
+          "--projection-ids",
+          "-p",
+          "projection_ids",
+          required=False,
+          default=None,
+          help="Projection model ID(s) for the report's 2-D embedding (default: eos1klk). Overrides any projection_ids in a --featurizer-ids JSON file.",
+        )
+      )
+    if include_anonymize:
+      options.append(
+        click.option(
+          "--anonymize",
+          is_flag=True,
+          help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
+        )
       )
 
     for option in reversed(options):
@@ -304,41 +371,62 @@ def cli(verbose):
   logger.set_verbosity(verbose)
 
 
-@cli.command(name="fit", help="Train a QSAR model on labeled molecules.")
-@common_options(require_input=True, include_task=True, include_eos=True, include_clean_target=True)
+@cli.command(name="fit", help="Train a QSAR model from a labelled CSV.")
+# Required I/O (input, model from common_options) → task / featurizers → run config (store, override,
+# batch, workers) → output controls (skip-report, keep-intermediate-data, anonymize). `--anonymize`
+# is declared here (not via common_options) so it sits with the other output controls.
+@common_options(require_input=True, include_task=True, include_eos=True, require_model=True)
 @click.option(
-  "--store",
-  "-s",
-  type=click.Choice(["r", "w", "rw"], case_sensitive=False),
-  default=None,
-  help="Store access: r=read from isaura-public, w=write to the model's project, rw=both.",
+  "--store", "-s", is_flag=False, flag_value=_STORE_SENTINEL, default=None, help=_STORE_HELP
 )
 @click.option(
-  "--nearest-neighbors",
-  "-nn",
+  "--override",
+  "override_dir",
   is_flag=True,
   default=False,
-  help="Use nearest-neighbor search when fetching precalculations.",
+  help="Overwrite the model directory if it already exists (otherwise the run aborts).",
 )
 @click.option(
   "--batch-size",
-  "-bs",
+  "-b",
   default=None,
   type=int,
   help="Rows per chunk when processing large datasets (default: 10000).",
+)
+@click.option("--workers", "describe_workers", default=None, type=int, help=_DESCRIBE_WORKERS_HELP)
+@click.option(
+  "--skip-report",
+  "no_report",
+  is_flag=True,
+  default=False,
+  help="Skip the plots and the HTML report (the slow, bulky part). The prediction and performance "
+  "tables in results/ are still written.",
+)
+@click.option(
+  "--keep-intermediate-data",
+  is_flag=True,
+  default=False,
+  help="Keep intermediate data (descriptor matrices, 2-D projections, raw input copies) instead of "
+  "cleaning it at the end. The trained model and results/report are always kept either way.",
+)
+@click.option(
+  "--anonymize",
+  is_flag=True,
+  help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
 )
 def fit(
   input_file,
   classification,
   model_dir,
-  eos_ids,
-  clean,
-  flush,
+  featurizer_ids,
+  projection_ids,
   anonymize,
-  clean_target,
   store,
-  nearest_neighbors,
+  override_dir,
   batch_size,
+  keep_intermediate_data,
+  no_report,
+  describe_workers,
 ):
   from zairachem.setup.run_fit import run as run_fit
 
@@ -350,78 +438,94 @@ def fit(
     task = "classification"
   else:
     task = "regression"
-  store_read = bool(store) and "r" in store.lower()
-  store_write = bool(store) and "w" in store.lower()
   from zairachem.base.utils.progress import tracker
 
-  _model = model_dir or os.path.splitext(os.path.basename(input_file))[0]
+  store = _resolve_store(store, os.path.basename(os.path.normpath(model_dir)))
   tracker.begin(
     "ZairaChem · QSAR training",
-    subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(_model))} · {task}",
+    subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(model_dir))} · {task}",
   )
   proceed = run_fit(
     input_file,
     task,
-    store_read,
-    nearest_neighbors,
-    store_write,
+    store,
     output_dir=model_dir,
-    model_ids_file=eos_ids,
+    model_ids_file=featurizer_ids,
+    projection_ids=projection_ids,
+    override=override_dir,
   )
   if proceed:
-    process_group(clean, flush, anonymize, batch_size=batch_size, clean_target=clean_target)
+    process_group(
+      anonymize,
+      batch_size=batch_size,
+      keep_intermediate_data=keep_intermediate_data,
+      no_report=no_report,
+      describe_workers=describe_workers,
+    )
   else:
     from zairachem.base.utils.progress import final_summary_panel
 
     final_summary_panel()
 
 
-@cli.command(name="predict", help="Run predictions on a trained model.")
-@common_options(
-  require_input=True, include_task=False, include_eos=False, include_clean_target=True
+@cli.command(name="predict", help="Predict activities for new molecules with a trained model.")
+# Options render in this order: required I/O (input, model from common_options; then output) →
+# run config (store, override, batch, workers) → output controls (skip-report, keep-intermediate
+# -data, anonymize). `--anonymize` is declared here (not via common_options) so it sits with the
+# other output controls instead of between the required --model-dir and --output-dir.
+@common_options(require_input=True, require_model=True)
+@click.option(
+  "--output-dir", "-o", required=True, help="Directory to write the predictions and report into."
 )
 @click.option(
-  "--output-dir", "-o", required=False, help="Path to the output directory for predictions."
+  "--store", "-s", is_flag=False, flag_value=_STORE_SENTINEL, default=None, help=_STORE_HELP_PREDICT
 )
 @click.option(
-  "--store",
-  "-s",
-  type=click.Choice(["r", "w", "rw"], case_sensitive=False),
-  default=None,
-  help="Store access: r=read from isaura-public, w=write to the model's project, rw=both.",
-)
-@click.option(
-  "--nearest-neighbors",
-  "-nn",
+  "--override",
+  "override_dir",
   is_flag=True,
   default=False,
-  help="Use nearest-neighbor search when fetching precalculations.",
-)
-@click.option(
-  "--override-dir",
-  is_flag=True,
-  default=False,
-  help="Overwrite the output directory if it already exists.",
+  help="Overwrite the output directory if it already exists (otherwise the run aborts).",
 )
 @click.option(
   "--batch-size",
-  "-bs",
+  "-b",
   default=None,
   type=int,
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
+@click.option("--workers", "describe_workers", default=None, type=int, help=_DESCRIBE_WORKERS_HELP)
+@click.option(
+  "--skip-report",
+  "no_report",
+  is_flag=True,
+  default=False,
+  help="Skip the plots and the HTML report. The prediction and performance tables in results/ are "
+  "still written.",
+)
+@click.option(
+  "--keep-intermediate-data",
+  is_flag=True,
+  default=False,
+  help="Keep the prediction run's intermediate data (descriptor matrices, projections, input copies, "
+  "and the whole pipeline/). By default a finished predict run keeps only the results and report.",
+)
+@click.option(
+  "--anonymize",
+  is_flag=True,
+  help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
+)
 def predict(
   input_file,
   model_dir,
-  clean,
-  flush,
   anonymize,
-  clean_target,
   output_dir,
   store,
-  nearest_neighbors,
   override_dir,
   batch_size,
+  describe_workers,
+  keep_intermediate_data,
+  no_report,
 ):
   from zairachem.setup.run_predict import run as run_predict
 
@@ -429,44 +533,48 @@ def predict(
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data for prediction[/]")
   if batch_size:
     logger.info(f"[#ff69b4]Using batch size: {batch_size}[/]")
-  if clean_target:
-    logger.info(f"[#ff69b4]Clean/flush/anonymize target: {clean_target}[/]")
-  store_read = bool(store) and "r" in store.lower()
-  store_write = bool(store) and "w" in store.lower()
-  from zairachem.base.utils.progress import tracker
-
-  _out = output_dir or os.path.splitext(os.path.basename(input_file))[0]
-  tracker.begin(
-    "ZairaChem · Prediction",
-    subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(_out))}",
-  )
+  # Default to the store the model was trained with (reuse its cache) — whether --store is omitted OR
+  # given bare. An explicit --store NAME overrides; --store isaura-public uses the shared lake.
+  trained = _trained_store(model_dir)
+  if store is None or store == _STORE_SENTINEL:
+    store = trained
+  else:
+    store = _resolve_store(store, trained)
+  # run_predict validates the model folder and prints the run header only once it's confirmed ready.
   proceed = run_predict(
     input_file,
     model_dir,
     output_dir,
     override_dir,
-    store_read=store_read,
-    nn=nearest_neighbors,
-    store_write=store_write,
+    store=store,
   )
   if proceed:
-    process_group(clean, flush, anonymize, batch_size=batch_size, clean_target=clean_target)
+    process_group(
+      anonymize,
+      batch_size=batch_size,
+      keep_intermediate_data=keep_intermediate_data,
+      no_report=no_report,
+      describe_workers=describe_workers,
+    )
   else:
     from zairachem.base.utils.progress import final_summary_panel
 
     final_summary_panel()
 
 
-@cli.command(name="setup", help="Preprocess input molecules into the working directory.")
+@cli.command(name="setup", help="Standardize and prepare the input molecules.")
 @common_options(require_input=True, include_task=True, include_eos=True)
 @click.option(
-  "--store",
-  "-s",
-  type=click.Choice(["r", "w", "rw"], case_sensitive=False),
-  default=None,
-  help="Store access: r=read from isaura-public, w=write to the model's project, rw=both.",
+  "--store", "-s", is_flag=False, flag_value=_STORE_SENTINEL, default=None, help=_STORE_HELP
 )
-def setup_cmd(input_file, classification, model_dir, eos_ids, clean, flush, anonymize, store):
+def setup_cmd(
+  input_file,
+  classification,
+  model_dir,
+  featurizer_ids,
+  projection_ids,
+  store,
+):
   from zairachem.setup.run_fit import run as run_fit
 
   logger.configure()
@@ -475,47 +583,67 @@ def setup_cmd(input_file, classification, model_dir, eos_ids, clean, flush, anon
     task = "classification"
   else:
     task = "regression"
-  store_read = bool(store) and "r" in store.lower()
-  store_write = bool(store) and "w" in store.lower()
+  _model = model_dir or os.path.splitext(os.path.basename(input_file))[0]
+  store = _resolve_store(store, os.path.basename(os.path.normpath(_model)))
   run_fit(
     input_file,
     task,
-    store_read=store_read,
-    store_write=store_write,
+    store,
     output_dir=model_dir,
-    model_ids_file=eos_ids,
+    model_ids_file=featurizer_ids,
+    projection_ids=projection_ids,
   )
 
 
-@cli.command(name="describe", help="Compute molecular descriptors.")
+@cli.command(name="describe", help="Compute molecular descriptors for each featurizer.")
 @common_options(require_input=False)
 @click.option(
   "--batch-size",
-  "-bs",
+  "-b",
   default=None,
   type=int,
-  help="Rows per chunk when processing large datasets.",
+  help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def describe_cmd(clean, flush, anonymize, batch_size):
+@click.option("--workers", "describe_workers", default=None, type=int, help=_DESCRIBE_WORKERS_HELP)
+def describe_cmd(batch_size, describe_workers):
   from zairachem.describe.descriptors.describe import Describer
   from zairachem.base.utils.isaura_report import report_data_provenance
 
   logger.configure()
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
-  Describer(path=None, batch_size=batch_size).run()
+  Describer(path=None, batch_size=batch_size, workers=describe_workers).run()
   report_data_provenance()
 
 
-@cli.command(name="treat", help="Impute and clean the computed descriptors.")
+@cli.command(name="projections", help="Compute the 2-D projections shown in the report.")
 @common_options(require_input=False)
 @click.option(
   "--batch-size",
-  "-bs",
+  "-b",
   default=None,
   type=int,
-  help="Rows per chunk when processing large datasets.",
+  help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def treat_cmd(clean, flush, anonymize, batch_size):
+def projections_cmd(batch_size):
+  from zairachem.treat.imputers.manifolds import Manifolds
+  from zairachem.base.utils.isaura_report import report_data_provenance
+
+  logger.configure()
+  logger.debug("[#ff69b4]Computing 2-D projections[/]")
+  Manifolds(batch_size=batch_size).run()
+  report_data_provenance()
+
+
+@cli.command(name="treat", help="Impute and scale the descriptor matrix.")
+@common_options(require_input=False)
+@click.option(
+  "--batch-size",
+  "-b",
+  default=None,
+  type=int,
+  help="Rows per chunk when processing large datasets (default: 10000).",
+)
+def treat_cmd(batch_size):
   from zairachem.treat.imputers.impute import Imputer
 
   logger.configure()
@@ -523,16 +651,16 @@ def treat_cmd(clean, flush, anonymize, batch_size):
   Imputer(path=None, batch_size=batch_size).run()
 
 
-@cli.command(name="estimate", help="Train the base estimators.")
+@cli.command(name="estimate", help="Train the per-descriptor base estimators.")
 @common_options(require_input=False)
 @click.option(
   "--batch-size",
-  "-bs",
+  "-b",
   default=None,
   type=int,
-  help="Rows per chunk when processing large datasets.",
+  help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def estimate_cmd(clean, flush, anonymize, batch_size):
+def estimate_cmd(batch_size):
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
   # lazyqsar (pulled in by the estimator) wipes loguru sinks at import; re-assert ours.
@@ -542,16 +670,16 @@ def estimate_cmd(clean, flush, anonymize, batch_size):
   EstimatorPipeline(path=None, batch_size=batch_size).run()
 
 
-@cli.command(name="pool", help="Aggregate base-estimator predictions by bagging.")
+@cli.command(name="pool", help="Combine the per-descriptor estimators into a consensus.")
 @common_options(require_input=False)
 @click.option(
   "--batch-size",
-  "-bs",
+  "-b",
   default=None,
   type=int,
-  help="Rows per chunk when processing large datasets.",
+  help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def pool_cmd(clean, flush, anonymize, batch_size):
+def pool_cmd(batch_size):
   from zairachem.pool.pipe import PoolerPipeline
 
   logger.configure()
@@ -559,26 +687,44 @@ def pool_cmd(clean, flush, anonymize, batch_size):
   PoolerPipeline(path=None, batch_size=batch_size).run()
 
 
-@cli.command(name="report", help="Generate the performance report and plots.")
+@cli.command(name="report", help="Render the plots, tables and HTML report.")
 @common_options(require_input=False)
-@click.option("--plot-name", default=None, help="Optional name for the generated plot.")
-def report_cmd(clean, flush, anonymize, plot_name):
+@click.option(
+  "--plot-name", default=None, help="Render only the named plot instead of the full report."
+)
+@click.option(
+  "--skip-report",
+  "no_report",
+  is_flag=True,
+  default=False,
+  help="Skip the plots and the HTML report; still write the prediction and performance tables.",
+)
+def report_cmd(plot_name, no_report):
   from zairachem.report.report import Reporter
 
   logger.configure()
   logger.debug("[#ff69b4]Running the reporting pipeline[/]")
-  Reporter(path=None, plot_name=plot_name).run()
+  Reporter(path=None, plot_name=plot_name, make_plots=not no_report).run()
 
 
-@cli.command(name="finish", help="Finalize the run: clean, flush, and/or anonymize outputs.")
-@common_options(require_input=False, include_clean_target=True)
-def finish_cmd(clean, flush, anonymize, clean_target):
+@cli.command(name="finish", help="Assemble final outputs and clean up intermediate data.")
+@common_options(require_input=False, include_anonymize=True)
+@click.option(
+  "--keep-intermediate-data",
+  is_flag=True,
+  default=False,
+  help="Keep ALL intermediate data (matrices, projections, input copies, predict pipeline); by default they are "
+  "cleaned. The fitted transformers are always kept.",
+)
+def finish_cmd(anonymize, keep_intermediate_data):
   from zairachem.finish.finish import Finisher
 
   logger.configure()
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
   Finisher(
-    path=None, clean=clean, flush=flush, anonymize=anonymize, clean_target=clean_target
+    path=None,
+    anonymize=anonymize,
+    keep_intermediate_data=keep_intermediate_data,
   ).run()
 
 

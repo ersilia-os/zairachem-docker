@@ -28,6 +28,7 @@ from zairachem.base.vars import (
   MAPPING_DEDUPE_COLUMN,
   DATA_FILENAME,
   DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
@@ -83,6 +84,50 @@ class ResultsFetcher(ZairaBase):
 
   def _read_individual_estimator_results_train(self, task):
     return self._read_individual_estimator_results(task=task, path=self.trained_path)
+
+  # --- lazy-qsar internal cross-validation (captured at fit time) --------------------------------
+
+  def get_cv_stats(self):
+    """Per-descriptor lazy-qsar CV stats from cv_report.json (of the trained model), best first."""
+    stats = []
+    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
+      f = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath, "cv_report.json")
+      if os.path.exists(f):
+        try:
+          with open(f) as fh:
+            rep = json.load(fh)
+          rep["descriptor"] = rpath[-1]
+          stats.append(rep)
+        except Exception:
+          continue
+    stats.sort(key=lambda r: r.get("oof_auc") if r.get("oof_auc") is not None else -1, reverse=True)
+    return stats
+
+  def get_cv_oof(self, descriptor):
+    """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None."""
+    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
+      if rpath[-1] == descriptor:
+        f = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath, "oof.csv")
+        if os.path.exists(f):
+          df = pd.read_csv(f)
+          return list(df["oof_proba"]), list(df["y"])
+    return None
+
+  def cv_summary(self):
+    """Aggregate of the per-descriptor CV stats, or {} when none are available."""
+    stats = self.get_cv_stats()
+    aucs = [s["oof_auc"] for s in stats if s.get("oof_auc") is not None]
+    if not aucs:
+      return {}
+    gaps = [s["overfit_gap"] for s in stats if s.get("overfit_gap") is not None]
+    best = max(stats, key=lambda s: s.get("oof_auc") if s.get("oof_auc") is not None else -1)
+    return {
+      "n_descriptors": len(stats),
+      "mean_oof_auc": float(np.mean(aucs)),
+      "best_oof_auc": float(best.get("oof_auc")),
+      "best_descriptor": best.get("descriptor"),
+      "mean_overfit_gap": float(np.mean(gaps)) if gaps else None,
+    }
 
   def _read_processed_data(self):
     df = pd.read_csv(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME))
@@ -236,7 +281,7 @@ class ResultsFetcher(ZairaBase):
     return None
 
   def get_parameters(self):
-    with open(os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.trained_path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       return json.load(f)
 
   def get_smiles(self):
@@ -244,13 +289,13 @@ class ResultsFetcher(ZairaBase):
     return list(df[SMILES_COLUMN])
 
   def get_original_smiles(self):
-    raw_data = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME))
+    raw_data = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
     return list(raw_data[schema["smiles_column"]])
 
   def get_original_values(self):
-    raw_data = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME))
+    raw_data = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
     if schema["values_column"] is None:
@@ -266,7 +311,37 @@ class ResultsFetcher(ZairaBase):
       b[i] = 1
     return b
 
+  @staticmethod
+  def _aligned_truth_pred(y_true, y_pred):
+    """As float arrays with positions where ``y_true`` is NaN dropped (keeps truth↔pred aligned).
+
+    At predict, ground truth may be partial (unlabelled compounds carry NaN after the left-merge);
+    this yields the labelled subset for any (truth, prediction) pair. A no-op when truth is complete.
+    """
+    yt = np.asarray(y_true, dtype=float)
+    yp = np.asarray(y_pred, dtype=float)
+    mask = ~np.isnan(yt)
+    return yt[mask], yp[mask]
+
+  def clf_truth_proba(self):
+    """Labelled (y_true:int, y_proba:float) for the pooled classifier — NaN truth dropped."""
+    yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_proba_clf())
+    return yt.astype(int), yp
+
+  def clf_truth_binary(self):
+    """Labelled (y_true:int, y_pred_binary:int) for the pooled classifier — NaN truth dropped."""
+    yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_binary_clf())
+    return yt.astype(int), yp.astype(int)
+
+  def clf_labeled_mask(self):
+    """Boolean mask over current-run rows where the classification label is present (not NaN)."""
+    return ~np.isnan(np.asarray(self.get_actives_inactives(), dtype=float))
+
   def classification_performance_report(self, y_true_train, y_pred_train, y_true_test, y_pred_test):
+    # Drop unlabelled positions (NaN truth) so partial predict-time ground truth is handled, and
+    # ensure numpy arrays so the class-count comparisons below are elementwise.
+    y_true_train, y_pred_train = self._aligned_truth_pred(y_true_train, y_pred_train)
+    y_true_test, y_pred_test = self._aligned_truth_pred(y_true_test, y_pred_test)
     n_tr = len(y_true_train)
     n_te = len(y_true_test)
     n_tr_0 = int(np.sum(y_true_train == 0))
@@ -318,7 +393,7 @@ class ResultsFetcher(ZairaBase):
     pass
 
   def map_to_original(self, values):
-    n = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME)).shape[0]
+    n = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME)).shape[0]
     dm = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, MAPPING_FILENAME))
     dm = dm[dm[MAPPING_DEDUPE_COLUMN].notnull()]
     u2o = collections.defaultdict(list)

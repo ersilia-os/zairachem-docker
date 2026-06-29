@@ -13,7 +13,7 @@ from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.generate_config import generate_compose_and_nginx
 from zairachem.base.vars import (
   NETWORK_NAME,
-  DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
   PARAMETERS_FILE,
   ALL_FEATURIZER,
   get_free_ports,
@@ -30,7 +30,7 @@ install_file = base_file_path / "install_compose.sh"
 
 
 class Describer(ZairaBase):
-  def __init__(self, path, batch_size=None):
+  def __init__(self, path, batch_size=None, workers=None):
     ZairaBase.__init__(self)
     if path is None:
       self.path = self.get_output_dir()
@@ -41,13 +41,14 @@ class Describer(ZairaBase):
       os.makedirs(self.output_dir, exist_ok=True)
     self.models = self._get_models()
     self.batch_size = batch_size
+    self.workers = workers
     assert os.path.exists(self.output_dir)
 
   def _get_models_ports(self):
     return dict(zip(self.models, get_free_ports(len(self.models))))
 
   def _get_models(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       data = json.load(f)
     models = data["featurizer_ids"] + data["projection_ids"]
     return models
@@ -73,12 +74,12 @@ class Describer(ZairaBase):
     try:
       run_command(["docker-compose", "-f", os.fspath(compose_yml_file), "up", "-d"], quiet=True)
     except Exception as e:
-      print(e)
+      self.logger.warning(f"[describe] docker-compose up failed: {e}")
 
   def _raw_descriptions(self):
     step = PipelineStep("raw_descriptions", self.output_dir)
     if not step.is_done():
-      RawDescriptors(batch_size=self.batch_size).run()
+      RawDescriptors(batch_size=self.batch_size, workers=self.workers).run()
       step.update()
     else:
       self.logger.info("Descriptors already done — skipping.")

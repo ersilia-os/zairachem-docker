@@ -4,16 +4,7 @@ import pandas as pd
 from rdkit import DataStructs
 from rdkit import Chem
 from standardiser import standardise
-from rich.progress import (
-  Progress,
-  ProgressColumn,
-  SpinnerColumn,
-  TextColumn,
-  TimeElapsedColumn,
-  TimeRemainingColumn,
-  MofNCompleteColumn,
-)
-from rich.progress_bar import ProgressBar
+from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
   RAW_INPUT_FILENAME,
@@ -31,54 +22,16 @@ from zairachem.base.utils.logging import logger
 MAX_CHECK_SAMPLES = 10000
 
 
-class _PulseBarColumn(ProgressColumn):
-  def __init__(
-    self,
-    bar_width: int = 40,
-    style: str = "bar.back",
-    complete_style: str = "bar.complete",
-    finished_style: str = "bar.finished",
-    pulse_style: str = "bar.pulse",
-  ) -> None:
-    super().__init__()
-    self.bar_width = int(bar_width)
-    self.style = style
-    self.complete_style = complete_style
-    self.finished_style = finished_style
-    self.pulse_style = pulse_style
-
-  def render(self, task) -> ProgressBar:
-    return ProgressBar(
-      total=task.total,
-      completed=task.completed,
-      width=max(1, self.bar_width),
-      pulse=not task.finished,
-      animation_time=task.get_time(),
-      style=self.style,
-      complete_style=self.complete_style,
-      finished_style=self.finished_style,
-      pulse_style=self.pulse_style,
-    )
-
-
 def _create_progress():
-  return Progress(
-    SpinnerColumn(),
-    TextColumn("[bold blue]{task.description}"),
-    _PulseBarColumn(bar_width=40),
-    MofNCompleteColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-    TimeElapsedColumn(),
-    TimeRemainingColumn(),
-    transient=True,
-  )
+  return SetupProgress()
 
 
 class SetupChecker(object):
   def __init__(self, path):
-    for f in os.listdir(path):
+    input_dir = os.path.join(path, DATA_SUBFOLDER)
+    for f in os.listdir(input_dir):
       if RAW_INPUT_FILENAME in f:
-        self.input_file = os.path.join(path, f)
+        self.input_file = os.path.join(input_dir, f)
     self.input_schema = os.path.join(path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME)
     self.data_file = os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME)
     self.mapping_file = os.path.join(path, DATA_SUBFOLDER, MAPPING_FILENAME)
@@ -183,6 +136,8 @@ class SetupChecker(object):
     else:
       logger.info(f"[check] Checking {n_total:,} activity values")
     discrepancies = 0
+    # Distinct compounds whose duplicate rows disagreed on activity (collapsed across their rows).
+    conflicts = set()
     with _create_progress() as progress:
       task = progress.add_task("Checking activity", total=n_total)
       for oidx, uidx, cid in valid_rows:
@@ -190,12 +145,18 @@ class SetupChecker(object):
         uidx = int(uidx)
         difference = abs(ival[oidx] - dval[uidx])
         if difference > 0.01:
-          logger.warning(
-            f"[bold yellow]High activity difference detected[/]: {difference} {cid} {oidx} {uidx}"
-          )
           discrepancies += 1
+          conflicts.add(cid)
         progress.update(task, advance=1)
     logger.info(f"[check] Found {discrepancies:,} activity discrepancies")
+    if conflicts:
+      # Just a count of compounds whose duplicate rows disagreed on activity. Informational.
+      from zairachem.base.utils.console import echo
+
+      echo(
+        f"{len(conflicts):,} compound(s) had duplicate rows with differing activities.",
+        kind="warning",
+      )
 
   def run(self):
     self.remap()

@@ -1,3 +1,5 @@
+import os
+
 from zairachem.setup.prep.prediction import PredictSetup
 from zairachem.base import create_session_symlink
 from zairachem.base.utils.console import echo
@@ -9,19 +11,21 @@ def run(
   model_dir,
   output_dir=None,
   override_dir=False,
-  store_read=False,
-  nn=False,
-  store_write=False,
+  store=None,
 ):
+  # Build PredictSetup first: it validates the model folder and shows a formatted message + exits
+  # if it's incomplete — before any run header is printed.
   ps = PredictSetup(
     input_file,
     model_dir,
     output_dir,
     override_dir,
     time_budget=120,
-    store_read=store_read,
-    nn=nn,
-    store_write=store_write,
+    store=store,
+  )
+  tracker.begin(
+    "ZairaChem · Prediction",
+    subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(ps.output_dir))}",
   )
   if ps.is_done():
     create_session_symlink(ps.output_dir)

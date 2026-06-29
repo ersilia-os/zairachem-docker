@@ -2,48 +2,7 @@ import os
 import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from rich.progress import (
-  Progress,
-  ProgressColumn,
-  SpinnerColumn,
-  TextColumn,
-  TimeElapsedColumn,
-  TimeRemainingColumn,
-  MofNCompleteColumn,
-)
-from rich.progress_bar import ProgressBar
-
-
-class _PulseBarColumn(ProgressColumn):
-  def __init__(
-    self,
-    bar_width: int = 40,
-    style: str = "bar.back",
-    complete_style: str = "bar.complete",
-    finished_style: str = "bar.finished",
-    pulse_style: str = "bar.pulse",
-  ) -> None:
-    super().__init__()
-    self.bar_width = int(bar_width)
-    self.style = style
-    self.complete_style = complete_style
-    self.finished_style = finished_style
-    self.pulse_style = pulse_style
-
-  def render(self, task) -> ProgressBar:
-    return ProgressBar(
-      total=task.total,
-      completed=task.completed,
-      width=max(1, self.bar_width),
-      pulse=not task.finished,
-      animation_time=task.get_time(),
-      style=self.style,
-      complete_style=self.complete_style,
-      finished_style=self.finished_style,
-      pulse_style=self.pulse_style,
-    )
-
-
+from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
   SMILES_COLUMN,
   COMPOUNDS_FILENAME,
@@ -55,21 +14,21 @@ from zairachem.setup.tools.chembl_structure.standardizer import (
 )
 from zairachem.base.utils.logging import logger
 
+# Single source of truth for quieting RDKit's C++ app logs (e.g. "Skipping unrecognized collection
+# type … MDLV30/STEABS" emitted while parsing V3000 molblocks during standardization) — pure noise
+# that otherwise interleaves with and shreds the progress bar. Set at import so it applies in every
+# context that standardizes: fit, predict, and the ProcessPoolExecutor workers (all import this
+# module).
+from rdkit import RDLogger
+
+RDLogger.logger().setLevel(RDLogger.CRITICAL)
+
 DEFAULT_BATCH_SIZE = 1000
 MAX_WORKERS = None
 
 
 def _create_progress():
-  return Progress(
-    SpinnerColumn(),
-    TextColumn("[bold blue]{task.description}"),
-    _PulseBarColumn(bar_width=40),
-    MofNCompleteColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-    TimeElapsedColumn(),
-    TimeRemainingColumn(),
-    transient=True,
-  )
+  return SetupProgress()
 
 
 def _standardize_single(smi):

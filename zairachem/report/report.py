@@ -17,16 +17,62 @@ from zairachem.report.plots import (
   Transformation,
   IndividualEstimatorsAurocPlot,
   IndividualEstimatorsR2Plot,
-  # TanimotoSimilarityToTrainPlot,
+  CvAurocPlot,
+  CvRocPlot,
+  CvCalibrationPlot,
+  CvScoreDistributionPlot,
+  PrCurvePlot,
+  EnrichmentCurvePlot,
+  EnrichmentFactorPlot,
+  ThresholdSweepPlot,
+  DescriptorMetricHeatmapPlot,
+  OofOverfitScatterPlot,
+  PooledVsBestAurocPlot,
+  NormalizedConfusionPlot,
+  ProjectionCorrectnessPlot,
+  PropertyDistributionsPlot,
 )
 from zairachem.report.fetcher import ResultsFetcher
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
+from zairachem.base.utils.progress import LiveProgressBar, STEP_COLORS
+
+# Fixed (skip-name, plot-class) figures, in render order. Projection figures are appended dynamically
+# (one per discovered projection) because their count depends on the run's manifest.
+_PLOT_SPECS = [
+  ("actives-inactives", ActivesInactivesPlot),
+  ("confusion-matrix", ConfusionPlot),
+  ("roc-curve", RocCurvePlot),
+  ("score-violin", ScoreViolinPlot),
+  ("score-strip", ScoreStripPlot),
+  ("regression-trans", RegressionPlotTransf),
+  ("histogram-trans", HistogramPlotTransf),
+  ("regression-raw", RegressionPlotRaw),
+  ("histogram-raw", HistogramPlotRaw),
+  ("transformation", Transformation),
+  ("roc-individual", IndividualEstimatorsAurocPlot),
+  ("raw-classification-scores", IndividualEstimatorsClassificationScorePlot),
+  ("r2-individual", IndividualEstimatorsR2Plot),
+  ("cv-auroc", CvAurocPlot),
+  ("cv-roc", CvRocPlot),
+  ("cv-calibration", CvCalibrationPlot),
+  ("cv-score-distribution", CvScoreDistributionPlot),
+  ("pr-curve", PrCurvePlot),
+  ("enrichment-curve", EnrichmentCurvePlot),
+  ("enrichment-factor", EnrichmentFactorPlot),
+  ("threshold-sweep", ThresholdSweepPlot),
+  ("confusion-normalized", NormalizedConfusionPlot),
+  ("oof-overfit-scatter", OofOverfitScatterPlot),
+  ("pooled-vs-best-auroc", PooledVsBestAurocPlot),
+  ("descriptor-metric-heatmap", DescriptorMetricHeatmapPlot),
+  ("projection-correctness", ProjectionCorrectnessPlot),
+  ("property-distributions", PropertyDistributionsPlot),
+]
 
 
 class Reporter(ZairaBase):
-  def __init__(self, path, plot_name=None):
+  def __init__(self, path, plot_name=None, make_plots=True):
     ZairaBase.__init__(self)
     if path is None:
       self.path = self.get_output_dir()
@@ -35,6 +81,9 @@ class Reporter(ZairaBase):
     self.output_dir = os.path.abspath(self.path)
     assert os.path.exists(self.output_dir)
     self.plot_name = plot_name
+    # When False (--no-report) skip the figures + HTML page; still write the prediction / performance
+    # tables so results/ is fully populated.
+    self.make_plots = make_plots
 
   def __skip(self, this_name):
     if self.plot_name is None:
@@ -44,67 +93,56 @@ class Reporter(ZairaBase):
     else:
       return True
 
-  def _actives_inactives_plot(self):
-    if not self.__skip("actives-inactives"):
-      ActivesInactivesPlot(ax=None, path=self.path).save()
-
-  def _confusion_matrix_plot(self):
-    if not self.__skip("confusion-matrix"):
-      ConfusionPlot(ax=None, path=self.path).save()
-
-  def _roc_curve_plot(self):
-    if not self.__skip("roc-curve"):
-      RocCurvePlot(ax=None, path=self.path).save()
-
-  def _score_violin_plot(self):
-    if not self.__skip("score-violin"):
-      ScoreViolinPlot(ax=None, path=self.path).save()
-
-  def _score_strip_plot(self):
-    if not self.__skip("score-strip"):
-      ScoreStripPlot(ax=None, path=self.path).save()
-
-  def _projection_plots(self):
+  def _plot_jobs(self):
+    """Build the list of ``(label, PlotClass, kwargs)`` jobs to render, honouring ``plot_name`` (the
+    single-plot filter). ``label`` is the human-readable figure name shown in the progress table.
+    Projection figures are expanded from the run's manifest."""
+    jobs = []
+    for name, cls in _PLOT_SPECS:
+      if not self.__skip(name):
+        jobs.append((name.replace("-", " "), cls, {}))
     # One plot per projection discovered in the manifest (always at least MW-vs-LogP).
     for proj in ResultsFetcher(path=self.path).get_projections():
       if not self.__skip(f"projection-{proj['name']}"):
-        ProjectionPlot(ax=None, path=self.path, projection=proj).save()
+        jobs.append((f"projection {proj['name']}", ProjectionPlot, {"projection": proj}))
+    return jobs
 
-  def _regression_plot_raw(self):
-    if not self.__skip("regression-raw"):
-      RegressionPlotRaw(ax=None, path=self.path).save()
-
-  def _histogram_plot_raw(self):
-    if not self.__skip("histogram-raw"):
-      HistogramPlotRaw(ax=None, path=self.path).save()
-
-  def _regression_plot_transf(self):
-    if not self.__skip("regression-trans"):
-      RegressionPlotTransf(ax=None, path=self.path).save()
-
-  def _histogram_plot_transf(self):
-    if not self.__skip("histogram-trans"):
-      HistogramPlotTransf(ax=None, path=self.path).save()
-
-  def _transformation_plot(self):
-    if not self.__skip("transformation"):
-      Transformation(ax=None, path=self.path).save()
-
-  def _individual_estimators_auroc_plot(self):
-    if not self.__skip("roc-individual"):
-      IndividualEstimatorsAurocPlot(ax=None, path=self.path).save()
-
-  def _individual_estimators_classification_score_plot(self):
-    if not self.__skip("raw-classification-scores"):
-      IndividualEstimatorsClassificationScorePlot(ax=None, path=self.path).save()
-
-  def _individual_estimators_r2_plot(self):
-    if not self.__skip("r2-individual"):
-      IndividualEstimatorsR2Plot(ax=None, path=self.path).save()
-
-  # def _tanimoto_similarity_to_train_plot(self):
-  #   if not self.__skip("tanimoto-similarity-to-train"):
-  #     TanimotoSimilarityToTrainPlot(ax=None, path=self.path).save()
+  def _render_plots(self, jobs):
+    """Render all figures, in process and one at a time, under a single compact progress bar.
+    (Parallel rendering across processes was tried but matplotlib's global pyplot state plus stylia's
+    destructive import-time side effects made it fragile, for a step that is not the run's bottleneck —
+    so it stays serial.) A single bad figure is logged and skipped rather than sinking the whole
+    report."""
+    if not jobs:
+      return
+    bar = LiveProgressBar(
+      "Rendering plots",
+      total=len(jobs),
+      color=STEP_COLORS.get("report", "cyan"),
+      discrete=True,
+      show_bar=False,
+    )
+    n_na, n_fail = 0, 0
+    with bar.live():
+      for label, cls, kwargs in jobs:
+        bar.set_note(label)
+        try:
+          plot = cls(ax=None, path=self.path, **kwargs)
+          if getattr(plot, "is_available", True):
+            plot.save()
+          else:
+            n_na += 1  # figure not applicable to this run (e.g. regression plots for a clf model)
+        except Exception as e:
+          n_fail += 1
+          self.logger.warning(f"[report] plot {cls.__name__} failed: {e}")
+        bar.advance()
+      # Final note: anything that didn't produce a figure, so the persisted line tells the full story.
+      extras = []
+      if n_na:
+        extras.append(f"{n_na} n/a")
+      if n_fail:
+        extras.append(f"{n_fail} failed")
+      bar.set_note(" · ".join(extras))
 
   def _output_table(self):
     OutputTable(path=self.path).run()
@@ -118,23 +156,13 @@ class Reporter(ZairaBase):
     write_html_report(self.path)
 
   def run_all(self):
+    # Always: the prediction + performance tables (cheap; they ARE the results).
     self._output_table()
     self._performance_table()
-    self._actives_inactives_plot()
-    self._confusion_matrix_plot()
-    self._roc_curve_plot()
-    self._score_violin_plot()
-    self._score_strip_plot()
-    self._projection_plots()
-    self._regression_plot_transf()
-    self._histogram_plot_transf()
-    self._regression_plot_raw()
-    self._histogram_plot_raw()
-    self._transformation_plot()
-    self._individual_estimators_auroc_plot()
-    self._individual_estimators_classification_score_plot()
-    self._individual_estimators_r2_plot()
-    # self._tanimoto_similarity_to_train_plot()
+    if not self.make_plots:
+      self.logger.info("Skipping plots and HTML report (--no-report); wrote result tables only.")
+      return
+    self._render_plots(self._plot_jobs())
     self._html_report()
 
   def run(self):

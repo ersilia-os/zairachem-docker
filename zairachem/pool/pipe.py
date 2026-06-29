@@ -5,10 +5,9 @@ from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.pool.bagger.pipe import BaggerPipeline
+from zairachem.pool.reliability_pooler.pipe import ReliabilityPoolerPipeline
 from zairachem.base.vars import (
-  DATA_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
-  PARAMETERS_FILE,
 )
 
 
@@ -25,11 +24,6 @@ class PoolerPipeline(ZairaBase):
     self.params = self._load_params()
     self.descriptors = self.get_descriptors()
 
-  def _load_params(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-      params = json.load(f)
-    return params
-
   def get_descriptors(self):
     self.logger.debug("Getting individual descriptors")
     with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
@@ -39,9 +33,17 @@ class PoolerPipeline(ZairaBase):
   def _pool_pipeline(self):
     step = PipelineStep("pool", self.output_dir)
     if not step.is_done():
-      logger.info(f"[pool] Running bagger pipeline with batch_size={self.batch_size}")
-      bagger = BaggerPipeline(self.path, batch_size=self.batch_size)
-      bagger.run()
+      # Default to the per-sample reliability pooler; "bagger" restores the legacy global-weight
+      # ensemble (the only option for regression). Selectable via parameters.json "pooler".
+      pooler_name = (self.params or {}).get("pooler", "reliability")
+      if self.params and str(self.params.get("task")) == "regression":
+        pooler_name = "bagger"
+      logger.info(f"[pool] Running '{pooler_name}' pipeline with batch_size={self.batch_size}")
+      if pooler_name == "bagger":
+        pipeline = BaggerPipeline(self.path, batch_size=self.batch_size)
+      else:
+        pipeline = ReliabilityPoolerPipeline(self.path, batch_size=self.batch_size)
+      pipeline.run()
     else:
       self.logger.info("Pooling already done — skipping.")
 

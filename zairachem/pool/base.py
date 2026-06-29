@@ -6,50 +6,20 @@ from typing import Iterator, Tuple
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.results import ResultsIterator
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
   PARAMETERS_FILE,
   SMILES_COLUMN,
   DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
   DATA_FILENAME,
   ESTIMATORS_SUBFOLDER,
-  DESCRIPTORS_SUBFOLDER,
   POOL_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
 )
-
-
-class ResultsIterator(ZairaBase):
-  def __init__(self, path):
-    ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
-
-  def _read_model_ids(self):
-    with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      model_ids = list(json.load(f))
-    return model_ids
-
-  def iter_relpaths(self):
-    estimators_folder = os.path.join(self.path, ESTIMATORS_SUBFOLDER)
-    model_ids = self._read_model_ids()
-    rpaths = []
-    for est_fam in os.listdir(estimators_folder):
-      if os.path.isdir(os.path.join(estimators_folder, est_fam)):
-        focus_folder = os.path.join(estimators_folder, est_fam)
-        for d in os.listdir(focus_folder):
-          if d in model_ids:
-            rpaths += [[est_fam, d]]
-    for rpath in rpaths:
-      yield rpath
-
-  def iter_abspaths(self):
-    for rpath in self.iter_relpaths():
-      yield "/".join([self.path] + rpath)
 
 
 class XGetter(ZairaBase):
@@ -119,7 +89,7 @@ class BasePooler(ZairaBase):
     self.task = self._get_task()
 
   def _get_task(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       task = json.load(f)["task"]
     return task
 
@@ -167,10 +137,85 @@ class BasePooler(ZairaBase):
     columns = [c for c in columns if "umap-" not in c and "pca-" not in c and "tsne-" not in c]
     return df[columns]
 
+  def _filter_out_signals(self, df):
+    # The reliability pooler consumes per-sample rank/AD signals as separate aligned matrices;
+    # they must never enter the raw prediction matrix (and the legacy bagger's "clf"-substring
+    # filter would otherwise silently ingest them, e.g. "<desc>-clf_rank").
+    columns = [c for c in list(df.columns) if not c.endswith("_rank") and not c.endswith("_ad")]
+    return df[columns]
+
   def _filter_out_unwanted_columns(self, df):
     df = self._filter_out_manifolds(df)
     df = self._filter_out_bin(df)
+    df = self._filter_out_signals(df)
     return df
+
+  # ---- Reliability pooler getters -------------------------------------------------------------
+  # The reliability pooler reads the prediction matrix plus two optional per-sample signal
+  # matrices (rank quantile, applicability domain) and per-descriptor metadata (OOF AUC,
+  # rank→error curve, AD veto cutoff). Each is individually guarded so partial upstreams degrade
+  # per-signal rather than all-or-nothing.
+
+  def _get_pred_columns(self, df, task):
+    """Ordered list of the per-descriptor prediction columns (no _bin/_rank/_ad, no manifolds)."""
+    if task == "classification":
+      df = self._filter_out_unwanted_columns(df)
+      return [c for c in list(df.columns) if c.endswith("-clf")]
+    return [c for c in list(df.columns) if c.endswith("-reg")]
+
+  def _get_signal_matrix(self, df, pred_columns, suffix):
+    """(matrix (B,D) aligned to pred_columns, present) for a sibling signal suffix, or (None, False).
+
+    Returns None when any descriptor lacks the sibling column or the whole matrix is non-finite.
+    """
+    import numpy as np
+
+    cols = [c + suffix for c in pred_columns]
+    if not pred_columns or any(c not in df.columns for c in cols):
+      return None, False
+    M = np.asarray(df[cols], dtype=np.float64)
+    if not np.isfinite(M).any():
+      return None, False
+    return M, True
+
+  def _get_rank_matrix(self, df, pred_columns):
+    return self._get_signal_matrix(df, pred_columns, "_rank")
+
+  def _get_ad_matrix(self, df, pred_columns):
+    return self._get_signal_matrix(df, pred_columns, "_ad")
+
+  def _get_descriptor_meta(self, pred_columns, task):
+    """Per-descriptor (oof_auc, rank_error_curve, ad_hard_cutoff) aligned to pred_columns.
+
+    Reads each descriptor's ``pool_signals.joblib`` (written by the estimate step). At predict time
+    these training artifacts live under the trained model dir. Missing files/keys → None entries,
+    so the pooler falls back gracefully.
+    """
+    import joblib
+    from zairachem.base.utils.results import ResultsIterator
+
+    suffix = "-clf" if task == "classification" else "-reg"
+    meta_path = self.get_trained_dir() if self.is_predict() else self.path
+    # Map each descriptor's prediction column to its results folder via the relpath prefix.
+    prefix_to_dir = {}
+    for rpath in ResultsIterator(path=meta_path).iter_relpaths():
+      prefix = "-".join(rpath)
+      prefix_to_dir[prefix + suffix] = os.path.join(meta_path, ESTIMATORS_SUBFOLDER, *rpath)
+    oof_aucs, curves, cutoffs = [], [], []
+    for col in pred_columns:
+      d = prefix_to_dir.get(col)
+      sig = {}
+      if d is not None:
+        fp = os.path.join(d, "pool_signals.joblib")
+        if os.path.exists(fp):
+          try:
+            sig = joblib.load(fp)
+          except Exception:
+            sig = {}
+      oof_aucs.append(sig.get("oof_auc"))
+      curves.append(sig.get("rank_error_curve"))
+      cutoffs.append(sig.get("ad_hard_cutoff"))
+    return oof_aucs, curves, cutoffs
 
 
 class BaseOutcomeAssembler(ZairaBase):

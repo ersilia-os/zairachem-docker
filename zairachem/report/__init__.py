@@ -75,15 +75,11 @@ class BasePlot(BaseResults):
       return
     import matplotlib.pyplot as plt
 
-    # Keep the report folder tidy: PNGs in report/png/, PDFs in report/pdf/. Always save both
-    # (PNG raster at 600 dpi via stylia, PDF vector) of the same figure.
-    report = os.path.join(self.path, REPORT_SUBFOLDER)
-    png_dir = os.path.join(report, "png")
-    pdf_dir = os.path.join(report, "pdf")
+    # PNG only (report/png/). The HTML references these files directly, so a per-figure PDF copy would
+    # just double the figure footprint for a download link few use — dropped to keep the report lean.
+    png_dir = os.path.join(self.path, REPORT_SUBFOLDER, "png")
     os.makedirs(png_dir, exist_ok=True)
-    os.makedirs(pdf_dir, exist_ok=True)
     stylia.save_figure(os.path.join(png_dir, self.name + ".png"))
-    plt.savefig(os.path.join(pdf_dir, self.name + ".pdf"), bbox_inches="tight")
     plt.close()
 
   def load(self):

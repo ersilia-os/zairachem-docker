@@ -1,3 +1,5 @@
+import os
+
 from zairachem.setup.prep.training import TrainSetup
 from zairachem.base import create_session_symlink
 from zairachem.base.utils.console import echo
@@ -7,29 +9,29 @@ from zairachem.base.utils.progress import tracker, summarize_setup
 def run(
   input_file,
   task,
-  store_read=False,
-  nn=False,
-  store_write=False,
+  store=None,
   output_dir=None,
   model_ids_file=None,
+  projection_ids=None,
+  override=False,
 ):
   ts = TrainSetup(
     input_file,
     output_dir,
     model_ids=model_ids_file,
     task=task,
-    store_read=store_read,
-    nn=nn,
-    store_write=store_write,
+    store=store,
+    projection_ids=projection_ids,
   )
 
-  if ts.is_done():
-    # Already a complete model. Point the global session at THIS model (so any subsequent display
-    # reflects it, not a stale run) and stop — the caller skips the rest of the pipeline.
+  # Setup wipes and rebuilds the model directory, so refuse to clobber an existing one unless
+  # --override is given. (A complete model gets a clearer message; a partial leftover just "exists".)
+  if os.path.exists(ts.output_dir) and not override:
     create_session_symlink(ts.output_dir)
+    what = "is already a trained model" if ts.is_done() else "already exists"
     echo(
-      f"Model already trained at {ts.output_dir}. Use --flush or a different -m to retrain.",
-      kind="warning",
+      f"'{ts.output_dir}' {what}. Pass --override to overwrite it, or choose a different -m.",
+      kind="error",
     )
     return False
   tracker.start("setup")
