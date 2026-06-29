@@ -37,6 +37,10 @@ class XGetter(ZairaBase):
     return df
 
   def _get_results(self):
+    # Idempotent: reset accumulators so a second call (or get() after iter_get() on the same
+    # instance) can't double-append columns.
+    self.X = []
+    self.columns = []
     prefixes = []
     dfs = []
     for rpath in ResultsIterator(path=self.path).iter_relpaths():
@@ -127,28 +131,22 @@ class BasePooler(ZairaBase):
     Y_col = self._get_Y_col()
     return np.array(df[Y_col])
 
-  def _filter_out_bin(self, df):
-    columns = list(df.columns)
-    columns = [c for c in columns if "_bin" not in c]
-    return df[columns]
-
-  def _filter_out_manifolds(self, df):
-    columns = list(df.columns)
-    columns = [c for c in columns if "umap-" not in c and "pca-" not in c and "tsne-" not in c]
-    return df[columns]
-
-  def _filter_out_signals(self, df):
-    # The reliability pooler consumes per-sample rank/AD signals as separate aligned matrices;
-    # they must never enter the raw prediction matrix (and the legacy bagger's "clf"-substring
-    # filter would otherwise silently ingest them, e.g. "<desc>-clf_rank").
-    columns = [c for c in list(df.columns) if not c.endswith("_rank") and not c.endswith("_ad")]
-    return df[columns]
-
   def _filter_out_unwanted_columns(self, df):
-    df = self._filter_out_manifolds(df)
-    df = self._filter_out_bin(df)
-    df = self._filter_out_signals(df)
-    return df
+    # Single pass over the columns, dropping everything the meta-models must not see: manifold
+    # projections (pca-/umap-/tsne-), the binary (_bin) columns, and the per-sample rank/AD signals
+    # (which the reliability pooler consumes as separate aligned matrices, and which the legacy
+    # bagger's "clf"-substring filter would otherwise silently ingest, e.g. "<desc>-clf_rank").
+    keep = [
+      c
+      for c in df.columns
+      if "umap-" not in c
+      and "pca-" not in c
+      and "tsne-" not in c
+      and "_bin" not in c
+      and not c.endswith("_rank")
+      and not c.endswith("_ad")
+    ]
+    return df[keep]
 
   # ---- Reliability pooler getters -------------------------------------------------------------
   # The reliability pooler reads the prediction matrix plus two optional per-sample signal
