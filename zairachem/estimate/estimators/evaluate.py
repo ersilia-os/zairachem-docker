@@ -29,40 +29,35 @@ class SimpleEvaluator(ZairaBase):
       schema = json.load(f)
     return schema["values_column"]
 
-  def _run(self, valid_idxs):
+  @staticmethod
+  def _evaluate(df_true, df_pred):
+    """Per-task scores (clf -> ROC-AUC, reg -> R2) from row-aligned truth/prediction frames."""
+    data = collections.OrderedDict()
+    for c in list(df_pred.columns):
+      if c == "clf":
+        if len(set(df_true["bin"])) > 1:
+          data[c] = {"roc_auc_score": roc_auc_score(df_true["bin"], df_pred[c])}
+        else:
+          data[c] = 0.0
+      elif c == "reg":
+        data[c] = {"r2_score": r2_score(df_true["val"], df_pred[c])}
+    return data
+
+  def run(self):
+    # Read each file once, then derive BOTH the full-set evaluation and the validation-subset
+    # evaluation (fit only) from the in-memory frames — the previous two-pass version re-read
+    # data.csv and every estimator's results from disk a second time.
+    value_col = self._get_original_input_value()
+    if value_col is None:
+      return
     df_true = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    if valid_idxs is not None:
-      df_true = df_true.iloc[valid_idxs, :]
+    valid_idxs = None if self.is_predict() else self.get_validation_indices(path=self.path)
     for relpath in self.results_iterator.iter_relpaths():
       abspath = "/".join([self.path, ESTIMATORS_SUBFOLDER] + relpath)
-      file_path = os.path.join(abspath, RESULTS_UNMAPPED_FILENAME)
-      df_pred = pd.read_csv(file_path)
+      df_pred = pd.read_csv(os.path.join(abspath, RESULTS_UNMAPPED_FILENAME))
+      with open(os.path.join(abspath, SIMPLE_EVALUATION_FILENAME), "w") as f:
+        json.dump(self._evaluate(df_true, df_pred), f, indent=4)
       if valid_idxs is not None:
-        df_pred = df_pred.iloc[valid_idxs, :]
-      data = collections.OrderedDict()
-      for c in list(df_pred.columns):
-        if c == "clf":
-          c_real = "bin"
-          if len(set(df_true[c_real])) > 1:
-            data[c] = {"roc_auc_score": roc_auc_score(df_true[c_real], df_pred[c])}
-          else:
-            data[c] = 0.0
-        elif c == "reg":
-          c_real = "val"
-          data[c] = {"r2_score": r2_score(df_true[c_real], df_pred[c])}
-      if valid_idxs is not None:
-        file_name = SIMPLE_EVALUATION_VALIDATION_FILENAME
-      else:
-        file_name = SIMPLE_EVALUATION_FILENAME
-      with open(os.path.join(abspath, file_name), "w") as f:
-        json.dump(data, f, indent=4)
-
-  def run(self):  # TODO WHY RUN TWICE?
-    value_col = self._get_original_input_value()
-    if value_col is not None:
-      self._run(None)
-      if not self.is_predict():
-        valid_idxs = self.get_validation_indices(path=self.path)
-        self._run(valid_idxs)
-    else:
-      pass
+        data_v = self._evaluate(df_true.iloc[valid_idxs, :], df_pred.iloc[valid_idxs, :])
+        with open(os.path.join(abspath, SIMPLE_EVALUATION_VALIDATION_FILENAME), "w") as f:
+          json.dump(data_v, f, indent=4)
