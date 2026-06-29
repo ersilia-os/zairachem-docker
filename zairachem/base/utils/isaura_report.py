@@ -13,6 +13,7 @@ import socket
 from urllib.parse import urlparse
 
 from zairachem.base.utils.console import active_color, console, echo
+from zairachem.base.utils.logging import logger
 from zairachem.base.utils.utils import get_bucket_records
 from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.utils.progress import LiveTableMonitor
@@ -122,7 +123,8 @@ def _found_local(bucket, model_id, version, smiles, store=None):
     with IsauraChecker(bucket, model_id, version, store=store) as checker:
       seen = checker.seen_many(smiles)
     return {s for s, v in seen.items() if v[0]}
-  except Exception:
+  except Exception as e:
+    logger.debug("Store availability check failed for %s in %s (%s)", model_id, bucket, e)
     return _UNAVAILABLE
 
 
@@ -277,7 +279,10 @@ def check_isaura_version_consistency(bucket, featurizer_ids, projection_ids):
   try:
     with quiet_isaura_reads():
       stored = _stored_versions(bucket)
-  except Exception:
+  except Exception as e:
+    logger.debug(
+      "Could not read stored versions from %s; skipping consistency check (%s)", bucket, e
+    )
     return
 
   mismatches = []
@@ -417,7 +422,8 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
           except Exception:
             pass  # can't read the project — fall back to migrating all (the writer still dedups)
         to_migrate[m] = (version, present)
-      except Exception:
+      except Exception as e:
+        logger.debug("Migration pre-check failed for %s (%s)", m, e)
         to_migrate[m] = (None, None)
 
   if not any(present for _v, present in to_migrate.values()):

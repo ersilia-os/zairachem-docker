@@ -12,6 +12,7 @@ import subprocess
 
 import requests
 
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import ORG
 
 _DOCKERHUB_TAGS_URL = "https://hub.docker.com/v2/repositories/{repo}/tags?page_size=100"
@@ -99,7 +100,12 @@ def ersilia_model_version(model_id):
 def _resolve(model_id):
   try:
     tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
-  except Exception:
+  except Exception as e:
+    # Broad on purpose: ersilia_model_version() must never raise. Log so a silent default isn't
+    # mistaken for a real version when DockerHub is unreachable.
+    logger.debug(
+      "Could not resolve version for %s (%s); defaulting to %s", model_id, e, _DEFAULT_VERSION
+    )
     return _DEFAULT_VERSION
 
   # When was the locally-pulled image pushed? Use the tags sharing its digest; else the image's
@@ -138,7 +144,8 @@ def is_image_up_to_date(model_id):
     return None
   try:
     tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
-  except Exception:
+  except Exception as e:
+    logger.debug("Could not check if %s is up to date (%s)", model_id, e)
     return None
   latest_digests = set()
   for name, _last_updated, digests in tags:
