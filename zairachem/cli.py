@@ -607,8 +607,35 @@ def setup_cmd(
   )
 
 
+_MODEL_DIR_HELP = (
+  "Model directory to run this step against. Defaults to the most recent run. Re-running a step "
+  "re-executes it (e.g. re-render the report after editing a plot) without redoing the rest."
+)
+
+
+def _activate_step(model_dir, *step_names):
+  """Point a single-step command at a model and force that step to re-run.
+
+  An explicit ``-m/--model-dir`` becomes the active session (so the step operates on that model);
+  without it, the most recent run's model is used. The step's marker(s) are then unmarked so its own
+  ``is_done`` guard re-executes it — enabling fast iteration on one step against an existing model.
+  Returns the resolved absolute model directory.
+  """
+  from zairachem.base import ZairaBase, create_session_symlink
+  from zairachem.setup.prep import PipelineStep
+
+  if model_dir is not None:
+    output_dir = os.path.abspath(model_dir)
+    create_session_symlink(output_dir)
+  else:
+    output_dir = ZairaBase().get_output_dir()
+  for name in step_names:
+    PipelineStep(name, output_dir).unmark()
+  return output_dir
+
+
 @cli.command(name="describe", help="Compute molecular descriptors for each featurizer.")
-@common_options(require_input=False)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -617,18 +644,19 @@ def setup_cmd(
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
 @click.option("--workers", "describe_workers", default=None, type=int, help=_DESCRIBE_WORKERS_HELP)
-def describe_cmd(batch_size, describe_workers):
+def describe_cmd(model_dir, batch_size, describe_workers):
   from zairachem.describe.descriptors.describe import Describer
   from zairachem.base.utils.isaura_report import report_data_provenance
 
   logger.configure()
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
+  _activate_step(model_dir, "raw_descriptions")
   Describer(path=None, batch_size=batch_size, workers=describe_workers).run()
   report_data_provenance()
 
 
 @cli.command(name="projections", help="Compute the 2-D projections shown in the report.")
-@common_options(require_input=False)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -636,18 +664,19 @@ def describe_cmd(batch_size, describe_workers):
   type=int,
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def projections_cmd(batch_size):
+def projections_cmd(model_dir, batch_size):
   from zairachem.treat.imputers.manifolds import Manifolds
   from zairachem.base.utils.isaura_report import report_data_provenance
 
   logger.configure()
   logger.debug("[#ff69b4]Computing 2-D projections[/]")
+  _activate_step(model_dir, "manifolds")
   Manifolds(batch_size=batch_size).run()
   report_data_provenance()
 
 
 @cli.command(name="treat", help="Impute and scale the descriptor matrix.")
-@common_options(require_input=False)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -655,16 +684,17 @@ def projections_cmd(batch_size):
   type=int,
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def treat_cmd(batch_size):
+def treat_cmd(model_dir, batch_size):
   from zairachem.treat.imputers.impute import Imputer
 
   logger.configure()
   logger.debug("[#ff69b4]Running the treatment pipeline[/]")
+  _activate_step(model_dir, "treated_descriptions")
   Imputer(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="estimate", help="Train the per-descriptor base estimators.")
-@common_options(require_input=False)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -672,18 +702,19 @@ def treat_cmd(batch_size):
   type=int,
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def estimate_cmd(batch_size):
+def estimate_cmd(model_dir, batch_size):
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
   # lazyqsar (pulled in by the estimator) wipes loguru sinks at import; re-assert ours.
   logger.configure()
 
   logger.debug("[#ff69b4]Running the estimator pipeline[/]")
+  _activate_step(model_dir, "lazy-qsar", "simple_evaluation")
   EstimatorPipeline(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="pool", help="Combine the per-descriptor estimators into a consensus.")
-@common_options(require_input=False)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -691,16 +722,17 @@ def estimate_cmd(batch_size):
   type=int,
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
-def pool_cmd(batch_size):
+def pool_cmd(model_dir, batch_size):
   from zairachem.pool.pipe import PoolerPipeline
 
   logger.configure()
   logger.debug("[#ff69b4]Running the pooling pipeline[/]")
+  _activate_step(model_dir, "pool")
   PoolerPipeline(path=None, batch_size=batch_size).run()
 
 
 @cli.command(name="report", help="Render the plots, tables and HTML report.")
-@common_options(require_input=False)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
 @click.option(
   "--plot-name", default=None, help="Render only the named plot instead of the full report."
 )
@@ -711,16 +743,22 @@ def pool_cmd(batch_size):
   default=False,
   help="Skip the plots and the HTML report; still write the prediction and performance tables.",
 )
-def report_cmd(plot_name, no_report):
+def report_cmd(model_dir, plot_name, no_report):
   from zairachem.report.report import Reporter
 
   logger.configure()
   logger.debug("[#ff69b4]Running the reporting pipeline[/]")
+  _activate_step(model_dir, "report")
   Reporter(path=None, plot_name=plot_name, make_plots=not no_report).run()
 
 
 @cli.command(name="finish", help="Assemble final outputs and clean up intermediate data.")
-@common_options(require_input=False, include_anonymize=True)
+@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option(
+  "--anonymize",
+  is_flag=True,
+  help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
+)
 @click.option(
   "--keep-intermediate-data",
   is_flag=True,
@@ -728,11 +766,12 @@ def report_cmd(plot_name, no_report):
   help="Keep ALL intermediate data (matrices, projections, input copies, predict pipeline); by default they are "
   "cleaned. The fitted transformers are always kept.",
 )
-def finish_cmd(anonymize, keep_intermediate_data):
+def finish_cmd(model_dir, anonymize, keep_intermediate_data):
   from zairachem.finish.finish import Finisher
 
   logger.configure()
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
+  _activate_step(model_dir, "finish")
   Finisher(
     path=None,
     anonymize=anonymize,
