@@ -11,6 +11,24 @@ class SessionFile(ZairaBase):
       os.makedirs(output_dir, exist_ok=True)
     self.session_file = os.path.join(os.path.abspath(output_dir), SESSION_FILE)
 
+  def _host_info(self):
+    """Characteristics of the machine the run executes on (psutil + platform, fully guarded)."""
+    info = {}
+    try:
+      import platform
+
+      import psutil
+
+      info["cpu_logical"] = psutil.cpu_count()
+      info["cpu_physical"] = psutil.cpu_count(logical=False)
+      info["ram_total_gb"] = round(psutil.virtual_memory().total / 1e9, 1)
+      info["arch"] = platform.machine()
+      info["system"] = f"{platform.system()} {platform.release()}".strip()
+      info["python"] = platform.python_version()
+    except Exception:
+      pass
+    return info
+
   def open_session(self, mode, output_dir, model_dir=None):
     self.mode = mode
     self.output_dir = os.path.abspath(output_dir)
@@ -24,6 +42,7 @@ class SessionFile(ZairaBase):
       "time_stamp": int(time()),
       "elapsed_time": 0,
       "mode": self.mode,
+      "host": self._host_info(),
     }
     with open(self.session_file, "w") as f:
       json.dump(data, f, indent=4)
@@ -53,9 +72,25 @@ class PipelineStep(ZairaBase):
     with open(self.session_file, "w") as f:
       json.dump(data, f, indent=4)
 
+  def _telemetry(self):
+    """A per-step telemetry snapshot: completion time plus host CPU/RAM (psutil-guarded)."""
+    rec = {"name": self.name, "t": time()}
+    try:
+      import psutil
+
+      rec["cpu"] = psutil.cpu_percent(interval=None)
+      vm = psutil.virtual_memory()
+      rec["ram_used_gb"] = round(vm.used / 1e9, 2)
+      rec["ram_total_gb"] = round(vm.total / 1e9, 2)
+      rec["ram_pct"] = vm.percent
+    except Exception:
+      pass
+    return rec
+
   def update(self):
     data = self._read_session()
     data["steps"] += [self.name]
+    data.setdefault("step_log", []).append(self._telemetry())
     self._write_session(data)
 
   def is_done(self):

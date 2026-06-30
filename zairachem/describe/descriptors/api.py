@@ -465,6 +465,9 @@ class BinaryStreamClient(ZairaBase):
   def run(self, output_h5=None, isaura_batch_size=None):
     from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
 
+    # Wall-clock for this single model's run() (one client per Ersilia model, featurizer or
+    # projection), recorded into provenance by _record_provenance for the report's per-model timing.
+    self._run_t0 = time.perf_counter()
     if isaura_batch_size is None:
       isaura_batch_size = DEFAULT_ISAURA_BATCH_SIZE
     n_total = len(self.input_data)
@@ -515,8 +518,16 @@ class BinaryStreamClient(ZairaBase):
     try:
       from zairachem.base.utils.isaura_report import record_provenance
 
+      t0 = getattr(self, "_run_t0", None)
+      elapsed = (time.perf_counter() - t0) if t0 is not None else None
       record_provenance(
-        self.path, self._provenance_kind, self.model_id, n_total, n_from_project, n_computed
+        self.path,
+        self._provenance_kind,
+        self.model_id,
+        n_total,
+        n_from_project,
+        n_computed,
+        elapsed_seconds=elapsed,
       )
     except Exception:
       pass

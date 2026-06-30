@@ -31,6 +31,11 @@ from zairachem.report.plots import (
   NormalizedConfusionPlot,
   ProjectionCorrectnessPlot,
   PropertyDistributionsPlot,
+  StepTimingPlot,
+  PhaseTimeDonutPlot,
+  ResourceTimelinePlot,
+  ProvenanceBarPlot,
+  PerModelTimingPlot,
 )
 from zairachem.report.fetcher import ResultsFetcher
 
@@ -68,6 +73,11 @@ _PLOT_SPECS = [
   ("descriptor-metric-heatmap", DescriptorMetricHeatmapPlot),
   ("projection-correctness", ProjectionCorrectnessPlot),
   ("property-distributions", PropertyDistributionsPlot),
+  ("step-timing", StepTimingPlot),
+  ("phase-time", PhaseTimeDonutPlot),
+  ("resource-timeline", ResourceTimelinePlot),
+  ("compute-provenance", ProvenanceBarPlot),
+  ("model-timing", PerModelTimingPlot),
 ]
 
 

@@ -15,13 +15,18 @@ import glob
 import html
 import json
 import os
+from datetime import datetime
 
 from zairachem.base.vars import (
   DATA_FILENAME,
   DATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
+  GITHUB_ORG,
+  INPUT_SCHEMA_FILENAME,
   REPORT_SUBFOLDER,
+  SESSION_FILE,
 )
+from zairachem.report import perf
 
 # Plots grouped into sections (anchor, heading, description, member stems). Unlisted → "More".
 _CATEGORIES = [
@@ -121,6 +126,11 @@ _TITLES = {
   "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
   "property-distributions": "Property distributions by class",
   "overview": "Report overview",
+  "step-timing": "Step timing",
+  "phase-time": "Time by phase",
+  "model-timing": "Time per model",
+  "resource-timeline": "Resource usage over time",
+  "compute-provenance": "Compute provenance",
 }
 
 # Redundant / near-redundant figures collapsed into a single carousel card. A group renders once, at
@@ -212,6 +222,116 @@ def _img_src(report_dir, stem):
   return f"png/{stem}.png"
 
 
+# --- Physical figure sizes & the composite reference grid ----------------------------------------
+# Figures are exported by stylia at 600 DPI (see report/__init__.py), so a saved PNG's real size is
+# pixels / 600 inches. The report documents a reference grid (it mirrors the old 6×10 matplotlib
+# poster grid) so users can tile the downloaded plots into a composite figure at the right scale.
+_FIGURE_DPI = 600
+_GRID_COLS = 10
+_GRID_ROWS = 6
+_CELL_CM = 3.0
+_CELL_IN = _CELL_CM / 2.54  # ≈ 1.181 in
+
+
+def _png_px(path):
+  """(width_px, height_px) read from a PNG's IHDR header, or None on any failure."""
+  try:
+    with open(path, "rb") as f:
+      head = f.read(24)
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
+      return None
+    w = int.from_bytes(head[16:20], "big")
+    h = int.from_bytes(head[20:24], "big")
+    return (w, h) if w > 0 and h > 0 else None
+  except Exception:
+    return None
+
+
+def _figure_size(report_dir, stem):
+  """Physical size of a figure PNG and its footprint on the reference grid, or None.
+
+  Returns ``{w_cm, h_cm, w_in, h_in, cols, rows}`` where cols/rows are the size rounded to whole
+  3 cm cells (minimum 1).
+  """
+  px = _png_px(os.path.join(report_dir, "png", f"{stem}.png"))
+  if px is None:
+    return None
+  w_in, h_in = px[0] / _FIGURE_DPI, px[1] / _FIGURE_DPI
+  w_cm, h_cm = w_in * 2.54, h_in * 2.54
+  return {
+    "w_cm": w_cm,
+    "h_cm": h_cm,
+    "w_in": w_in,
+    "h_in": h_in,
+    "cols": max(1, round(w_cm / _CELL_CM)),
+    "rows": max(1, round(h_cm / _CELL_CM)),
+  }
+
+
+def _dim_badge(report_dir, stem):
+  """Small card caption: the figure's grid footprint (n×m cells) + its real size in cm and inches."""
+  sz = _figure_size(report_dir, stem)
+  if sz is None:
+    return ""
+  return (
+    f"<div class='dim'><span class='cells'>{sz['rows']}×{sz['cols']}</span> "
+    f"{sz['w_cm']:.1f}×{sz['h_cm']:.1f} cm · {sz['w_in']:.2f}×{sz['h_in']:.2f} in</div>"
+  )
+
+
+def _grid_svg():
+  """Inline SVG of the reference grid (full width) with cm/inch axis labels and one example plot."""
+  s = 16  # px per cm
+  cell = int(_CELL_CM * s)  # 48
+  gw, gh = _GRID_COLS * cell, _GRID_ROWS * cell
+  x0, y0 = 52, 24
+  vb_w, vb_h = x0 + gw + 16, y0 + gh + 34
+  full_cm_w = _GRID_COLS * _CELL_CM
+  full_cm_h = _GRID_ROWS * _CELL_CM
+  lines = [
+    f"<line x1='{x0 + i * cell}' y1='{y0}' x2='{x0 + i * cell}' y2='{y0 + gh}'/>"
+    for i in range(_GRID_COLS + 1)
+  ] + [
+    f"<line x1='{x0}' y1='{y0 + j * cell}' x2='{x0 + gw}' y2='{y0 + j * cell}'/>"
+    for j in range(_GRID_ROWS + 1)
+  ]
+  # One example footprint: "2×3" = 2 rows × 3 columns, i.e. 3 cells wide × 2 cells tall.
+  ew, eh = 3 * cell, 2 * cell
+  example = (
+    f"<rect class='ex-a' x='{x0}' y='{y0}' width='{ew}' height='{eh}'/>"
+    f"<text class='exlab' x='{x0 + ew // 2}' y='{y0 + eh // 2 + 5}'>2×3</text>"
+  )
+  top = (
+    f"<text class='axis' x='{x0 + gw // 2}' y='15' text-anchor='middle'>"
+    f"{full_cm_w:.0f} cm · {full_cm_w / 2.54:.2f} in</text>"
+  )
+  left = (
+    f"<text class='axis' x='16' y='{y0 + gh // 2}' text-anchor='middle' "
+    f"transform='rotate(-90 16 {y0 + gh // 2})'>{full_cm_h:.0f} cm · {full_cm_h / 2.54:.2f} in</text>"
+  )
+  cap = (
+    f"<text class='cap' x='{x0 + gw // 2}' y='{y0 + gh + 24}' text-anchor='middle'>"
+    f"1 cell = {_CELL_CM:.0f} × {_CELL_CM:.0f} cm ({_CELL_IN:.2f} × {_CELL_IN:.2f} in)</text>"
+  )
+  return (
+    f"<svg class='gridfig' viewBox='0 0 {vb_w} {vb_h}' role='img' "
+    f"aria-label='{_GRID_COLS} by {_GRID_ROWS} reference grid of {_CELL_CM:.0f} cm cells'>"
+    f"{example}{''.join(lines)}{top}{left}{cap}</svg>"
+  )
+
+
+def _about_figures_html():
+  """Show the composite reference grid (full width) with a short one-line caption beneath it."""
+  cap = (
+    f"<p class='grid-cap'>Reference grid: <b>{_GRID_ROWS} rows × {_GRID_COLS} columns</b>, one cell "
+    f"<b>{_CELL_CM:.0f} cm ({_CELL_IN:.2f} in)</b> square "
+    f"(full sheet {_GRID_COLS * _CELL_CM:.0f} cm wide × {_GRID_ROWS * _CELL_CM:.0f} cm tall). Each "
+    "plot card's <b>n×m</b> badge is its footprint in cells (<b>rows × columns</b>) — download the "
+    "plots and tile them to compose a figure at the right scale.</p>"
+  )
+  return f"<div class='about'>{_grid_svg()}{cap}</div>"
+
+
 def _load_params(output_dir):
   from zairachem.base import params_path
 
@@ -283,6 +403,15 @@ body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 .sidebar { position:sticky; top:0; height:100vh; width:var(--sidebar); flex:0 0 var(--sidebar); border-right:1px solid var(--line); padding:32px 20px; overflow-y:auto; }
 .sidebar .brand { font-size:16px; font-weight:600; letter-spacing:-.01em; word-break:break-word; }
 .sidebar .brand-sub { color:var(--muted); font-size:12.5px; margin-top:2px; }
+.sidebar { display:flex; flex-direction:column; }
+.sidebar nav { flex:0 0 auto; }
+.sidebar footer { margin-top:auto; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:11.5px; display:flex; flex-direction:column; gap:8px; }
+.sidebar footer a { color:var(--link); text-decoration:none; }
+.sidebar footer a:hover { text-decoration:underline; }
+.badge { display:inline-block; border-radius:999px; padding:1px 9px; font-size:12px; font-weight:600; }
+.badge-on { background:#eaf6ec; border:1px solid #b7e0c0; color:#1a7f37; }
+.badge-off { background:var(--soft); border:1px solid var(--line); color:var(--muted); }
+.store-proj { color:var(--muted); font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
 .sidebar nav { display:flex; flex-direction:column; gap:1px; margin-top:22px; }
 .sidebar nav a { color:var(--muted); text-decoration:none; font-size:13.5px; padding:6px 10px; border-radius:7px; }
 .sidebar nav a:hover { background:var(--soft); color:var(--fg); }
@@ -296,6 +425,8 @@ section { padding-top:40px; scroll-margin-top:24px; }
 section > h2 { font-size:17px; font-weight:600; margin:0 0 4px; }
 section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+.grid2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (max-width:720px) { .grid2 { grid-template-columns:1fr; } }
 .card { border:1px solid var(--line); border-radius:12px; background:#fff; padding:16px; transition:box-shadow .18s ease, transform .18s ease; }
 .card:hover { box-shadow:0 8px 24px rgba(27,31,36,.09); transform:translateY(-2px); }
 .card h3 { font-size:14.5px; font-weight:600; margin:0 0 12px; }
@@ -304,6 +435,16 @@ section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .card .links { margin-top:10px; font-size:12.5px; color:var(--muted); }
 .card .links a { color:var(--link); text-decoration:none; }
 .card .links a:hover { text-decoration:underline; }
+.card .dim { margin:-4px 0 12px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.card .dim .cells { display:inline-block; background:var(--soft); border:1px solid var(--line); border-radius:999px; padding:0 8px; margin-right:6px; font-weight:600; color:var(--fg); }
+.about .gridfig { display:block; width:100%; max-width:760px; height:auto; margin:6px auto 0; }
+.about .gridfig line { stroke:var(--line); stroke-width:1; }
+.about .gridfig .ex-a { fill:#dbeafe; }
+.about .gridfig .exlab { fill:var(--fg); font:600 13px sans-serif; text-anchor:middle; }
+.about .gridfig .axis { fill:var(--muted); font:600 11px sans-serif; }
+.about .gridfig .cap { fill:var(--muted); font:11px sans-serif; }
+.about .grid-cap { text-align:center; color:var(--muted); font-size:13px; max-width:760px; margin:12px auto 0; }
+.about .grid-cap b { color:var(--fg); }
 .carousel-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 0 12px; }
 .carousel-head h3 { margin:0; }
 .carousel-label { color:var(--muted); font-size:12.5px; white-space:nowrap; }
@@ -336,6 +477,43 @@ table.kv td { padding:9px 14px; border-bottom:1px solid var(--line); vertical-al
 table.kv tr:last-child td { border-bottom:none; }
 table.kv td:first-child { color:var(--muted); width:200px; white-space:nowrap; }
 table.kv code { background:var(--soft); border-radius:4px; padding:1px 6px; font-size:12.5px; }
+.cfg-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px 28px; margin-bottom:8px; }
+.cfg-cell { display:flex; flex-direction:column; gap:2px; padding:2px 0; }
+.cfg-cell .k { font-size:10.5px; font-weight:500; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+.cfg-cell .v { font-size:13.5px; font-weight:500; letter-spacing:-.005em; word-break:break-word; }
+h3.cfg-h { font-size:13px; font-weight:600; margin:24px 0 10px; }
+table.cfg-models { border-collapse:collapse; width:100%; font-size:13px; }
+table.cfg-models th, table.cfg-models td { padding:9px 14px; text-align:left; border-bottom:1px solid var(--line); vertical-align:middle; }
+table.cfg-models thead th { background:var(--soft); font-weight:600; font-size:12px; letter-spacing:.02em; text-transform:uppercase; color:var(--muted); }
+table.cfg-models tbody tr:last-child td { border-bottom:none; }
+table.cfg-models td.title { color:var(--fg); width:100%; }
+a.model { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; color:var(--link); text-decoration:none; white-space:nowrap; }
+a.model:hover { text-decoration:underline; }
+span.ver { display:inline-block; background:var(--soft); border:1px solid var(--line); color:var(--muted); border-radius:999px; padding:1px 9px; font-size:12px; }
+.perf-legend { display:flex; flex-wrap:wrap; gap:14px; margin:0 0 12px; font-size:12px; color:var(--muted); }
+.perf-leg { display:inline-flex; align-items:center; gap:6px; }
+.perf-leg i { width:11px; height:11px; border-radius:3px; display:inline-block; }
+.perf-machine { color:var(--muted); font-size:12.5px; margin:2px 0 0; }
+.perf-steps { display:flex; flex-direction:column; gap:7px; }
+.perf-row { display:grid; grid-template-columns:150px 1fr 52px 188px; align-items:center; gap:12px; font-size:13px; }
+.perf-lbl { color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.perf-bar { height:14px; background:var(--soft); border-radius:7px; overflow:hidden; }
+.perf-bar i { display:block; height:100%; border-radius:7px; }
+.perf-val { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+.perf-pills { display:flex; gap:6px; justify-content:flex-end; }
+.pill { display:inline-flex; align-items:center; justify-content:center; min-width:84px; border:1px solid var(--line); border-radius:999px; padding:1px 9px; font-size:11.5px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.pill.lvl-low { background:#eaf6ec; border-color:#b7e0c0; color:#1a7f37; }
+.pill.lvl-med { background:#fdf3e3; border-color:#f2d9a8; color:#9a6700; }
+.pill.lvl-high { background:#fdecec; border-color:#f3c0c0; color:#c1342d; }
+.ph-setup { background:#457b9d; } .ph-describe { background:#2ec4b6; } .ph-projections { background:#fcbf49; }
+.ph-treat { background:#6c5ce7; } .ph-estimate { background:#e63946; } .ph-pool { background:#b05cc8; }
+.ph-report { background:#6bbf59; } .ph-finish { background:#f4845f; } .ph-other { background:#a0a0a0; }
+.prov-row { display:grid; grid-template-columns:120px 1fr auto; align-items:center; gap:12px; font-size:13px; margin-bottom:7px; }
+.prov-bar { display:flex; height:14px; background:var(--soft); border-radius:7px; overflow:hidden; }
+.prov-bar i { display:block; height:100%; }
+.prov-store { background:#457b9d; } .prov-computed { background:#a0a0a0; }
+.perf-leg i.prov-store, .perf-leg i.prov-computed { border-radius:3px; }
+.prov-val { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
 footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:16px; justify-content:space-between; }
 footer a { color:var(--link); text-decoration:none; } footer a:hover { text-decoration:underline; }
 @media (max-width:820px) {
@@ -356,32 +534,326 @@ footer a { color:var(--link); text-decoration:none; } footer a:hover { text-deco
 """
 
 
-def _config_table_html(params, n):
-  """Render the run configuration (parameters.json) as a clean key/value table."""
+def _y_column(output_dir):
+  """The user-supplied label column name from ``inputs/input_schema.json`` (e.g. ``"dili"``)."""
+  try:
+    with open(os.path.join(output_dir, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME)) as f:
+      return json.load(f).get("values_column")
+  except Exception:
+    return None
 
-  def code(v):
-    return f"<code>{html.escape(str(v))}</code>"
 
-  rows = [("Task", html.escape(str(params.get("task", "—"))))]
+def _run_date(output_dir):
+  """Human-readable run date from the ``time_stamp`` in ``session.json``, or ``None``."""
+  try:
+    with open(os.path.join(output_dir, SESSION_FILE)) as f:
+      ts = json.load(f).get("time_stamp")
+    return datetime.fromtimestamp(ts).strftime("%-d %b %Y") if ts else None
+  except Exception:
+    return None
+
+
+def _run_mode(output_dir):
+  """Run mode ("fit" or "predict") from ``session.json``; defaults to "fit" on any error."""
+  try:
+    with open(os.path.join(output_dir, SESSION_FILE)) as f:
+      return "predict" if json.load(f).get("mode") == "predict" else "fit"
+  except Exception:
+    return "fit"
+
+
+def _model_titles(output_dir, params, ids):
+  """Resolve ``eosXXX`` → human title, fetching missing ones from GitHub and caching to params.
+
+  Titles live under ``parameters.json``'s ``model_titles`` map. Newly fetched (real) titles are
+  written back so later report runs need no network. Fetch failures degrade to ``None`` (rows then
+  show id + version only); a read-only directory simply skips the write-back.
+  """
+  from zairachem.base.utils.utils import fetch_model_metadata
+
+  cached = dict(params.get("model_titles") or {})
+  resolved = {}
+  newly = {}
+  for mid in ids:
+    if mid in cached:
+      resolved[mid] = cached[mid]
+      continue
+    meta = fetch_model_metadata(mid) or {}
+    title = meta.get("Title")
+    resolved[mid] = title
+    if title:
+      newly[mid] = title
+  if newly:
+    from zairachem.base import params_path
+
+    try:
+      cached.update(newly)
+      params["model_titles"] = cached
+      with open(params_path(output_dir)) as f:
+        on_disk = json.load(f)
+      on_disk["model_titles"] = {**(on_disk.get("model_titles") or {}), **newly}
+      with open(params_path(output_dir), "w") as f:
+        json.dump(on_disk, f, indent=2)
+    except Exception:
+      pass
+  return resolved
+
+
+def _model_table_html(ids, versions, titles):
+  """A table of Ersilia models: monospace id linked to the hub, version pill, human title."""
+  if not ids:
+    return ""
+  rows = []
+  for mid in ids:
+    href = f"https://github.com/{GITHUB_ORG}/{html.escape(mid)}"
+    ver = versions.get(mid)
+    ver_html = f"<span class='ver'>{html.escape(str(ver))}</span>" if ver else "—"
+    title = titles.get(mid)
+    title_html = html.escape(title) if title else "—"
+    rows.append(
+      f"<tr><td><a class='model' href='{href}' target='_blank'>{html.escape(mid)} ↗</a></td>"
+      f"<td>{ver_html}</td><td class='title'>{title_html}</td></tr>"
+    )
+  return (
+    "<div class='table-wrap'><table class='cfg-models'>"
+    "<thead><tr><th>Model</th><th>Version</th><th>Title</th></tr></thead>"
+    f"<tbody>{''.join(rows)}</tbody></table></div>"
+  )
+
+
+def _config_section_html(output_dir, params, n):
+  """Render the run configuration: a scalar stat grid plus featurizer and projection model tables."""
+  task = params.get("task") or ""
+  stats = [("Task", task.capitalize() if task else "—")]
+  y_col = _y_column(output_dir)
+  if y_col:
+    stats.append(("Y column", y_col))
   if n is not None:
-    rows.append(("Compounds", f"{n:,}"))
-  feats = params.get("featurizer_ids") or []
-  rows.append(("Descriptors", "  ".join(code(m) for m in feats) if feats else "—"))
-  projs = params.get("projection_ids") or []
-  rows.append((
-    "Projections",
-    "MW vs LogP " + ("(built-in)" if not projs else "+ " + "  ".join(code(m) for m in projs)),
-  ))
+    stats.append(("Compounds", f"{n:,}"))
+  date = _run_date(output_dir)
+  if date:
+    stats.append(("Run date", date))
+  cells = "".join(
+    f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
+    f"<span class='v'>{html.escape(str(v))}</span></div>"
+    for k, v in stats
+  )
+  # Isaura store as a colored badge: green "on" (with the project id) / grey "off".
   store = params.get("store") or params.get("contribute_store")
-  rows.append(("Isaura store", code(store) if store else "off"))
-  vers = params.get("latest_featurizer_version") or {}
-  if vers:
-    rows.append((
-      "Model versions",
-      "  ".join(f"{code(k)} {html.escape(str(v))}" for k, v in vers.items()),
-    ))
-  body = "".join(f"<tr><td>{html.escape(k)}</td><td>{v}</td></tr>" for k, v in rows)
-  return f"<table class='kv'><tbody>{body}</tbody></table>"
+  if store:
+    store_v = (
+      "<span class='badge badge-on'>on</span> "
+      f"<span class='store-proj'>{html.escape(str(store))}</span>"
+    )
+  else:
+    store_v = "<span class='badge badge-off'>off</span>"
+  cells += f"<div class='cfg-cell'><span class='k'>Isaura store</span><span class='v'>{store_v}</span></div>"
+  grid = f"<div class='cfg-grid'>{cells}</div>"
+
+  feats = params.get("featurizer_ids") or []
+  projs = params.get("projection_ids") or []
+  versions = params.get("latest_featurizer_version") or {}
+  titles = _model_titles(output_dir, params, feats + projs)
+
+  out = [grid]
+  feat_table = _model_table_html(feats, versions, titles)
+  if feat_table:
+    out.append(f"<h3 class='cfg-h'>Featurizers</h3>{feat_table}")
+  proj_table = _model_table_html(projs, versions, titles)
+  if proj_table:
+    out.append(f"<h3 class='cfg-h'>Projections</h3>{proj_table}")
+  return "".join(out)
+
+
+def _load_level(pct):
+  """Map a usage percentage to a colour class: low (<50) → green, med (<80) → amber, else red."""
+  try:
+    p = float(pct)
+  except (TypeError, ValueError):
+    return "lvl-med"
+  if p < 50:
+    return "lvl-low"
+  return "lvl-med" if p < 80 else "lvl-high"
+
+
+def _machine_line(output_dir):
+  """A muted one-line summary of the host machine, or ``""`` if no host specs were recorded."""
+  h = perf.host_info(output_dir)
+  if not h:
+    return ""
+  bits = []
+  cores = h.get("cpu_logical")
+  phys = h.get("cpu_physical")
+  if cores:
+    bits.append(f"{cores} CPUs" + (f" ({phys} cores)" if phys and phys != cores else ""))
+  if h.get("ram_total_gb"):
+    bits.append(f"{h['ram_total_gb']:.0f} GB RAM")
+  for key in ("arch", "system"):
+    if h.get(key):
+      bits.append(html.escape(str(h[key])))
+  if h.get("python"):
+    bits.append(f"Python {html.escape(str(h['python']))}")
+  if not bits:
+    return ""
+  return f"<p class='perf-machine'>⊟ {' · '.join(bits)}</p>"
+
+
+def _perf_steps_html(steps):
+  """Timing + per-step resources: one bar row per sub-step, coloured by phase, with CPU/RAM pills."""
+  timed = [s for s in steps if s["seconds"] is not None]
+  if not timed:
+    return ""
+  longest = max((s["seconds"] for s in timed), default=0) or 1
+  phases = []
+  seen = set()
+  for s in timed:
+    if s["phase"] not in seen:
+      seen.add(s["phase"])
+      phases.append(s["phase"])
+  legend = "".join(
+    f"<span class='perf-leg'><i class='ph-{html.escape(p)}'></i>{html.escape(p.capitalize())}</span>"
+    for p in phases
+  )
+  rows = []
+  for s in timed:
+    pct = max(2.0, 100.0 * s["seconds"] / longest)
+    pills = []
+    if s["cpu"] is not None:
+      pills.append(f"<span class='pill cpu {_load_level(s['cpu'])}'>CPU {s['cpu']:.0f}%</span>")
+    if s["ram_used_gb"] is not None:
+      lvl = _load_level(s["ram_pct"])
+      pills.append(f"<span class='pill ram {lvl}'>RAM {s['ram_used_gb']:.1f} GB</span>")
+    rows.append(
+      f"<div class='perf-row'><span class='perf-lbl'>{html.escape(s['label'])}</span>"
+      f"<span class='perf-bar'><i class='ph-{html.escape(s['phase'])}' style='width:{pct:.1f}%'></i></span>"
+      f"<span class='perf-val'>{perf.fmt_duration(s['seconds'])}</span>"
+      f"<span class='perf-pills'>{''.join(pills)}</span></div>"
+    )
+  return f"<div class='perf-legend'>{legend}</div><div class='perf-steps'>{''.join(rows)}</div>"
+
+
+def _provenance_html(prov):
+  """Per-model stacked store-vs-computed bars plus an aggregate reuse summary."""
+  if not prov:
+    return ""
+  rows = []
+  for m in prov["models"]:
+    total = m["total"] or 1
+    store_pct = 100.0 * m["from_store"] / total
+    comp_pct = 100.0 * m["computed"] / total
+    href = f"https://github.com/{GITHUB_ORG}/{html.escape(m['id'])}"
+    rows.append(
+      f"<div class='prov-row'>"
+      f"<a class='model' href='{href}' target='_blank'>{html.escape(m['id'])} ↗</a>"
+      f"<span class='prov-bar'>"
+      f"<i class='prov-store' style='width:{store_pct:.1f}%'></i>"
+      f"<i class='prov-computed' style='width:{comp_pct:.1f}%'></i></span>"
+      f"<span class='prov-val'>{m['from_store']:,} stored · {m['computed']:,} computed</span>"
+      f"</div>"
+    )
+  t = prov["totals"]
+  summary = ""
+  if t["reuse_pct"] is not None:
+    summary = (
+      f"<p class='desc'><b>{t['reuse_pct']:.0f}%</b> of descriptor computations were served from the "
+      f"store ({t['from_store']:,} reused · {t['computed']:,} freshly computed).</p>"
+    )
+  migrated_total = sum(v for v in (prov["migrated"] or {}).values() if isinstance(v, (int, float)))
+  migrated_note = ""
+  if migrated_total:
+    migrated_note = (
+      f"<p class='desc'>{int(migrated_total):,} descriptor rows were seeded from the public lake "
+      f"into the project store during setup.</p>"
+    )
+  legend = (
+    "<div class='perf-legend'><span class='perf-leg'><i class='prov-store'></i>From store</span>"
+    "<span class='perf-leg'><i class='prov-computed'></i>Computed</span></div>"
+  )
+  return f"{summary}{legend}<div class='perf-steps'>{''.join(rows)}</div>{migrated_note}"
+
+
+# Matplotlib compute figures, grouped into sliders. Each group renders as one carousel card (members
+# pageable with arrows/dots); a group with a single present figure degrades to a plain card and
+# upgrades to a slider automatically once more figures are added to it.
+_COMPUTE_GROUPS = [
+  {
+    "key": "compute-timing",
+    "title": "Timing & resources",
+    "members": ["step-timing", "phase-time", "resource-timeline"],
+  },
+  {
+    "key": "compute-models",
+    "title": "Per-model",
+    "members": ["compute-provenance", "model-timing"],
+  },
+]
+
+
+def _computational_performance_html(output_dir, report_dir, present, assigned, params):
+  """Dashboard: run cost (timing + RAM/CPU), host machine, store size, and descriptor provenance.
+
+  Also embeds the matplotlib compute figures (when present) and marks their stems ``assigned`` so they
+  don't fall through to the "More" section.
+  """
+  tel = perf.step_telemetry(output_dir)
+  prov = perf.provenance(output_dir)
+
+  stats = []
+  if tel["total_seconds"] is not None:
+    stats.append(("Total time", perf.fmt_duration(tel["total_seconds"])))
+  if tel["peak_ram_gb"] is not None:
+    total_ram = f" / {tel['ram_total_gb']:.0f} GB" if tel["ram_total_gb"] else ""
+    stats.append(("Peak RAM", f"{tel['peak_ram_gb']:.1f}{total_ram}"))
+  if tel["peak_cpu"] is not None:
+    stats.append(("Peak CPU", f"{tel['peak_cpu']:.0f}%"))
+  if prov and prov["totals"]["reuse_pct"] is not None:
+    stats.append(("Descriptors reused", f"{prov['totals']['reuse_pct']:.0f}%"))
+  store = perf.store_size(params)
+  if store:
+    stats.append(("Store size", perf.fmt_size(store["total_bytes"])))
+
+  # Build the figure sliders: one carousel per group (or a plain card when a group has a single
+  # present figure). ``fig_cards`` is the rendered HTML; ``fig_stems`` the stems to mark assigned.
+  fig_cards = []
+  fig_stems = []
+  for g in _COMPUTE_GROUPS:
+    members = [m for m in g["members"] if m in present]
+    if not members:
+      continue
+    fig_stems.extend(members)
+    fig_cards.append(
+      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
+    )
+  if not stats and not tel["steps"] and not prov and not fig_cards:
+    return ""
+
+  out = []
+  if stats:
+    cells = "".join(
+      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
+      f"<span class='v'>{html.escape(str(v))}</span></div>"
+      for k, v in stats
+    )
+    out.append(f"<div class='cfg-grid'>{cells}</div>")
+  out.append(_machine_line(output_dir))
+
+  steps_html = _perf_steps_html(tel["steps"])
+  if steps_html:
+    out.append(f"<h3 class='cfg-h'>Step timing &amp; resources</h3>{steps_html}")
+  elif prov:
+    out.append(
+      "<p class='desc'>Per-step timing and resource usage are recorded on a fresh fit run.</p>"
+    )
+
+  prov_html = _provenance_html(prov)
+  if prov_html:
+    out.append(f"<h3 class='cfg-h'>Compute provenance</h3>{prov_html}")
+
+  if fig_cards:
+    assigned.update(fig_stems)
+    grid = "<div class='grid grid2'>" + "".join(fig_cards) + "</div>"
+    out.append(f"<h3 class='cfg-h'>Figures</h3>{grid}")
+  return "".join(out)
 
 
 def _read_cv_stats(output_dir):
@@ -497,6 +969,7 @@ def _card(report_dir, stem):
   title = html.escape(_humanize(stem))
   return (
     f"<figure class='card'><h3>{title}</h3>"
+    f"{_dim_badge(report_dir, stem)}"
     f"<a class='fig' href='png/{stem}.png' target='_blank'>"
     f"<img src='{_img_src(report_dir, stem)}' alt='{title}' loading='lazy'></a>"
     f"<div class='links'>{_links_html(report_dir, stem)}</div></figure>"
@@ -536,6 +1009,7 @@ def _carousel(report_dir, group, members):
     f"<figure class='card carousel'><div class='carousel-head'>"
     f"<h3>{html.escape(group['title'])}</h3>"
     f"<span class='carousel-label'>{html.escape(_humanize(members[0]))}</span></div>"
+    f"{_dim_badge(report_dir, members[0])}"
     f"<div class='carousel-track'>{''.join(slides)}</div>{ctl}"
     f"<div class='links'>{_links_html(report_dir, members[0])}</div></figure>"
   )
@@ -617,38 +1091,21 @@ def write_html_report(output_dir):
 
   params = _load_params(output_dir)
   model = os.path.basename(os.path.normpath(output_dir))
-  task = params.get("task", "")
   n = _n_compounds(output_dir)
 
-  # Header chips: task, compounds, descriptors, headline metrics.
-  chips = []
-  if task:
-    chips.append(f"<span class='chip'>{html.escape(task)}</span>")
-  if n is not None:
-    chips.append(f"<span class='chip'><b>{n:,}</b> compounds</span>")
-  for m in params.get("featurizer_ids", []) or []:
-    chips.append(f"<span class='chip'>{html.escape(m)}</span>")
-  _, perf_rows = _read_performance(report_dir)
-  pooled = next((r for r in (perf_rows or []) if r.get("model") == "pooled"), None)
-  if pooled:
-
-    def chip(key, label):
-      try:
-        return f"<span class='chip'>{label} <b>{float(pooled[key]):.3f}</b></span>"
-      except Exception:
-        return ""
-
-    if task == "classification":
-      chips += [chip("auroc", "AUROC"), chip("accuracy", "Accuracy"), chip("mcc", "MCC")]
-    else:
-      chips += [chip("r2", "R²")]
-  chips_html = "".join(c for c in chips if c)
+  # Header: a big report-type title ("ZairaChem Fit Report"), with the model name and run date as a
+  # smaller subtitle. No chips / figure tally.
+  kind = "Predict" if _run_mode(output_dir) == "predict" else "Fit"
+  date = _run_date(output_dir)
+  report_heading = f"ZairaChem {kind} Report"
+  subtitle = f"Model name: {html.escape(model)}" + (f" · {html.escape(date)}" if date else "")
+  tab_title = f"{report_heading} · {model}"
 
   # Build sections. Configuration first; then the plot categories ("Chemical space" gathers any
   # projection-* figure generically); then any leftovers.
   assigned = set()
   perf_table = _performance_table_html(report_dir)
-  config_table = _config_table_html(params, n)
+  config_table = _config_section_html(output_dir, params, n)
   cv_stats = _read_cv_stats(output_dir)
   cv_table = _cv_table_html(cv_stats)
   if cv_stats:
@@ -656,18 +1113,17 @@ def write_html_report(output_dir):
       json.dump({"per_descriptor": cv_stats, "summary": _cv_summary(cv_stats)}, f, indent=2)
   sections = []
   rendered_groups = set()
-  poster = _overview_poster_html(report_dir, present)
-  if poster:
-    # The poster reuses the individual figure PNGs; they also appear full size in their own
-    # sections below, so we intentionally do NOT add them to `assigned`.
-    sections.append((
-      "overview",
-      "Overview",
-      "A one-page summary of the most informative figures; each also appears full size in its "
-      "section below.",
-      poster,
-    ))
+  # (The Overview poster is intentionally omitted for now.)
   sections.append(("config", "Configuration", "Run settings and model identifiers.", config_table))
+  perf_section = _computational_performance_html(output_dir, report_dir, present, assigned, params)
+  if perf_section:
+    sections.append((
+      "compute",
+      "Computational performance",
+      "How long the run took, how much memory and CPU it used, and where the molecular descriptors "
+      "came from — reused from the isaura store or freshly computed.",
+      perf_section,
+    ))
   for anchor, heading, desc, members in _CATEGORIES:
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))
@@ -690,6 +1146,14 @@ def write_html_report(output_dir):
     grid = "<div class='grid'>" + "".join(_card(report_dir, s) for s in leftovers) + "</div>"
     sections.append(("more", "More", "", grid))
 
+  # About the figures: kept last — reference material on plot sizes and the composite grid.
+  sections.append((
+    "about",
+    "About the figures",
+    "The physical size of each plot and the reference grid for assembling a composite figure.",
+    _about_figures_html(),
+  ))
+
   nav = "".join(f"<a href='#{a}'>{html.escape(h)}</a>" for a, h, _, _ in sections)
 
   def _section(a, h, d, inner):
@@ -697,17 +1161,6 @@ def write_html_report(output_dir):
     return f"<section id='{a}'><h2>{html.escape(h)}</h2>{desc}{inner}</section>"
 
   body_sections = "".join(_section(a, h, d, inner) for a, h, d, inner in sections)
-
-  # Figure tally for the header: redundant figures collapse into one carousel panel, so the visible
-  # panel count is lower than the raw figure count.
-  grouped_present = {m for g in _GROUPS for m in g["members"] if m in present}
-  n_groups = sum(1 for g in _GROUPS if any(m in present for m in g["members"]))
-  n_panels = len(stems) - len(grouped_present) + n_groups
-  fig_label = (
-    f"{len(stems)} figures in {n_panels} panels"
-    if n_panels != len(stems)
-    else f"{len(stems)} figures"
-  )
 
   # Footer downloads (tables live next to the page; xlsx at the model root once finish ran).
   links = []
@@ -717,33 +1170,34 @@ def write_html_report(output_dir):
   ):
     if os.path.exists(os.path.join(report_dir, fname)):
       links.append(f"<a href='{fname}'>{label}</a>")
-  footer = (
-    f"<div>{' · '.join(links)}</div>" if links else "<div></div>"
-  ) + "<div>Generated by ZairaChem</div>"
+  footer = (f"<div>{' · '.join(links)}</div>" if links else "<div></div>") + (
+    "<div>Brought to you by the "
+    "<a href='https://github.com/ersilia-os/ersilia'>Ersilia Open Source Initiative</a>. "
+    "Produced with <a href='https://github.com/ersilia-os/zaira-chem'>ZairaChem</a>.</div>"
+  )
 
   doc = f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(model)} · ZairaChem report</title>
+<title>{html.escape(tab_title)}</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <div class="layout">
   <aside class="sidebar">
-    <div class="brand">{html.escape(model)}</div>
-    <div class="brand-sub">ZairaChem report</div>
+    <div class="brand">{html.escape(kind)} Report</div>
+    <div class="brand-sub">Model name: {html.escape(model)}</div>
     <nav>{nav}</nav>
+    <footer>{footer}</footer>
   </aside>
   <main class="content">
     <header>
-      <h1>{html.escape(model)}</h1>
-      <div class="sub">ZairaChem report · {fig_label}</div>
-      <div class="chips">{chips_html}</div>
+      <h1>{html.escape(report_heading)}</h1>
+      <div class="sub">{subtitle}</div>
     </header>
     {body_sections}
-    <footer>{footer}</footer>
   </main>
 </div>
 <script>{_JS}</script>

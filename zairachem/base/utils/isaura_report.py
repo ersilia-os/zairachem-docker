@@ -515,14 +515,23 @@ def record_migration(output_dir, model_id, n):
   _write_provenance(output_dir, data)
 
 
-def record_provenance(output_dir, kind, model_id, n_total, n_from_project, n_computed):
-  """Record a model's describe/treat provenance. kind is 'featurizers' or 'projections'."""
+def record_provenance(
+  output_dir, kind, model_id, n_total, n_from_project, n_computed, elapsed_seconds=None
+):
+  """Record a model's describe/treat provenance. kind is 'featurizers' or 'projections'.
+
+  ``elapsed_seconds`` (when given) is the wall-clock this model's run took, surfaced as the report's
+  per-model timing.
+  """
   data = _load_provenance(output_dir)
-  data.setdefault(kind, {})[model_id] = {
+  entry = {
     "n_total": int(n_total),
     "n_from_project": int(n_from_project),
     "n_computed": int(n_computed),
   }
+  if elapsed_seconds is not None:
+    entry["seconds"] = round(float(elapsed_seconds), 2)
+  data.setdefault(kind, {})[model_id] = entry
   _write_provenance(output_dir, data)
 
 
