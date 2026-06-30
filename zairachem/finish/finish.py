@@ -15,11 +15,8 @@ from zairachem.base.vars import (
   RAW_INPUT_FILENAME,
   ERSILIA_DATA_FILENAME,
   SMILES_LIST_FILENAME,
-  MAPPING_FILENAME,
   RESULTS_MAPPED_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
-  PROJECTIONS_FILENAME,
-  PROJECTIONS_MANIFEST_FILENAME,
 )
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
@@ -269,10 +266,12 @@ class Finisher(ZairaBase):
     trained model) and the user-facing deliverables (``results/`` + the report).
 
     Always (fit and predict): the heavy descriptor matrices (raw/treated ``.h5`` + ``*_chunks`` via
-    :class:`Cleaner`), the report-only 2-D projection coordinates, the small setup intermediates (raw
-    input copies, dedup mapping, smiles list) and the per-estimator training diagnostics
-    (``evaluation*.json``). A FIT dir keeps its model (estimators ``.onnx``/pooler/AD, transformers,
-    pool ``results_unmapped.csv``, ``done_eos.json``, ``inputs/data.csv``) and the report.
+    :class:`Cleaner`), the unused ersilia-format input + bare smiles list, and the per-estimator
+    training diagnostics (``evaluation*.json``). A FIT dir keeps its model (estimators
+    ``.onnx``/pooler/AD, transformers, pool ``results_unmapped.csv``, ``done_eos.json``,
+    ``inputs/data.csv``) and the report. It also keeps the **small** report inputs — the raw input
+    copy, the 2-D projection coords + manifest, and the dedup mapping — so the report (and the other
+    step subcommands) can be re-run against a finished model without re-training.
 
     At PREDICT it additionally drops the whole ``pipeline/`` tree: nothing there is reused (predict
     reads the *trained* model, never its own output), and the predictions already live in ``results/``
@@ -280,14 +279,9 @@ class Finisher(ZairaBase):
     """
     Cleaner(path=self.path).run()
     data_dir = os.path.join(self.path, DATA_SUBFOLDER)
-    for fn in (
-      PROJECTIONS_FILENAME,
-      PROJECTIONS_MANIFEST_FILENAME,
-      RAW_INPUT_FILENAME + ".csv",
-      ERSILIA_DATA_FILENAME,
-      SMILES_LIST_FILENAME,
-      MAPPING_FILENAME,
-    ):
+    # NB: raw_input.csv, projections.csv/.json and mapping.csv are deliberately NOT trimmed — the
+    # report reads them, and keeping them (all tiny) lets a finished model be re-reported / re-run.
+    for fn in (ERSILIA_DATA_FILENAME, SMILES_LIST_FILENAME):
       self._rm(os.path.join(data_dir, fn))
     # Per-estimator SimpleEvaluator diagnostics — never read by predict or the report (which uses
     # cv_report.json / oof.csv instead).

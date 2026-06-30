@@ -655,24 +655,8 @@ def describe_cmd(model_dir, batch_size, describe_workers):
   report_data_provenance()
 
 
-@cli.command(name="projections", help="Compute the 2-D projections shown in the report.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
-@click.option(
-  "--batch-size",
-  "-b",
-  default=None,
-  type=int,
-  help="Rows per chunk when processing large datasets (default: 10000).",
-)
-def projections_cmd(model_dir, batch_size):
-  from zairachem.treat.imputers.manifolds import Manifolds
-  from zairachem.base.utils.isaura_report import report_data_provenance
-
-  logger.configure()
-  logger.debug("[#ff69b4]Computing 2-D projections[/]")
-  _activate_step(model_dir, "manifolds")
-  Manifolds(batch_size=batch_size).run()
-  report_data_provenance()
+# Projections (the report's 2-D embedding) run as part of the fit pipeline (process_group, between
+# describe and treat) — they are not exposed as a standalone command.
 
 
 @cli.command(name="treat", help="Impute and scale the descriptor matrix.")
