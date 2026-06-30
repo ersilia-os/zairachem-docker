@@ -26,6 +26,25 @@ RDLogger.logger().setLevel(RDLogger.CRITICAL)
 DEFAULT_BATCH_SIZE = 1000
 MAX_WORKERS = None
 
+# At or below this many molecules, standardize serially — the ProcessPool spawn + IPC overhead isn't
+# worth it for tiny inputs. Above it, fan out across processes (output is byte-identical to the serial
+# path: see run() — each molecule is standardized independently and results are reassembled in input
+# order). Overridable via ZAIRACHEM_STANDARDIZE_MIN_PARALLEL for tuning.
+DEFAULT_MIN_PARALLEL = 1000
+
+
+def _min_parallel():
+  raw = os.environ.get("ZAIRACHEM_STANDARDIZE_MIN_PARALLEL")
+  if raw:
+    try:
+      return max(1, int(raw))
+    except ValueError:
+      logger.warning(
+        f"[standardize] Ignoring invalid ZAIRACHEM_STANDARDIZE_MIN_PARALLEL={raw!r}; "
+        f"using default {DEFAULT_MIN_PARALLEL}"
+      )
+  return DEFAULT_MIN_PARALLEL
+
 
 def _standardize_single(smi):
   try:
@@ -123,7 +142,7 @@ class ChemblStandardize(object):
     df = pd.read_csv(self.input_file)
     n_total = len(df)
     logger.info(f"[standardize] Starting standardization of {n_total:,} compounds")
-    if n_total > 5000:
+    if n_total > _min_parallel():
       try:
         R = self._run_parallel(df)
       except Exception as e:

@@ -85,6 +85,8 @@ class TrainSetup(BaseSetup):
       # predict runs reuse the exact same library (the transformer copies are also saved per model).
       "reference_library": DEFAULT_REFERENCE_LIBRARY,
     }
+    # Set True by run_fit when continuing an unfinished run in an existing dir (no --override).
+    self.resume = False
 
   def _save_params(self):
     with open(params_path(self.output_dir), "w") as f:
@@ -111,17 +113,68 @@ class TrainSetup(BaseSetup):
     self._make_subfolder(REPORT_SUBFOLDER)
 
   def _initialize(self):
-    # Always rebuild from scratch. `run_fit` already returns early for a *complete* model
-    # (output.csv present → "already trained"), so any dir reaching here is absent or a partial
-    # leftover. Rebuilding guarantees a clean state, fresh params, and — crucially — a freshly
-    # re-pointed global session symlink (a stale/dangling one otherwise crashes the run).
     step = PipelineStep("initialize", self.output_dir)
+    if self.resume and step.is_done():
+      # Resuming an unfinished run: keep every existing artifact AND the session "steps" list (so the
+      # guarded downstream steps skip what's done and continue). Do NOT wipe and do NOT call
+      # _open_session (it rewrites session.json without "steps", erasing the resume markers). Only
+      # re-point the global session symlink at this model, ensure the subfolders exist, and restart
+      # the elapsed-time clock so the crash→resume gap isn't billed. params.json + the input copy are
+      # already on disk.
+      create_session_symlink(self.output_dir)
+      self._make_subfolders()
+      self.reset_time()
+      return
+    # Fresh: rebuild from scratch. Guarantees a clean state, fresh params, and a freshly re-pointed
+    # session symlink (a stale/dangling one otherwise crashes the run).
     self._make_output_dir()
     self._open_session()
     self._make_subfolders()
     self._save_params()
     self._copy_input_file()
     step.update()
+
+  def _load_disk_params(self):
+    p = params_path(self.output_dir)
+    if not os.path.exists(p):
+      return None
+    with open(p) as f:
+      return json.load(f)
+
+  def resume_config_conflict(self, explicit_config):
+    """Reconcile the run config when resuming. The on-disk ``params.json`` is authoritative (the
+    partial artifacts were computed under it). If the caller *explicitly* re-passed a config-affecting
+    flag that conflicts with the trained config, return an error message so the run aborts (use
+    --override for a fresh run with new settings); otherwise adopt the on-disk config and return None.
+
+    ``explicit_config`` is the set of click option names the user passed on the command line (e.g.
+    ``{"featurizer_ids"}``); flags not in it silently inherit the on-disk value.
+    """
+    disk = self._load_disk_params()
+    if disk is None:
+      return None
+    checks = {
+      "classification": ("task", self.task, disk.get("task")),
+      "featurizer_ids": ("featurizers", self.featurizer_ids, disk.get("featurizer_ids")),
+      "projection_ids": ("projections", self.projection_ids, disk.get("projection_ids")),
+      "store": ("store", self.params.get("store"), disk.get("store")),
+    }
+    conflicts = [
+      f"{label} (requested {cli!r}, trained with {dsk!r})"
+      for flag, (label, cli, dsk) in checks.items()
+      if flag in explicit_config and cli != dsk
+    ]
+    if conflicts:
+      return (
+        f"Cannot resume '{self.output_dir}' with a different configuration: {'; '.join(conflicts)}. "
+        f"Pass --override to discard it and train fresh with the new settings."
+      )
+    # Adopt the original config so the setup summary + store logic match the trained model.
+    self.params = disk
+    self.task = disk.get("task", self.task)
+    self.featurizer_ids = disk.get("featurizer_ids", self.featurizer_ids)
+    self.projection_ids = disk.get("projection_ids", self.projection_ids)
+    return None
 
   def _normalize_input(self):
     step = PipelineStep("normalize_input", self.output_dir)

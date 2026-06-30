@@ -65,6 +65,12 @@ class BasePlot(BaseResults):
       )
     self.name = "base"
     self.ax = ax[0]
+    # stylia 1.0.1's AxisManager re-applies placeholder axis titles ("X-axis / Units" /
+    # "Y-axis / Units") on every ``ax[0]`` access, so clear them only after binding ``self.ax``.
+    # Plots that don't set their own labels (categorical heatmaps / horizontal bars) then render
+    # clean; plots that call set_xlabel/set_ylabel override these blanks afterwards.
+    self.ax.set_xlabel("")
+    self.ax.set_ylabel("")
 
   def save(self):
     if not self.is_available:

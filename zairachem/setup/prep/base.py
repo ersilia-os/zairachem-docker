@@ -41,7 +41,9 @@ class BaseSetup(object):
     )
 
   def _make_subfolder(self, name):
-    os.makedirs(os.path.join(self.output_dir, name))
+    # exist_ok=True so a resume (subfolders already present) doesn't crash. Harmless on the fresh
+    # path, which wipes + recreates output_dir first, so the subfolders are always absent there.
+    os.makedirs(os.path.join(self.output_dir, name), exist_ok=True)
 
   def _input_smiles(self):
     import pandas as pd
@@ -51,6 +53,9 @@ class BaseSetup(object):
 
   def update_elapsed_time(self):
     ZairaBase().update_elapsed_time()
+
+  def reset_time(self):
+    ZairaBase().reset_time()
 
   def is_done(self):
     return os.path.exists(os.path.join(self.output_dir, OUTPUT_FILENAME))

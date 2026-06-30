@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import numpy as np
 import rich_click as click
 import rich_click.rich_click as rc
+from click.core import ParameterSource
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE, NGINX_IMAGE
 
@@ -384,7 +385,8 @@ def cli(verbose):
   "override_dir",
   is_flag=True,
   default=False,
-  help="Overwrite the model directory if it already exists (otherwise the run aborts).",
+  help="Wipe and rebuild the model directory if it already exists. Without this flag, an unfinished "
+  "run in that directory is resumed; a completed model aborts the run.",
 )
 @click.option(
   "--batch-size",
@@ -441,6 +443,15 @@ def fit(
   from zairachem.base.utils.progress import tracker
 
   store = _resolve_store(store, os.path.basename(os.path.normpath(model_dir)))
+  # Config-affecting flags the user actually typed (vs click defaults). On resume, these are checked
+  # against the trained model's on-disk config so a conflicting re-run aborts instead of silently
+  # mixing settings; un-typed flags inherit the on-disk values.
+  ctx = click.get_current_context()
+  explicit_config = {
+    name
+    for name in ("classification", "featurizer_ids", "projection_ids", "store")
+    if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+  }
   tracker.begin(
     "ZairaChem · QSAR training",
     subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(model_dir))} · {task}",
@@ -453,6 +464,7 @@ def fit(
     model_ids_file=featurizer_ids,
     projection_ids=projection_ids,
     override=override_dir,
+    explicit_config=explicit_config,
   )
   if proceed:
     process_group(

@@ -148,11 +148,11 @@ class SetupProgress:
         for ...:
           p.update(t, advance=1)            # optionally advance=k / description="…"
 
-  Renders a discrete :class:`LiveProgressBar` (a plain bar + dim percentage + the operation name shown
-  dim as the activity — no bold, no count) instead of the old multi-column *pulsing* bar, which both
-  blinked and clashed with the rest of the UI. The final bar persists as the sub-step's record (like
-  the other steps), rather than vanishing. The optional ``description`` on :meth:`update` is appended as
-  the dim sub-phase (e.g. the merge phase).
+  Renders a discrete :class:`LiveProgressBar` with ``show_bar=False`` — just a dim percentage + the
+  operation name shown dim as the activity (no bar glyph, no bold, no count) — instead of the old
+  multi-column *pulsing* bar, which both blinked and clashed with the rest of the UI. The final
+  percentage persists as the sub-step's record (like the other steps), rather than vanishing. The
+  optional ``description`` on :meth:`update` is appended as the dim sub-phase (e.g. the merge phase).
   """
 
   def __init__(self, color=None, width=24):
@@ -165,8 +165,16 @@ class SetupProgress:
     return self
 
   def add_task(self, description, total=0):
+    # show_bar=False: the Setup sub-steps (validate/standardize SMILES, consistency checks, merge)
+    # show just a dim percentage + the operation name — no bar glyph, per request.
     self._bar = LiveProgressBar(
-      description, total=total, color=self.color, width=self.width, persist=True, discrete=True
+      description,
+      total=total,
+      color=self.color,
+      width=self.width,
+      persist=True,
+      discrete=True,
+      show_bar=False,
     )
     self._cm = self._bar.live()
     self._cm.__enter__()

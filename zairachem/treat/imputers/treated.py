@@ -115,12 +115,25 @@ class TreatedDescriptors(DescriptorBase):
   ):
     if substep:
       substep("scaling")
-    values = np.array(raw_h5.values(), dtype="float32")
+    # Single pass over the raw H5, collecting values + inputs together. The separate
+    # raw_h5.values() then raw_h5.inputs() calls each traverse the file independently (two full
+    # reads for legacy Hdf5; two full chunk-file sweeps for ChunkedH5Store); iter_all yields both per
+    # chunk in the same row order, so the concatenation is byte-for-byte what values()/inputs() return.
+    value_parts = []
+    inputs = []
+    for _start, _end, vals, ins in raw_h5.iter_all(self.chunk_size):
+      value_parts.append(np.asarray(vals, dtype="float32"))
+      inputs.extend(ins)
+    values = (
+      np.concatenate(value_parts, axis=0)
+      if value_parts
+      else np.empty((0, len(raw_features)), dtype="float32")
+    )
     df = pd.DataFrame(values, columns=raw_features)[expected_cols]
     scaled = eosframes_transform(df, transformer, output_dtype=OUTPUT_DTYPE, impute=True)
     out_values = scaled[expected_cols].to_numpy(dtype="float32")
     data = Data()
-    data.set(inputs=raw_h5.inputs(), values=out_values, features=expected_cols)
+    data.set(inputs=inputs, values=out_values, features=expected_cols)
     data._is_sparse = False
     Hdf5(output_path).save(data)
     data.save_info(output_path.replace(".h5", ".json"))

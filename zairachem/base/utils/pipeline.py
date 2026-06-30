@@ -77,3 +77,16 @@ class PipelineStep(ZairaBase):
         steps += [s]
     data["steps"] = steps
     self._write_session(data)
+
+  def unmark(self):
+    """Drop only this step's done-marker, leaving later steps intact.
+
+    Used to force a single step to re-run (e.g. re-rendering the report) without disturbing the rest
+    of the pipeline's resume state — unlike :meth:`reset`, which also clears every step after this one.
+    A no-op if the step isn't marked done or the session file is absent.
+    """
+    data = self._read_session()
+    if data is None:
+      return
+    data["steps"] = [s for s in data["steps"] if s != self.name]
+    self._write_session(data)
