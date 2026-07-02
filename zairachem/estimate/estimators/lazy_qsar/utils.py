@@ -1,7 +1,7 @@
 import collections
 
 
-def make_classification_report(y, y_proba, y_rank=None, y_ad=None, threshold=0.5):
+def make_classification_report(y, y_proba, y_rank=None, y_ad=None, y_raw=None, threshold=0.5):
   y_hat = y_proba
   b_hat = (y_hat > threshold).astype(int)
   results = collections.OrderedDict()
@@ -12,5 +12,8 @@ def make_classification_report(y, y_proba, y_rank=None, y_ad=None, threshold=0.5
     main["r_hat"] = y_rank
   if y_ad is not None:
     main["a_hat"] = y_ad
+  # Uncalibrated OOF score, carried through to a pooled clf_raw column for the report's raw lens.
+  if y_raw is not None:
+    main["y_hat_raw"] = y_raw
   results["main"] = main
   return results

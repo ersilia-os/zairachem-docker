@@ -65,7 +65,7 @@ class ScreenPipeline(ZairaBase):
     y = np.asarray(df["bin"])
     logger.info(
       f"[screen] Scoring {len(candidates)} descriptors on the evaluate splits "
-      f"({SCREEN_REPEATS} repeats, all schemas) → keeping top {k}"
+      f"({SCREEN_REPEATS} repeats, all schemas) → greedily keeping up to {k} that add to the pool"
     )
     folds = build_fold_definitions(list(df[SMILES_COLUMN]), list(y), repeats=SCREEN_REPEATS)
     fold_pairs = [(f["train_idx"], f["test_idx"]) for f in folds.values()]

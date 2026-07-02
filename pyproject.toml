@@ -17,7 +17,7 @@ scikit-learn  = "1.6.1"
 fpsim2        = "0.5.2"
 lolP          = "0.0.4"
 umap-learn    = "0.5.7"
-lazyqsar      = { version = "3.4.1", extras = ["fit"] }
+lazyqsar      = { version = "3.4.2", extras = ["fit"] }
 stylia        = "1.0.1"
 rich          = "14.1.0"
 rich-click    = "1.8.9"

@@ -352,7 +352,7 @@ class TrainSetup(BaseSetup):
       if md < n:
         rows.append((
           "Ensemble cap",
-          f"top [bold]{md}[/] of {n} [dim](pre-screened by held-out AUROC)[/]",
+          f"up to [bold]{md}[/] of {n} [dim](greedy pre-screen by pool contribution)[/]",
         ))
       else:
         rows.append(("Ensemble cap", f"[dim]all {n} (no pre-screening)[/]"))

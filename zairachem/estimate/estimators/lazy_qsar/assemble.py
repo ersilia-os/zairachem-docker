@@ -37,6 +37,9 @@ class IndividualOutcomeAssembler(BaseOutcomeAssembler):
         data[c + "_rank"] = r["r_hat"]
       if "a_hat" in r:
         data[c + "_ad"] = r["a_hat"]
+      # Uncalibrated OOF score (report raw lens); pooled the same way as clf into a clf_raw column.
+      if "y_hat_raw" in r:
+        data[c + "_raw"] = r["y_hat_raw"]
     return pd.DataFrame(data)
 
   def run(self):

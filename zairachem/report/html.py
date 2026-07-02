@@ -38,10 +38,21 @@ _CATEGORIES = [
   (
     "performance",
     "Model performance",
-    "How the pooled model and individual estimators score against the ground-truth labels "
-    "(resubstitution at fit; held-out validation when predicting a labelled set).",
+    "How the pooled model and individual estimators score against the ground-truth labels. At fit "
+    "these are honest out-of-fold predictions (each descriptor contributes its cross-validated "
+    "prediction, then pooled); when predicting a labelled set they are the held-out predictions.",
     [
+      "oof-score-proba",
+      "oof-score-logit",
+      "oof-score-rank",
+      "oof-score-lift",
+      "oof-score-raw",
+      "oof-score-proba-pts",
+      "oof-score-logit-pts",
+      "oof-score-rank-pts",
+      "oof-score-lift-pts",
       "roc-curve",
+      "pr-curve",
       "confusion-matrix",
       "confusion-normalized",
       "roc-individual",
@@ -56,15 +67,16 @@ _CATEGORIES = [
     "Ranking & operating point",
     "Imbalance-aware ranking quality and the trade-offs around the decision threshold — what "
     "matters when triaging or screening a library.",
-    ["pr-curve", "enrichment-curve", "enrichment-factor", "threshold-sweep"],
+    ["enrichment-curve", "enrichment-factor", "threshold-sweep"],
   ),
   (
     "screening",
     "Descriptor selection",
-    "Descriptors are pre-screened by their mean held-out AUROC across the chemistry-aware splits; "
-    "only the top ones (green) are fully trained and pooled into the model. Descriptors dropped at "
-    "screening are shown in red. Absent when every descriptor was trained (no --max-descriptors "
-    "pruning).",
+    "Descriptors are pre-screened by greedy forward selection on the chemistry-aware splits: a "
+    "descriptor is kept (green) only if it adds predictive value to the pool (lifts the ensemble "
+    "held-out AUROC). Descriptors dropped at screening are shown in red — including strong-but-"
+    "redundant ones that add nothing over those already kept. Absent when every descriptor was "
+    "trained (no --max-descriptors pruning).",
     [],
   ),
   (
@@ -126,6 +138,15 @@ _TITLES = {
   "enrichment-factor": "Enrichment factor",
   "threshold-sweep": "Threshold sweep",
   "confusion-normalized": "Confusion matrix (normalized)",
+  "oof-score-proba": "Pooled OOF score · probability",
+  "oof-score-logit": "Pooled OOF score · log-odds",
+  "oof-score-rank": "Pooled OOF score · percentile rank",
+  "oof-score-lift": "Pooled OOF score · lift",
+  "oof-score-raw": "Pooled OOF score · raw",
+  "oof-score-proba-pts": "Pooled OOF score · probability (points)",
+  "oof-score-logit-pts": "Pooled OOF score · log-odds (points)",
+  "oof-score-rank-pts": "Pooled OOF score · percentile rank (points)",
+  "oof-score-lift-pts": "Pooled OOF score · lift (points)",
   "descriptor-metric-heatmap": "Descriptor metric heatmap",
   "oof-overfit-scatter": "Generalization vs overfitting",
   "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
@@ -146,7 +167,35 @@ _TITLES = {
 # its ``home`` section; its members are suppressed everywhere else. Members appear in listed order and
 # only if their PNG is present, so a group left with a single present member degrades to a plain card.
 _GROUPS = [
-  {"key": "roc", "title": "ROC curve", "home": "performance", "members": ["roc-curve"]},
+  {
+    "key": "oof-scores",
+    "title": "Out-of-fold pooled score",
+    "home": "performance",
+    "members": [
+      "oof-score-proba",
+      "oof-score-logit",
+      "oof-score-rank",
+      "oof-score-lift",
+      "oof-score-raw",
+    ],
+  },
+  {
+    "key": "oof-scores-pts",
+    "title": "Out-of-fold pooled score · points",
+    "home": "performance",
+    "members": [
+      "oof-score-proba-pts",
+      "oof-score-logit-pts",
+      "oof-score-rank-pts",
+      "oof-score-lift-pts",
+    ],
+  },
+  {
+    "key": "perf-curves",
+    "title": "Performance curves",
+    "home": "performance",
+    "members": ["roc-curve", "pr-curve"],
+  },
   {
     "key": "confusion",
     "title": "Confusion matrix",
@@ -766,10 +815,26 @@ def _model_titles(output_dir, params, ids):
   return resolved
 
 
-def _model_table_html(ids, versions, titles):
-  """A table of Ersilia models: monospace id linked to the hub, version pill, human title."""
+_BADGE_KEPT = (
+  "<span style='background:#3fb95022;color:#2ea043;padding:1px 8px;border-radius:10px;"
+  "font-weight:600;font-size:11.5px'>kept</span>"
+)
+_BADGE_DISCARDED = (
+  "<span style='background:#f8514922;color:#cf222e;padding:1px 8px;border-radius:10px;"
+  "font-weight:600;font-size:11.5px'>discarded</span>"
+)
+
+
+def _model_table_html(ids, versions, titles, selected=None):
+  """A table of Ersilia models: monospace id linked to the hub, version pill, human title.
+
+  When ``selected`` is provided (a set of the descriptors kept by --max-descriptors screening), a
+  Status column is added marking each model ``kept`` (green) or ``discarded`` (red). Passed only for
+  featurizers on a screened run; ``None`` (no column) otherwise.
+  """
   if not ids:
     return ""
+  show_status = selected is not None
   rows = []
   for mid in ids:
     href = f"https://github.com/{GITHUB_ORG}/{html.escape(mid)}"
@@ -777,13 +842,19 @@ def _model_table_html(ids, versions, titles):
     ver_html = f"<span class='ver'>{html.escape(str(ver))}</span>" if ver else "—"
     title = titles.get(mid)
     title_html = html.escape(title) if title else "—"
+    status = ""
+    if show_status:
+      badge = _BADGE_KEPT if mid in selected else _BADGE_DISCARDED
+      status = f"<td>{badge}</td>"
+    cls = "" if (not show_status or mid in selected) else " style='opacity:.6'"
     rows.append(
-      f"<tr><td><a class='model' href='{href}' target='_blank'>{html.escape(mid)} ↗</a></td>"
-      f"<td>{ver_html}</td><td class='title'>{title_html}</td></tr>"
+      f"<tr{cls}><td><a class='model' href='{href}' target='_blank'>{html.escape(mid)} ↗</a></td>"
+      f"<td>{ver_html}</td><td class='title'>{title_html}</td>{status}</tr>"
     )
+  status_head = "<th>Status</th>" if show_status else ""
   return (
     "<div class='table-wrap'><table class='cfg-models'>"
-    "<thead><tr><th>Model</th><th>Version</th><th>Title</th></tr></thead>"
+    f"<thead><tr><th>Model</th><th>Version</th><th>Title</th>{status_head}</tr></thead>"
     f"<tbody>{''.join(rows)}</tbody></table></div>"
   )
 
@@ -832,7 +903,16 @@ def _config_section_html(output_dir, params, n):
   titles = _model_titles(output_dir, params, feats + projs)
 
   out = [grid]
-  feat_table = _model_table_html(feats, versions, titles)
+  # If --max-descriptors pre-screening ran, mark each featurizer kept/discarded in the table.
+  selected = None
+  sel_path = os.path.join(output_dir, "metadata", "selected_eos.json")
+  if os.path.exists(sel_path):
+    try:
+      with open(sel_path) as f:
+        selected = set(json.load(f))
+    except Exception:
+      selected = None
+  feat_table = _model_table_html(feats, versions, titles, selected=selected)
   if feat_table:
     out.append(f"<h3 class='cfg-h'>Featurizers</h3>{feat_table}")
   proj_table = _model_table_html(projs, versions, titles)

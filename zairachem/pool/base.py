@@ -145,6 +145,7 @@ class BasePooler(ZairaBase):
       and "_bin" not in c
       and not c.endswith("_rank")
       and not c.endswith("_ad")
+      and not c.endswith("_raw")
     ]
     return df[keep]
 

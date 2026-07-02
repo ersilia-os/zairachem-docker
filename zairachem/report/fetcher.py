@@ -105,10 +105,14 @@ class ResultsFetcher(ZairaBase):
     artefacts are copied into the trained tree.
     """
     dirs = {}
-    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
-      d = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath)
-      if os.path.exists(os.path.join(d, "cv_report.json")):
-        dirs[rpath[-1]] = d
+    try:
+      for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
+        d = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath)
+        if os.path.exists(os.path.join(d, "cv_report.json")):
+          dirs[rpath[-1]] = d
+    except Exception:
+      # No manifest yet (e.g. mid-run) — fall through to the in-pipeline glob below.
+      pass
     if not dirs:
       lq = os.path.join(self.trained_path, "pipeline", "01_estimators", "lq_estimators")
       if os.path.isdir(lq):
@@ -229,6 +233,11 @@ class ResultsFetcher(ZairaBase):
     for c in list(df.columns):
       if "clf" in c and "bin" not in c:
         return list(df[c])
+
+  def get_pred_proba_clf_raw(self):
+    """Pooled UNCALIBRATED score column (``clf_raw``) if the model was fit with lazy-qsar ≥ 3.4.2, else None."""
+    df = self._read_pooled_results()
+    return list(df["clf_raw"]) if "clf_raw" in df.columns else None
 
   def get_pred_reg_trans(self):  # TODO ADAPT FOR REG
     df = self._read_pooled_results()
@@ -353,6 +362,14 @@ class ResultsFetcher(ZairaBase):
   def clf_truth_proba(self):
     """Labelled (y_true:int, y_proba:float) for the pooled classifier — NaN truth dropped."""
     yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_proba_clf())
+    return yt.astype(int), yp
+
+  def clf_truth_raw(self):
+    """Labelled (y_true:int, raw_score:float) for the pooled UNCALIBRATED OOF, or None if not persisted."""
+    raw = self.get_pred_proba_clf_raw()
+    if raw is None:
+      return None
+    yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), raw)
     return yt.astype(int), yp
 
   def clf_truth_binary(self):

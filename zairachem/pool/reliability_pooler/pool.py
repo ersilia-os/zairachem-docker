@@ -150,6 +150,14 @@ class Fitter(BasePooler):
     b_hat = (np.asarray(y_hat) > 0.5).astype(int)
 
     results = pd.DataFrame({"clf": y_hat, "clf_bin": b_hat})
+    # Pooled UNCALIBRATED score (report raw lens): combine the per-descriptor clf_raw columns with the
+    # SAME weights (same R/A/params → same W). Only when every descriptor carries a raw column (fit
+    # time with lazy-qsar ≥ 3.4.2); absent otherwise.
+    raw_cols = [c + "_raw" for c in pred_cols]
+    if all(c in df_X.columns for c in raw_cols):
+      P_raw_v = np.asarray(df_X[raw_cols], dtype=np.float64)[idx]
+      y_hat_raw, _ = ReliabilityClassifierPooler._combine_verbose(P_raw_v, R_v, A_v, pooler._params)
+      results["clf_raw"] = np.asarray(y_hat_raw)
     columns = results.columns.tolist()
     results["compound_id"] = cids_v
     results = results[["compound_id"] + columns]

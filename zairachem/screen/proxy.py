@@ -1,10 +1,13 @@
-"""Cheap proxy scoring of descriptor matrices for pre-screening.
+"""Cheap proxy scoring + ensemble-aware selection of descriptors for pre-screening.
 
-Each descriptor is scored by its mean **held-out** AUROC across the chemistry-aware evaluate folds
-(random / scaffold / Butina): for every fold a shallow Random Forest is fit on the fold's train slice
-and scored on its test slice, and the per-fold AUROCs are averaged. This is a fast, generalization-
-focused stand-in for the full per-descriptor autoML fit — good enough to rank descriptors and keep the
-promising ones before training. Pure functions (matrices + labels + folds in, scores/selection out).
+Each descriptor is scored with a shallow Random Forest under the chemistry-aware evaluate folds
+(random / scaffold / Butina): for every fold the RF is fit on the fold's train slice and predicts its
+test slice. From those held-out predictions we get a **solo** AUROC per descriptor *and* keep the
+prediction vectors so selection can be **ensemble-aware**: descriptors are chosen by greedy forward
+selection — a candidate is kept only if it *adds* predictive value to the pool (lifts the mean-across-
+folds ensemble AUROC), where the ensemble is the arithmetic mean of the selected descriptors' held-out
+probabilities (a cheap proxy for the reliability pooler, mirroring lazyqsar's DescriptorPortfolio).
+Pure functions (matrices + labels + folds in, scores/selection out).
 """
 
 import os
@@ -14,9 +17,12 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import ChunkedH5Store, open_h5
 from zairachem.base.vars import RANDOM_SEED, TREATED_DESC_FILENAME
 
-#: Descriptors scoring below this mean held-out AUROC are dropped (unless none clear it — then the
-#: single best is kept, so a run always has at least one descriptor).
+#: A candidate must clear this solo held-out AUROC to enter the greedy pool (else it can't be the seed
+#: either — but the single best descriptor is always kept, so a run is never empty).
 PROXY_FLOOR = 0.55
+#: Minimum ensemble-AUROC gain for a descriptor to be added to the pool (strict improvement; guards
+#: against adding redundant descriptors on noise).
+PROXY_MARGIN = 1e-3
 PROXY_MAX_DEPTH = 3
 PROXY_N_ESTIMATORS = 100
 
@@ -35,36 +41,45 @@ def _load_treated(descriptors_dir, eos_id):
   return h5.values()
 
 
-def _fold_auroc(clf_cls, X, y, train_idx, test_idx, seed):
-  """AUROC of a fresh shallow RF fit on the fold's train slice, scored on its test slice (or None)."""
-  from sklearn.metrics import roc_auc_score
+def _fold_pred(X, y, train_idx, test_idx, seed):
+  """Held-out probabilities of a shallow RF (fit on the fold's train slice) over its test slice.
 
-  tr, te = np.asarray(train_idx), np.asarray(test_idx)
-  ytr, yte = y[tr], y[te]
-  if len(set(ytr.tolist())) < 2 or len(set(yte.tolist())) < 2:
-    return None  # a single-class train or test slice yields no usable AUROC
-  clf = clf_cls(
-    n_estimators=PROXY_N_ESTIMATORS, max_depth=PROXY_MAX_DEPTH, random_state=seed, n_jobs=-1
-  )
-  clf.fit(X[tr], ytr)
-  return float(roc_auc_score(yte, clf.predict_proba(X[te])[:, 1]))
-
-
-def descriptor_score(X, y, folds, seed=RANDOM_SEED):
-  """Mean held-out AUROC of a descriptor matrix across ``folds`` (list of ``(train_idx, test_idx)``)."""
+  Returns ``None`` when the fold's train or test slice is single-class (no usable signal).
+  """
   from sklearn.ensemble import RandomForestClassifier
 
-  y = np.asarray(y)
-  aucs = [
-    a
-    for train_idx, test_idx in folds
-    if (a := _fold_auroc(RandomForestClassifier, X, y, train_idx, test_idx, seed)) is not None
-  ]
+  tr, te = np.asarray(train_idx), np.asarray(test_idx)
+  if len(set(y[tr].tolist())) < 2 or len(set(y[te].tolist())) < 2:
+    return None
+  clf = RandomForestClassifier(
+    n_estimators=PROXY_N_ESTIMATORS, max_depth=PROXY_MAX_DEPTH, random_state=seed, n_jobs=-1
+  )
+  clf.fit(X[tr], y[tr])
+  return clf.predict_proba(X[te])[:, 1].astype(np.float64)
+
+
+def _ensemble_auc(members, preds, y, folds):
+  """Mean-across-folds AUROC of the mean-of-probabilities ensemble over ``members`` (descriptor ids)."""
+  from sklearn.metrics import roc_auc_score
+
+  aucs = []
+  for fi, (_, test_idx) in enumerate(folds):
+    cols = [preds[m][fi] for m in members if preds[m][fi] is not None]
+    yte = y[np.asarray(test_idx)]
+    if not cols or len(set(yte.tolist())) < 2:
+      continue
+    aucs.append(roc_auc_score(yte, np.mean(cols, axis=0)))
   return float(np.mean(aucs)) if aucs else 0.5
 
 
-def select_descriptors(descriptors_dir, eos_ids, y, folds, k, floor=PROXY_FLOOR):
-  """Score each descriptor over ``folds`` and pick the promising ones to fully train.
+def select_descriptors(
+  descriptors_dir, eos_ids, y, folds, k, floor=PROXY_FLOOR, margin=PROXY_MARGIN
+):
+  """Greedy ensemble-aware descriptor selection over the evaluate ``folds``.
+
+  Seeds the pool with the best solo descriptor, then walks the rest in descending solo AUROC, adding a
+  candidate only if it lifts the ensemble held-out AUROC by ≥ ``margin``. Redundant descriptors (high
+  solo score but no marginal pool gain) are skipped, so fewer than ``k`` may be kept.
 
   Parameters
   ----------
@@ -77,29 +92,51 @@ def select_descriptors(descriptors_dir, eos_ids, y, folds, k, floor=PROXY_FLOOR)
   folds : list of tuple
     ``(train_idx, test_idx)`` pairs (the evaluate splits) the proxy is scored on.
   k : int
-    Keep at most this many descriptors (the top-scoring ones clearing ``floor``).
+    Maximum number of descriptors to keep.
   floor : float, optional
-    Minimum mean held-out AUROC to keep a descriptor (default 0.55).
+    Minimum solo held-out AUROC to be eligible (default 0.55).
+  margin : float, optional
+    Minimum ensemble-AUROC gain to add a descriptor (default 1e-3).
 
   Returns
   -------
   tuple(list of str, dict)
-    ``(selected_ordered, scores)`` — selected ids best-first, and ``{eos_id: mean_held_out_auroc}`` for
-    all candidates. If none clear ``floor``, the single best descriptor is kept so a run is never empty.
+    ``(selected_ordered, scores)`` — selected ids in add order, and ``{eos_id: solo_held_out_auroc}``
+    for every candidate. Never empty (the single best descriptor is kept when nothing clears ``floor``).
   """
-  scores = {}
+  y = np.asarray(y)
+  preds, scores = {}, {}
   for eos_id in eos_ids:
     X = _load_treated(descriptors_dir, eos_id)
     if X is None:
       logger.warning(f"[screen] {eos_id}: no treated matrix; scoring 0.5")
-      scores[eos_id] = 0.5
+      preds[eos_id], scores[eos_id] = None, 0.5
       continue
-    scores[eos_id] = descriptor_score(X, y, folds)
-  ranked = sorted(eos_ids, key=lambda e: scores[e], reverse=True)
-  passing = [e for e in ranked if scores[e] >= floor]
-  selected = passing[: max(1, int(k))] if passing else ranked[:1]
-  kept = ", ".join(f"{e}={scores[e]:.3f}" for e in selected)
+    fold_preds = [_fold_pred(X, y, tr, te, RANDOM_SEED) for tr, te in folds]
+    preds[eos_id] = fold_preds
+    scores[eos_id] = _ensemble_auc([eos_id], preds, y, folds)  # solo AUROC = single-member ensemble
+
+  usable = [e for e in eos_ids if preds[e] is not None]
+  if not usable:
+    return [eos_ids[0]] if eos_ids else [], scores
+  eligible = [e for e in usable if scores[e] >= floor]
+  order = sorted(eligible or usable, key=lambda e: scores[e], reverse=True)
+
+  selected = [order[0]]  # seed with the best solo descriptor
+  ens_auc = scores[order[0]]
+  trace = [f"{order[0]}=seed({ens_auc:.3f})"]
+  for cand in order[1:]:
+    if len(selected) >= k:
+      break
+    cand_auc = _ensemble_auc(selected + [cand], preds, y, folds)
+    if cand_auc >= ens_auc + margin:
+      selected.append(cand)
+      trace.append(f"+{cand}(ens {ens_auc:.3f}→{cand_auc:.3f})")
+      ens_auc = cand_auc
+    else:
+      trace.append(f"–{cand}(solo {scores[cand]:.3f}, no gain)")
   logger.info(
-    f"[screen] kept {len(selected)}/{len(eos_ids)} descriptors (k={k}, floor={floor:.2f}): {kept}"
+    f"[screen] greedy kept {len(selected)}/{len(eos_ids)} descriptors "
+    f"(k={k}, ensemble AUROC {ens_auc:.3f}): {' '.join(trace)}"
   )
   return selected, scores
