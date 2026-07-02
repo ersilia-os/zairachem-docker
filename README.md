@@ -1,23 +1,21 @@
 <div id="top"></div>
 
-
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"></a>
   <img src="https://img.shields.io/badge/python-%E2%89%A5%203.10-blue.svg" alt="Python >= 3.10">
   <a href="https://ersilia.io"><img src="https://img.shields.io/badge/Powered%20by-Ersilia-6c5ce7.svg" alt="Powered by Ersilia"></a>
 </p>
 
----
 # ZairaChem, automated ML modeling for QSAR
-## What is ZairaChem?
 
-ZairaChem trains structure–activity (QSAR) models straight from a CSV of SMILES — no manual feature engineering. Give it a labelled dataset and it will:
+ZairaChem trains structure-activity (QSAR) models straight from data files without manual feature engineering. Give it a labelled dataset and it will:
 
-1. **Featurize** the molecules with a curated set of [Ersilia](https://ersilia.io) descriptor models,
-2. **Train and pool** per-descriptor models into a single consensus predictor (classification or regression),
-3. **Predict** activities for new molecules and render a self-contained **HTML report** with the plots and metrics.
+1. **Featurize** the molecules with a curated set of [Ersilia](https://ersilia.io) featurizer (descriptor) models,
+2. **Train and pool** per-descriptor models into a single consensus predictor (classification),
+3. **Predict** activities for new molecules and a self-contained **report** with plots and metrics.
 
-It's built for chemists and modelers who want a strong baseline model over a compound library without writing ML code. ZairaChem is a project of the [Ersilia Open Source Initiative](https://ersilia.io).
+ZairaChem is built for chemists and modelers who want a strong baseline model over a compound library without writing ML code.
+
 ## Requirements
 
 - **Docker**, installed and **running** — ZairaChem serves the descriptor models in containers during the `describe` step. Start Docker before you run `fit` or `predict`.
@@ -129,17 +127,6 @@ zairachem finish                 # assemble final outputs & clean up
 Re-running a single step is handy for iterating — e.g. `zairachem report -m ./dili_model` to
 re-render the report without redoing training.
 
-## Links · License · Citation
+## About the Ersilia Open Source Initiative
 
-- **Ersilia Model Hub** — https://ersilia.io · https://github.com/ersilia-os/ersilia
-- **This repository** — https://github.com/ersilia-os/zairachem-docker
-
-Licensed under the **GNU General Public License v3.0** (see [LICENSE](LICENSE)).
-
-If you use ZairaChem in your research, please cite:
-
-> Turon, G., Hlozek, J., Woodland, J. G., et al. *First fully-automated AI/ML virtual screening
-> cascade implemented at a drug discovery centre in Africa.* Nature Communications, 2023.
-> <!-- TODO: confirm the exact DOI, e.g. https://doi.org/10.1038/s41467-023-41512-2 -->
-
-<p align="right"><a href="#top">↑ back to top</a></p>
+ZairaChem is a project of the [Ersilia Open Source Initiative](https://ersilia.io) done in collaboration with the [H3D Centre](https://h3d.uct.ac.za/) in Cape Town, South Africa.

@@ -14,6 +14,7 @@ from sklearn.metrics import (
   recall_score,
   f1_score,
   matthews_corrcoef,
+  balanced_accuracy_score,
 )
 
 import matplotlib as plt
@@ -570,44 +571,149 @@ class CvAurocPlot(BasePlot):
     self.is_available = True
 
 
-class CvAuprPlot(BasePlot):
-  """Per-descriptor cross-validation (OOF) AUPR bars, with the no-skill prior (base rate) marked."""
+class _CvBarPlot(BasePlot):
+  """Base for a per-descriptor horizontal-bar metric figure over the lazy-qsar OOF predictions.
+
+  Every bar plot shares one row order — descriptors best-first by inner-CV AUROC, best on top — and
+  the per-descriptor identity colour, so flipping between metrics keeps each descriptor in the same
+  place with the same hue. Subclasses set ``stem``/``title``/``xlabel``/``xlim``/``noskill`` and
+  implement :meth:`compute` (returns the metric for one descriptor, or ``None`` to skip it).
+  Threshold metrics receive ``preds`` already thresholded at the descriptor's ideal cutoff.
+  """
+
+  stem = None
+  title = None
+  xlabel = None
+  xlim = (0, 1.03)
+  noskill = None  # None, a fixed value, or "prior" (the base rate) → dashed reference line
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    self.name = "cv-aupr"
+    self.name = self.stem
     ax = self.ax
     rf = ResultsFetcher(path=path)
     stats_bf = rf.get_cv_stats()
     color_of = _descriptor_color_map(stats_bf)
-    rows, prior = [], None
+    entries, prior = [], None
     for s in stats_bf:
       oof = rf.get_cv_oof(s["descriptor"])
       if oof is None:
         continue
-      proba, yv = oof
-      if len(set(yv)) < 2:
+      proba = np.asarray(oof[0], dtype=float)
+      yv = np.asarray(oof[1], dtype=int)
+      if len(set(yv.tolist())) < 2:
         continue
-      rows.append((s["descriptor"], average_precision_score(yv, proba)))
-      prior = float(np.mean(yv))
-    if not rows:
+      prior = float(yv.mean())
+      cutoff = s.get("decision_cutoff_proba")
+      preds = (proba >= cutoff).astype(int) if cutoff is not None else None
+      val = self.compute(s, proba, yv, preds, prior)
+      if val is None:
+        continue
+      entries.append((s["descriptor"], float(val)))
+    if not entries:
       self.is_available = False
       return
-    rows.sort(key=lambda r: r[1])  # ascending → best on top
-    labels = [r[0] for r in rows]
-    aupr = [r[1] for r in rows]
+    entries = list(reversed(entries))  # stats_bf is best-first → reverse puts the best bar on top
+    labels = [e[0] for e in entries]
+    vals = [e[1] for e in entries]
     y = list(range(len(labels)))
-    ax.barh(y, aupr, color=[color_of[n] for n in labels], alpha=0.9, height=0.6, zorder=2)
-    for i, v in enumerate(aupr):
-      ax.text(0.01, i, f"{v:.2f}", va="center", ha="left", fontsize=7, zorder=4)
-    if prior is not None:
-      ax.axvline(prior, color=named_colors.gray, lw=1, ls="--", zorder=1, label="No skill")
+    ax.barh(y, vals, color=[color_of[n] for n in labels], alpha=0.9, height=0.6, zorder=2)
+    x0, x1 = self.xlim
+    for i, v in enumerate(vals):
+      ax.text(x0 + (x1 - x0) * 0.01, i, f"{v:.2f}", va="center", ha="left", fontsize=7, zorder=4)
+    ns = prior if self.noskill == "prior" else self.noskill
+    if ns is not None:
+      ax.axvline(ns, color=named_colors.gray, lw=1, ls="--", zorder=1)
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
-    ax.set_xlim(0, 1.03)
-    ax.set_xlabel("AUPR (average precision)")
-    ax.set_title("Cross-validation AUPR (bar) vs no-skill prior (--)")
+    ax.set_xlim(x0, x1)
+    ax.set_xlabel(self.xlabel)
+    ax.set_title(self.title)
     self.is_available = True
+
+  def compute(self, s, proba, y, preds, prior):
+    raise NotImplementedError
+
+
+class CvAuprPlot(_CvBarPlot):
+  """Per-descriptor OOF AUPR (average precision) bars, with the no-skill prior (base rate) marked."""
+
+  stem = "cv-aupr"
+  title = "Cross-validation AUPR (bar) vs no-skill prior (--)"
+  xlabel = "AUPR (average precision)"
+  noskill = "prior"
+
+  def compute(self, s, proba, y, preds, prior):
+    return average_precision_score(y, proba)
+
+
+class CvMccPlot(_CvBarPlot):
+  """Per-descriptor Matthews correlation coefficient at each descriptor's ideal cutoff."""
+
+  stem = "cv-mcc"
+  title = "MCC at the ideal cutoff"
+  xlabel = "MCC (no skill = 0)"
+
+  def compute(self, s, proba, y, preds, prior):
+    return matthews_corrcoef(y, preds) if preds is not None else None
+
+
+class CvF1Plot(_CvBarPlot):
+  """Per-descriptor F1 score at each descriptor's ideal cutoff."""
+
+  stem = "cv-f1"
+  title = "F1 at the ideal cutoff"
+  xlabel = "F1"
+
+  def compute(self, s, proba, y, preds, prior):
+    return f1_score(y, preds, zero_division=0) if preds is not None else None
+
+
+class CvBalancedAccuracyPlot(_CvBarPlot):
+  """Per-descriptor balanced accuracy at each descriptor's ideal cutoff (no skill = 0.5)."""
+
+  stem = "cv-balacc"
+  title = "Balanced accuracy at the ideal cutoff vs no skill (--)"
+  xlabel = "Balanced accuracy"
+  noskill = 0.5
+
+  def compute(self, s, proba, y, preds, prior):
+    return balanced_accuracy_score(y, preds) if preds is not None else None
+
+
+class CvPrecisionPlot(_CvBarPlot):
+  """Per-descriptor precision at each descriptor's ideal cutoff, with the no-skill prior marked."""
+
+  stem = "cv-precision"
+  title = "Precision at the ideal cutoff vs no-skill prior (--)"
+  xlabel = "Precision"
+  noskill = "prior"
+
+  def compute(self, s, proba, y, preds, prior):
+    return precision_score(y, preds, zero_division=0) if preds is not None else None
+
+
+class CvRecallPlot(_CvBarPlot):
+  """Per-descriptor recall (sensitivity) at each descriptor's ideal cutoff."""
+
+  stem = "cv-recall"
+  title = "Recall at the ideal cutoff"
+  xlabel = "Recall (sensitivity)"
+
+  def compute(self, s, proba, y, preds, prior):
+    return recall_score(y, preds, zero_division=0) if preds is not None else None
+
+
+class CvCutoffPlot(_CvBarPlot):
+  """Per-descriptor ideal decision cutoff (the operating probability lazy-qsar selected)."""
+
+  stem = "cv-cutoff"
+  title = "Ideal decision cutoff (probability) vs 0.5 (--)"
+  xlabel = "Decision cutoff (probability)"
+  noskill = 0.5
+
+  def compute(self, s, proba, y, preds, prior):
+    return s.get("decision_cutoff_proba")
 
 
 class CvRocPlot(BasePlot):
@@ -1148,6 +1254,34 @@ class PropertyLogpPlot(_PropertyDistributionPlot):
   prop_index = 1
 
 
+def _draw_donut_labels(ax, wedges, labels, r=1.22, min_gap=0.34):
+  """Outer wedge labels with leader lines, nudged apart vertically so they never overlap.
+
+  Each label is anchored at its wedge's mid-angle on the ring, then labels sharing a horizontal side
+  are spread to keep at least ``min_gap`` between them — the fix for donuts whose slices are so uneven
+  that the built-in labels would collide."""
+  info = []
+  for w, lab in zip(wedges, labels):
+    ang = np.deg2rad(0.5 * (w.theta1 + w.theta2))
+    info.append({"lab": lab, "ang": ang, "x": float(np.cos(ang)), "y": float(np.sin(ang))})
+  for side in (1, -1):
+    grp = sorted((d for d in info if (1 if d["x"] >= 0 else -1) == side), key=lambda d: d["y"])
+    for i in range(1, len(grp)):
+      if grp[i]["y"] - grp[i - 1]["y"] < min_gap:
+        grp[i]["y"] = grp[i - 1]["y"] + min_gap
+  for d in info:
+    right = d["x"] >= 0
+    ax.annotate(
+      d["lab"],
+      xy=(np.cos(d["ang"]), np.sin(d["ang"])),
+      xytext=(r if right else -r, d["y"]),
+      ha="left" if right else "right",
+      va="center",
+      fontsize=8,
+      arrowprops=dict(arrowstyle="-", color=named_colors.gray, lw=0.8, connectionstyle="arc3"),
+    )
+
+
 class ClassDonutPlot(BasePlot):
   """Donut of the active/inactive class balance (classification only)."""
 
@@ -1164,9 +1298,10 @@ class ClassDonutPlot(BasePlot):
       return
     self.is_available = True
     ax = self.ax
-    ax.pie(
+    # No built-in outer labels (they collide on uneven splits); percentages sit inside each wedge and
+    # the class names are placed by the de-colliding helper with leader lines.
+    wedges, _texts, _auto = ax.pie(
       [actives, inactives],
-      labels=["Active", "Inactive"],
       colors=[_color("active"), _color("inactive")],
       startangle=90,
       counterclock=False,
@@ -1175,7 +1310,10 @@ class ClassDonutPlot(BasePlot):
       pctdistance=0.78,
       textprops={"fontsize": 7},
     )
+    _draw_donut_labels(ax, wedges, ["Active", "Inactive"])
     ax.text(0, 0, f"{actives + inactives:,}", ha="center", va="center", fontsize=9)
+    ax.set_xlim(-1.6, 1.6)
+    ax.set_ylim(-1.35, 1.35)
 
 
 class ClassWafflePlot(BasePlot):

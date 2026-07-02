@@ -96,6 +96,12 @@ _TITLES = {
   "transformation": "Value transformation",
   "cv-auroc": "Inner CV AUROC by descriptor",
   "cv-aupr": "Inner CV AUPR by descriptor",
+  "cv-mcc": "MCC at ideal cutoff",
+  "cv-f1": "F1 at ideal cutoff",
+  "cv-balacc": "Balanced accuracy at ideal cutoff",
+  "cv-precision": "Precision at ideal cutoff",
+  "cv-recall": "Recall at ideal cutoff",
+  "cv-cutoff": "Ideal decision cutoff",
   "cv-roc": "Cross-validation ROC",
   "cv-pr": "Cross-validation precision-recall",
   "cv-calibration": "Calibration (cross-validated)",
@@ -1231,20 +1237,23 @@ def _cv_bars_html(stats):
 
 _DIAG_GROUPS = [
   {
-    "key": "diag-compare",
-    "title": "Per-descriptor comparison",
+    "key": "diag-metrics",
+    "title": "Per-descriptor metrics",
     "members": [
-      "descriptor-metric-heatmap",
       "cv-auroc",
       "cv-aupr",
-      "pooled-vs-best-auroc",
-      "oof-overfit-scatter",
+      "cv-mcc",
+      "cv-f1",
+      "cv-balacc",
+      "cv-precision",
+      "cv-recall",
+      "cv-cutoff",
     ],
   },
   {
     "key": "diag-curves",
     "title": "Cross-validation curves",
-    "members": ["cv-roc", "cv-pr", "cv-calibration", "cv-score-distribution"],
+    "members": ["cv-roc", "cv-pr"],
   },
 ]
 
