@@ -423,6 +423,12 @@ class OofScoreLiftPointsPlot(OofScoreLiftPlot):
   show_points = True
 
 
+class OofScoreRawPointsPlot(OofScoreRawPlot):
+  stem = "oof-score-raw-pts"
+  title = "Out-of-fold pooled score · raw (points)"
+  show_points = True
+
+
 class IndividualEstimatorsAurocPlot(BasePlot):
   """Per-descriptor AUROC, one horizontal bar per descriptor model (classification only)."""
 
@@ -1200,6 +1206,42 @@ class ThresholdSweepPlot(BasePlot):
     self.is_available = True
 
 
+class CalibrationCurvePlot(BasePlot):
+  """Reliability curve of the pooled out-of-fold probability: mean predicted probability vs the
+  observed frequency of actives per decile bin, against the diagonal (perfect calibration). The title
+  reports the Brier score (lower = better-calibrated)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "calibration-curve"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    yt, yp = _clf_truth_proba(path)
+    if yt is None or len(np.unique(yt)) < 2:
+      return
+    ax = self.ax
+    p = np.asarray(yp, dtype=float)
+    y = np.asarray(yt, dtype=float)
+    bins = np.linspace(0, 1, 11)
+    idx = np.clip(np.digitize(p, bins) - 1, 0, 9)
+    xs, ys = [], []
+    for b in range(10):
+      m = idx == b
+      if m.sum() > 0:
+        xs.append(float(p[m].mean()))
+        ys.append(float(y[m].mean()))
+    brier = float(np.mean((p - y) ** 2))
+    ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", zorder=1)
+    ax.plot(xs, ys, color=named_colors.blue, lw=1.6, marker="o", ms=4, zorder=10)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Mean predicted probability")
+    ax.set_ylabel("Observed frequency of actives")
+    ax.set_title(f"Calibration · Brier = {brier:.3f}")
+    self.is_available = True
+
+
 class DescriptorMetricHeatmapPlot(BasePlot):
   """Per-descriptor CV metrics heatmap: OOF AUROC, train AUROC, overfit gap (column-normalized)."""
 
@@ -1346,7 +1388,137 @@ class NormalizedConfusionPlot(BasePlot):
           color="white" if norm[i, j] > 0.5 else "black",
         )
     ax.grid(False)
-    ax.set_title("Confusion (row-normalized)")
+    ax.set_title("Confusion (row-normalized · recall)")
+    self.is_available = True
+
+
+class ConfusionPrecisionPlot(BasePlot):
+  """Column-normalized confusion matrix (per-predicted-class precision %) — the complement of the
+  row-normalized recall view."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "confusion-precision"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    bt, bp = rf.clf_truth_binary()
+    if bt is None or bp is None or len(bt) == 0 or len(set(bp.tolist())) < 2:
+      return
+    ax = self.ax
+    cm = metrics.confusion_matrix(bt, bp).astype(float)
+    col_sums = cm.sum(axis=0, keepdims=True)
+    norm = np.divide(cm, col_sums, out=np.zeros_like(cm), where=col_sums != 0)
+    ax.imshow(norm, cmap=plt.cm.Greens, vmin=0, vmax=1)
+    labels = ["I (0)", "A (1)"]
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+    for i in range(2):
+      for j in range(2):
+        ax.text(
+          j,
+          i,
+          f"{norm[i, j] * 100:.0f}%",
+          va="center",
+          ha="center",
+          fontsize=8,
+          color="white" if norm[i, j] > 0.5 else "black",
+        )
+    ax.grid(False)
+    ax.set_title("Confusion (column-normalized · precision)")
+    self.is_available = True
+
+
+class ConfusionBreakdownPlot(BasePlot):
+  """Outcome composition: each true class as a stacked bar split into correct vs error calls
+  (Actives → TP / FN; Inactives → TN / FP), a more intuitive read than the matrix."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 3))
+    self.name = "confusion-breakdown"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    bt, bp = rf.clf_truth_binary()
+    if bt is None or bp is None or len(bt) == 0 or len(set(bp.tolist())) < 2:
+      return
+    ax = self.ax
+    cm = metrics.confusion_matrix(bt, bp)
+    tn, fp, fn, tp = int(cm[0, 0]), int(cm[0, 1]), int(cm[1, 0]), int(cm[1, 1])
+
+    def seg(y, x0, w, color, txt):
+      if w <= 0:
+        return
+      ax.barh(y, w, left=x0, color=color, edgecolor="white", height=0.62, zorder=2)
+      ax.text(x0 + w / 2, y, txt, ha="center", va="center", color="white", fontweight="bold")
+
+    # Active row (top): correct TP then error FN; Inactive row (bottom): correct TN then error FP.
+    seg(1, 0, tp, _color("correct_positive"), f"TP {tp}")
+    seg(1, tp, fn, _color("false_negative"), f"FN {fn}")
+    seg(0, 0, tn, _color("correct_negative"), f"TN {tn}")
+    seg(0, tn, fp, _color("false_positive"), f"FP {fp}")
+    ax.set_yticks([0, 1])
+    ax.set_yticklabels(["Inactive", "Active"])
+    ax.set_xlabel("Number of compounds")
+    ax.set_title("Outcome composition by true class")
+    self.is_available = True
+
+
+class DescriptorCorrelationPlot(BasePlot):
+  """Spearman correlation between the per-descriptor out-of-fold predictions — how redundant vs
+  complementary the descriptor models are (high = agree, lower = adds a distinct signal)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "descriptor-correlation"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    tasks = rf.get_clf_tasks()
+    if not tasks:
+      return
+    df = rf._read_individual_estimator_results(tasks[0])
+    if df is None or df.shape[1] < 2:
+      return
+    # Order descriptors best-first (by inner-CV AUROC) when available, for a consistent reading.
+    ranked = [s["descriptor"] for s in rf.get_cv_stats()]
+    cols = sorted(
+      df.columns,
+      key=lambda c: ranked.index(c.split("-")[-1]) if c.split("-")[-1] in ranked else 999,
+    )
+    corr = df[cols].corr(method="spearman")
+    m = corr.values
+    labels = [c.split("-")[-1] for c in cols]
+    ax = self.ax
+    from matplotlib.colors import LinearSegmentedColormap
+
+    cmap = LinearSegmentedColormap.from_list("stylia_seq", ["#ffffff", _color("inactive")])
+    vmin = float(np.nanmin(m[~np.eye(len(m), dtype=bool)])) if len(m) > 1 else 0.0
+    ax.imshow(m, cmap=cmap, vmin=max(0.0, vmin - 0.02), vmax=1.0)
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticklabels(labels, fontsize=6, rotation=30, ha="right")
+    ax.set_yticklabels(labels, fontsize=6)
+    for i in range(len(labels)):
+      for j in range(len(labels)):
+        ax.text(
+          j,
+          i,
+          f"{m[i, j]:.2f}",
+          va="center",
+          ha="center",
+          fontsize=6,
+          color="white" if m[i, j] > 0.85 else "black",
+        )
+    ax.grid(False)
+    ax.set_title("Descriptor prediction correlation (Spearman)")
     self.is_available = True
 
 

@@ -43,20 +43,25 @@ _CATEGORIES = [
     "prediction, then pooled); when predicting a labelled set they are the held-out predictions.",
     [
       "oof-score-proba",
-      "oof-score-logit",
-      "oof-score-rank",
-      "oof-score-lift",
-      "oof-score-raw",
       "oof-score-proba-pts",
+      "oof-score-logit",
       "oof-score-logit-pts",
+      "oof-score-rank",
       "oof-score-rank-pts",
+      "oof-score-lift",
       "oof-score-lift-pts",
+      "oof-score-raw",
+      "oof-score-raw-pts",
       "roc-curve",
       "pr-curve",
+      "calibration-curve",
+      "enrichment-curve",
+      "threshold-sweep",
       "confusion-matrix",
       "confusion-normalized",
-      "roc-individual",
-      "raw-classification-scores",
+      "confusion-precision",
+      "confusion-breakdown",
+      "descriptor-correlation",
       "r2-individual",
       "regression-raw",
       "regression-trans",
@@ -67,17 +72,7 @@ _CATEGORIES = [
     "Ranking & operating point",
     "Imbalance-aware ranking quality and the trade-offs around the decision threshold — what "
     "matters when triaging or screening a library.",
-    ["enrichment-curve", "enrichment-factor", "threshold-sweep"],
-  ),
-  (
-    "screening",
-    "Descriptor selection",
-    "Descriptors are pre-screened by greedy forward selection on the chemistry-aware splits: a "
-    "descriptor is kept (green) only if it adds predictive value to the pool (lifts the ensemble "
-    "held-out AUROC). Descriptors dropped at screening are shown in red — including strong-but-"
-    "redundant ones that add nothing over those already kept. Absent when every descriptor was "
-    "trained (no --max-descriptors pruning).",
-    [],
+    ["enrichment-factor"],
   ),
   (
     "validation",
@@ -107,8 +102,6 @@ _TITLES = {
   "confusion-matrix": "Confusion matrix",
   "score-violin": "Score distribution (violin)",
   "score-strip": "Score distribution (strip)",
-  "roc-individual": "ROC by estimator",
-  "raw-classification-scores": "Raw classification scores",
   "r2-individual": "R² by estimator",
   "regression-raw": "Predicted vs observed (raw)",
   "regression-trans": "Predicted vs observed (transformed)",
@@ -137,16 +130,21 @@ _TITLES = {
   "enrichment-curve": "Enrichment curve",
   "enrichment-factor": "Enrichment factor",
   "threshold-sweep": "Threshold sweep",
-  "confusion-normalized": "Confusion matrix (normalized)",
-  "oof-score-proba": "Pooled OOF score · probability",
-  "oof-score-logit": "Pooled OOF score · log-odds",
-  "oof-score-rank": "Pooled OOF score · percentile rank",
-  "oof-score-lift": "Pooled OOF score · lift",
-  "oof-score-raw": "Pooled OOF score · raw",
-  "oof-score-proba-pts": "Pooled OOF score · probability (points)",
-  "oof-score-logit-pts": "Pooled OOF score · log-odds (points)",
-  "oof-score-rank-pts": "Pooled OOF score · percentile rank (points)",
-  "oof-score-lift-pts": "Pooled OOF score · lift (points)",
+  "calibration-curve": "Calibration curve",
+  "confusion-normalized": "Confusion matrix (recall)",
+  "confusion-precision": "Confusion matrix (precision)",
+  "confusion-breakdown": "Outcome composition",
+  "descriptor-correlation": "Descriptor prediction correlation",
+  "oof-score-proba": "Probability",
+  "oof-score-logit": "Log-odds",
+  "oof-score-rank": "Percentile rank",
+  "oof-score-lift": "Lift",
+  "oof-score-raw": "Raw",
+  "oof-score-proba-pts": "Probability · points",
+  "oof-score-logit-pts": "Log-odds · points",
+  "oof-score-rank-pts": "Percentile rank · points",
+  "oof-score-lift-pts": "Lift · points",
+  "oof-score-raw-pts": "Raw · points",
   "descriptor-metric-heatmap": "Descriptor metric heatmap",
   "oof-overfit-scatter": "Generalization vs overfitting",
   "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
@@ -173,34 +171,39 @@ _GROUPS = [
     "home": "performance",
     "members": [
       "oof-score-proba",
-      "oof-score-logit",
-      "oof-score-rank",
-      "oof-score-lift",
-      "oof-score-raw",
-    ],
-  },
-  {
-    "key": "oof-scores-pts",
-    "title": "Out-of-fold pooled score · points",
-    "home": "performance",
-    "members": [
       "oof-score-proba-pts",
+      "oof-score-logit",
       "oof-score-logit-pts",
+      "oof-score-rank",
       "oof-score-rank-pts",
+      "oof-score-lift",
       "oof-score-lift-pts",
+      "oof-score-raw",
+      "oof-score-raw-pts",
     ],
   },
   {
     "key": "perf-curves",
     "title": "Performance curves",
     "home": "performance",
-    "members": ["roc-curve", "pr-curve"],
+    "members": [
+      "roc-curve",
+      "pr-curve",
+      "calibration-curve",
+      "enrichment-curve",
+      "threshold-sweep",
+    ],
   },
   {
     "key": "confusion",
     "title": "Confusion matrix",
     "home": "performance",
-    "members": ["confusion-matrix", "confusion-normalized"],
+    "members": [
+      "confusion-matrix",
+      "confusion-normalized",
+      "confusion-precision",
+      "confusion-breakdown",
+    ],
   },
   {
     "key": "regression",
@@ -635,6 +638,7 @@ section { padding-top:40px; scroll-margin-top:24px; }
 section > h2 { font-size:17px; font-weight:600; margin:0 0 4px; }
 section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+.table-wrap + .grid { margin-top:26px; }
 /* Two figure cards side by side, filling the main content column (same width as the tables/text). */
 .grid2 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 @media (max-width:720px) { .grid2 { grid-template-columns:1fr; } }
@@ -660,8 +664,8 @@ section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .about .grid-cap { text-align:center; color:var(--muted); font-size:13px; max-width:760px; margin:12px auto 0; }
 .about .grid-cap b { color:var(--fg); }
 .carousel-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 0 12px; flex:0 0 auto; }
-.carousel-head h3 { margin:0; }
-.carousel-label { color:var(--muted); font-size:12.5px; white-space:nowrap; }
+.carousel-head h3 { margin:0; flex:0 1 auto; min-width:0; }
+.carousel-label { color:var(--muted); font-size:12.5px; white-space:nowrap; flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:right; }
 .carousel-track { position:relative; flex:1 1 auto; min-height:0; }
 .carousel .slide { display:none; }
 .carousel .slide.active { display:flex; align-items:center; justify-content:center; height:100%; }
@@ -1305,7 +1309,7 @@ def _cv_table_html(cv_stats):
     ("aupr", "Inner CV AUPRC"),
     ("train_auc", "Train AUROC"),
     ("overfit_gap", "Overfit gap"),
-    ("decision_cutoff_proba", "Ideal Cutoff"),
+    ("decision_cutoff_proba", "Ideal cutoff"),
   ]
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
@@ -1672,7 +1676,6 @@ def write_html_report(output_dir):
   # Build sections. Configuration first; then the plot categories ("Chemical space" gathers any
   # projection-* figure generically); then any leftovers.
   assigned = set()
-  perf_table = _performance_table_html(report_dir)
   config_table = _config_section_html(output_dir, params, n)
   cv_stats = _read_cv_stats(output_dir)
   if cv_stats:
@@ -1716,12 +1719,8 @@ def write_html_report(output_dir):
       items = [s for s in members if s in present]
     cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
     grid = "<div class='grid'>" + "".join(cards) + "</div>" if cards else ""
-    if anchor == "performance":
-      inner = perf_table + grid
-    elif anchor == "validation":
+    if anchor == "validation":
       inner = _validation_table_html(report_dir) + grid
-    elif anchor == "screening":
-      inner = _screening_table_html(output_dir) + grid
     else:
       inner = grid
     if inner:
