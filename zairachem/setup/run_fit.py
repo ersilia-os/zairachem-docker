@@ -16,6 +16,9 @@ def run(
   projection_ids=None,
   override=False,
   explicit_config=None,
+  evaluate=False,
+  evaluate_repeats=3,
+  evaluate_schemas=None,
 ):
   ts = TrainSetup(
     input_file,
@@ -24,6 +27,9 @@ def run(
     task=task,
     store=store,
     projection_ids=projection_ids,
+    evaluate=evaluate,
+    evaluate_repeats=evaluate_repeats,
+    evaluate_schemas=evaluate_schemas,
   )
 
   # Decide fresh / resume / refuse for an existing model directory (a fresh run on an absent dir, or

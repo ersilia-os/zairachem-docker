@@ -34,21 +34,10 @@ SUBSTEP = {
   "finish": ("Finish", "finish"),
 }
 
-# Stable phase order. The matplotlib plots colour phases from stylia's article (NPG) named palette
-# (see ``_PHASE_COLOR`` in :mod:`.plots`); the hexes below mirror those exact stylia colours so the
-# CSS dashboard's ``.ph-*`` rules in :mod:`.html` match the figures.
+# Stable phase order. Phase → colour now lives in the single source of truth
+# (:data:`zairachem.report.colors.PHASE_COLORS` / ``PHASE_COLOR_RGB``), shared by the plots and the
+# HTML dashboard; this module stays free of matplotlib/stylia/HTML, so it only owns the order.
 PHASE_ORDER = ["setup", "describe", "projections", "treat", "estimate", "pool", "report", "finish"]
-PHASE_COLORS = {
-  "setup": "#457b9d",  # cobalt
-  "describe": "#2ec4b6",  # turquoise
-  "projections": "#fcbf49",  # amber
-  "treat": "#6c5ce7",  # periwinkle
-  "estimate": "#e63946",  # crimson
-  "pool": "#b05cc8",  # orchid
-  "report": "#6bbf59",  # lime
-  "finish": "#f4845f",  # tangerine
-  "other": "#a0a0a0",  # silver
-}
 
 
 # Steps excluded from the per-step timing breakdown (post-compute housekeeping; see step_telemetry).

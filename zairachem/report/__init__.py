@@ -15,6 +15,19 @@ INDIVIDUAL_FIGSIZE = (TWO_COLUMNS_WIDTH / 2, TWO_COLUMNS_WIDTH / 2)
 # matching the previous (0.0.2) report output; other figsizes scale proportionally.
 FIGSIZE_SCALE = 0.43 / (TWO_COLUMNS_WIDTH / 2)
 
+# Reference grid for figure footprints. Every figure declares an (rows, cols) footprint in 3 cm cells.
+# Two distinct quantities (kept separate on purpose):
+#   * CELLS_PER_WIDTH — how many 3 cm cells span stylia's "print" full width (≈ 18 cm ÷ 3 cm = 6).
+#     This is the SIZING divisor: a footprint maps to width=cols/CELLS_PER_WIDTH,
+#     height=rows/CELLS_PER_WIDTH (cells square; both fractions of stylia's full WIDTH).
+#   * GRID_COLS × GRID_ROWS — the composite/display reference grid (landscape 10 columns × 6 rows =
+#     30 cm wide × 18 cm tall) shown in the report HTML's "About the figures" section and used for the
+#     per-card footprint badges. The composite canvas is wider than one print figure on purpose.
+CELLS_PER_WIDTH = 6
+GRID_COLS = 10
+GRID_ROWS = 6
+CELL_CM = 3.0
+
 # Publication-ready figures: the non-branded "article" style (NPG / Nature Publishing Group palette)
 # and the "print" format — so plots can be dropped straight into papers. Set once at import.
 stylia.set_style("article")
@@ -55,14 +68,21 @@ class BaseTable(BaseResults):
 
 
 class BasePlot(BaseResults):
-  def __init__(self, ax, path, figsize=None):
+  def __init__(self, ax, path, cells=None, figsize=None):
     BaseResults.__init__(self, path=path)
+    # Footprint on the reference grid as (rows, cols) of 3 cm cells — the source of truth for size.
+    self.cells = cells or (2, 2)
     if ax is None:
-      if figsize is None:
-        figsize = INDIVIDUAL_FIGSIZE
-      _, ax = stylia.create_figure(
-        1, 1, width=figsize[0] * FIGSIZE_SCALE, height=figsize[1] * FIGSIZE_SCALE
-      )
+      if figsize is not None:
+        # Legacy inch-like sizing (kept as a fallback); prefer ``cells``.
+        _, ax = stylia.create_figure(
+          1, 1, width=figsize[0] * FIGSIZE_SCALE, height=figsize[1] * FIGSIZE_SCALE
+        )
+      else:
+        rows, cols = self.cells
+        _, ax = stylia.create_figure(
+          1, 1, width=cols / CELLS_PER_WIDTH, height=rows / CELLS_PER_WIDTH
+        )
     self.name = "base"
     self.ax = ax[0]
     # stylia 1.0.1's AxisManager re-applies placeholder axis titles ("X-axis / Units" /

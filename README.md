@@ -1,182 +1,145 @@
 <div id="top"></div>
-<p align="center">
-  <img src="/asset/zairachem_logo.png" height="250" alt="Zairachem logo">
-</p>
-<h2 align="center"> Welcome to Zairachem!</h2>
-To install ZairaChem v2 do the following:
 
-``` 
-git clone https://github.com/ersilia-os/zairachem-docker
-cd zairachem-docker
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"></a>
+  <img src="https://img.shields.io/badge/python-%E2%89%A5%203.10-blue.svg" alt="Python >= 3.10">
+  <a href="https://ersilia.io"><img src="https://img.shields.io/badge/Powered%20by-Ersilia-6c5ce7.svg" alt="Powered by Ersilia"></a>
+</p>
+
+---
+# ZairaChem, automated ML modeling for QSAR
+## What is ZairaChem?
+
+ZairaChem trains structure–activity (QSAR) models straight from a CSV of SMILES — no manual feature engineering. Give it a labelled dataset and it will:
+
+1. **Featurize** the molecules with a curated set of [Ersilia](https://ersilia.io) descriptor models,
+2. **Train and pool** per-descriptor models into a single consensus predictor (classification or regression),
+3. **Predict** activities for new molecules and render a self-contained **HTML report** with the plots and metrics.
+
+It's built for chemists and modelers who want a strong baseline model over a compound library without writing ML code. ZairaChem is a project of the [Ersilia Open Source Initiative](https://ersilia.io).
+## Requirements
+
+- **Docker**, installed and **running** — ZairaChem serves the descriptor models in containers during the `describe` step. Start Docker before you run `fit` or `predict`.
+- **Python ≥ 3.10** (a dedicated conda environment is recommended).
+- **[Ersilia](https://github.com/ersilia-os/ersilia)**, installed with the default descriptor models fetched. The default set is:
+  - featurizers: `eos3l5f`, `eos8aa5`, `eos4u6p`, `eos9o72`, `eos4ex3`, `eos82v1`
+  - projection (for the report's 2-D map): `eos1klk`
+
+  See the [Ersilia docs](https://ersilia.gitbook.io/ersilia-book/) for installation, then fetch each
+  model with `ersilia fetch <eos-id>`.
+## Installation
+
+```bash
 conda create -n zairachem python=3.11 -y
 conda activate zairachem
+
+git clone https://github.com/ersilia-os/zairachem-docker
+cd zairachem-docker
 pip install -e .
 ```
-Since `zairachem` is depend in the `docker` and `docker-compose` we need to have them installed. Use this instruction for more detail [here](https://docs.docker.com/engine/install/ubuntu/). 
-- To install `docker-compose` in MacOS we can simply execute:
-```bash
-brew install docker-compose
-```
-Once ZairaChem is installed in your environment, the CLI is available as:
+
+Check the install (this also prints a Docker readiness line):
 
 ```bash
-zairachem [COMMAND] [OPTIONS]
+zairachem --help
 ```
 
----
+## Quickstart
 
-### Commands
-
-#### 🔹 `fit`
-
-Train a model on your input data.
-Runs preprocessing, descriptor computation, imputation, training, pooling, reporting, and finalization. 
-The input file must be a `.csv` file with two columns: one containing SMILES strings and the other containing a binary output (0,1)
-
-**Usage:**
+Train a classifier and predict, using the example dataset shipped in `dev/data.csv`
+(475 molecules, columns `smiles,dili`). Make sure Docker is running first.
 
 ```bash
-zairachem fit -i INPUT_FILE [-m MODEL_DIR] [OPTIONS]
+# 1. Train a classification model
+zairachem fit -i dev/data.csv -m ./dili_model -c
+
+# 2. Predict on new molecules (reusing the example here)
+zairachem predict -i dev/data.csv -m ./dili_model -o ./predictions
 ```
 
-**Options:**
+**Input** — a CSV with a SMILES column (auto-detected). For `fit`, add a label column: `0`/`1` for
+classification, or a numeric value for regression.
 
-* `-i, --input-file` **\[required]**: Path to the input file.
-* `-m, --model-dir`: Directory where the model is stored.
-* `-c/-r, --classification/--regression`: type of model
-* `-e, --eos-ids`: Ersilia models to use for featurization and projection.
-* `--clean`: Clean descriptors at the end of the run to save space.
-* `--flush`: Flush model checkpoints to save space (useful for cross-validations).
-* `--anonymize`: Anonymize the inputs entirely.
-* `-ct, --clean-target [all|model|predict]`: Target for clean/flush/anonymize operations (default: `all`).
-* `-bs, --batch-size`: Batch size for chunked processing (default: 10000). Controls memory usage for large datasets.
-* `--enable-store/-es [PROJECT]`: Enables reading precalculations from isaura store. Reads from `isaura-public` by default, or specify a custom project name (e.g., `-es my_project`).
-* `--nearest-neighbor/-nn`: Enables nearest search neighbor search to find similar compounds.
-* `--contribute-store/-cs [PROJECT]`: Enables uploading precalculations to isaura store. Without a project name, writes to a temporary bucket (`zairatemp`), copies to `isaura-public`, then removes the temp data. With a project name (e.g., `-cs my_project`), writes directly to that project only.
-
-The eos-ids file must be a `.json` file with the following structure:
-```bash
-{
-    "featurizer_ids": [
-        "eos5axz",
-        "eos4u6p"
-    ],
-    "projection_ids": [
-        "eos2db3"
-    ]
-}
-```
-And the created `parameter.json` will look like:
-```json
-{
-  "task": "classification",
-  "featurizer_ids": [
-    "eos5axz",
-    "eos2gw4"
-  ],
-  "projection_ids": [
-    "eos2db3"
-  ],
-  "read_store": "isaura-public",
-  "enable_nns": false,
-  "contribute_store": "my_project",
-  "latest_featurizer_version": {
-    "eos5axz": "v1",
-    "eos2gw4": "v2"
-  }
-}
+```csv
+smiles,dili
+CC(=O)OCC[N+](C)(C)C,0
+O=C(O)c1cccnc1,1
 ```
 
-**Example:**
+**Output** — predictions and a report land under the model dir (`fit`) or the `-o` dir (`predict`):
 
-```bash
-zairachem fit -i data.csv -m ./models -c -e ./descriptors.json --clean
+- `./dili_model/results/output.csv` — the predictions
+- `./dili_model/report/report.html` — open in a browser for the plots and metrics
+
+```csv
+compound_id,smiles,clf,clf_bin
+CID000,CC(=O)OCC[N+](C)(C)C,0.13,0
+CID002,O=C(O)c1cccnc1,0.61,1
 ```
 
----
+## CLI reference
 
-#### 🔹 `predict`
+Run `zairachem <command> --help` for the authoritative, always-current options. Add `-v`/`--verbose`
+**before** the command for detailed logs (e.g. `zairachem -v fit ...`).
 
-Run predictions on new data using a trained model.
-Also executes the full post-processing and reporting pipeline.
+### `fit` — train a model from a labelled CSV
 
-**Usage:**
+| Option | Default | Description |
+| --- | --- | --- |
+| `-i, --input-file` | *(required)* | Input CSV (must contain a SMILES column). |
+| `-m, --model-dir` | *(required)* | Where the trained model is written. |
+| `-c, --classification` / `-r, --regression` | classification | Model type. |
+| `-f, --featurizer-ids` | curated set | Descriptor model IDs (comma-separated) or a JSON file. |
+| `-p, --projection-ids` | `eos1klk` | Projection model(s) for the report's 2-D map. |
+| `-s, --store` | off | Cache descriptor precalculations in an isaura project to speed up re-runs. |
+| `--override` | off | Wipe & rebuild the model dir if it exists (otherwise resume/abort). |
+| `-b, --batch-size` | `10000` | Rows per chunk for large datasets (controls memory). |
+| `--workers` | `1` | Descriptor models to featurize in parallel. |
+| `--skip-report` | off | Skip the plots/HTML report (still writes the results tables). |
+| `--keep-intermediate-data` | off | Keep descriptor matrices etc. instead of cleaning up. |
+| `--anonymize` | off | Blank out SMILES / InChIKey in all outputs. |
+| `--evaluate` | off | Held-out validation (classification only). Bare = all schemas (random, scaffold, scaffold_det, butina); or a subset, e.g. `--evaluate scaffold,random`. |
+| `--repeats` | `3` | Held-out repeats per schema when `--evaluate` is set (total folds = 1 + 3 × repeats). |
 
-```bash
-zairachem predict -i INPUT_FILE -m MODEL_DIR [-o OUTPUT_DIR] [OPTIONS]
-```
+### `predict` — predict with a trained model
 
-**Options (in addition to `fit` options):**
+Same core options as `fit` (`-i`, `-m`, `-s`, `--override`, `-b`, `--workers`, `--skip-report`,
+`--keep-intermediate-data`, `--anonymize`), plus:
 
-* `-o, --output-dir`: Directory to save outputs.
-* `--override-dir`: Overwrite the output directory if it already exists.
+| Option | Default | Description |
+| --- | --- | --- |
+| `-o, --output-dir` | *(required)* | Where predictions and the report are written. |
 
-**Example:**
+### Advanced: run the pipeline step by step
+
+`fit` runs the full pipeline; you can also run (or re-run) individual steps against a model dir with
+`-m`. Order matters:
 
 ```bash
-zairachem predict -i new_data.csv -m ./models -o ./results --clean --override-dir
+zairachem setup -i data.csv -c   # standardize & prepare the molecules
+zairachem describe               # compute descriptors (needs Docker)
+zairachem treat                  # impute & scale the descriptor matrix
+zairachem estimate               # train the per-descriptor estimators
+zairachem pool                   # combine them into a consensus
+zairachem report                 # render plots, tables & report.html
+zairachem finish                 # assemble final outputs & clean up
 ```
 
----
+Re-running a single step is handy for iterating — e.g. `zairachem report -m ./dili_model` to
+re-render the report without redoing training.
 
-### Clean Target Options
+## Links · License · Citation
 
-The `--clean-target` (`-ct`) option allows granular control over which directories are affected by `--clean`, `--flush`, and `--anonymize` operations:
+- **Ersilia Model Hub** — https://ersilia.io · https://github.com/ersilia-os/ersilia
+- **This repository** — https://github.com/ersilia-os/zairachem-docker
 
-| Target | Description |
-| ------ | ----------- |
-| `all` | (Default) Apply to both model and prediction directories |
-| `model` | Apply only to the model directory |
-| `predict` | Apply only to the prediction directory (only valid during prediction) |
+Licensed under the **GNU General Public License v3.0** (see [LICENSE](LICENSE)).
 
-**Use Cases:**
+If you use ZairaChem in your research, please cite:
 
-1. **Keep model, clean predictions only** (most common for production):
-   ```bash
-   zairachem predict -i data.csv -m ./models --clean --clean-target predict
-   ```
+> Turon, G., Hlozek, J., Woodland, J. G., et al. *First fully-automated AI/ML virtual screening
+> cascade implemented at a drug discovery centre in Africa.* Nature Communications, 2023.
+> <!-- TODO: confirm the exact DOI, e.g. https://doi.org/10.1038/s41467-023-41512-2 -->
 
-2. **Clean model only** (rare, but supported):
-   ```bash
-   zairachem predict -i data.csv -m ./models --clean --clean-target model
-   ```
-
-3. **Clean everything** (default behavior, useful for cross-validation):
-   ```bash
-   zairachem predict -i data.csv -m ./models --clean --clean-target all
-   ```
-
----
-
-### Batch Size for Large Datasets
-
-For large datasets (e.g., 100k+ molecules), use the `--batch-size` (`-bs`) option to control memory usage:
-
-```bash
-# Process in chunks of 5000 molecules
-zairachem fit -i large_data.csv -m ./models -bs 5000 -es
-
-# Predict with custom batch size
-zairachem predict -i large_predict.csv -m ./models -bs 5000 -es
-```
-
-The batch size controls:
-- Chunked reading/writing of H5 descriptor files
-- Batched API calls to Ersilia models
-- Chunked processing in treatment, estimation, and pooling stages
-
-Default batch size is 10,000 rows.
-
----
-
-## Commands for executing each step in zairachem
-
-| Command                                                     | What it does                                             |
-| ----------------------------------------------------------- | -------------------------------------------------------- |
-| `zairachem setup -i input.csv -c`                           | Preprocess input and prepare working artifacts.          |
-| `zairachem describe [-bs BATCH_SIZE]`                       | Compute molecular descriptors for prepared inputs.       |
-| `zairachem treat [-bs BATCH_SIZE]`                          | Impute/clean features produced by `describe`.            |
-| `zairachem estimate [-bs BATCH_SIZE]`                       | Train/estimate models.                                   |
-| `zairachem pool [-bs BATCH_SIZE]`                           | Bag results from `estimate`.                             |
-| `zairachem report [--plot-name NAME]`                       | Generate analysis report and plots.                      |
-| `zairachem finish [--clean --flush --anonymize] [-ct TARGET]` | Finalize: cleanup, flush caches, optional anonymization. |
+<p align="right"><a href="#top">↑ back to top</a></p>

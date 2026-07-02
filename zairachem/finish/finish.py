@@ -5,6 +5,8 @@ from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
   POOL_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
+  MODEL_SUBFOLDER,
+  FOLDS_SUBFOLDER,
   REPORT_SUBFOLDER,
   RESULTS_SUBFOLDER,
   OUTPUT_FILENAME,
@@ -273,9 +275,10 @@ class Finisher(ZairaBase):
     copy, the 2-D projection coords + manifest, and the dedup mapping — so the report (and the other
     step subcommands) can be re-run against a finished model without re-training.
 
-    At PREDICT it additionally drops the whole ``pipeline/`` tree: nothing there is reused (predict
-    reads the *trained* model, never its own output), and the predictions already live in ``results/``
-    (with per-descriptor columns in the output table). Gated by ``keep_intermediate_data``.
+    At PREDICT it additionally drops the throwaway ``descriptors/`` + ``model/`` trees: nothing there
+    is reused (predict reads the *trained* model, never its own output), and the predictions already
+    live in ``results/`` (with per-descriptor columns in the output table). Gated by
+    ``keep_intermediate_data``.
     """
     Cleaner(path=self.path).run()
     data_dir = os.path.join(self.path, DATA_SUBFOLDER)
@@ -283,6 +286,12 @@ class Finisher(ZairaBase):
     # report reads them, and keeping them (all tiny) lets a finished model be re-reported / re-run.
     for fn in (ERSILIA_DATA_FILENAME, SMILES_LIST_FILENAME):
       self._rm(os.path.join(data_dir, fn))
+    # Held-out validation sub-runs (--evaluate) are scratch: their per-fold estimators/pool mirror the
+    # main model's footprint ~10x. The validation results the report needs (validation_table.csv +
+    # holdout_summary.json) already live under report/, so the whole folds/ tree is disposable.
+    folds_dir = os.path.join(self.path, FOLDS_SUBFOLDER)
+    if os.path.isdir(folds_dir):
+      shutil.rmtree(folds_dir)
     # Per-estimator SimpleEvaluator diagnostics — never read by predict or the report (which uses
     # cv_report.json / oof.csv instead).
     for f in glob.glob(
@@ -290,11 +299,13 @@ class Finisher(ZairaBase):
     ):
       self._rm(f)
     if self.is_predict():
-      # The entire pipeline/ is throwaway at predict. Keeps results/ + report/ + metadata/ (and
-      # inputs/data.csv + input_schema.json for provenance).
-      pipeline_dir = os.path.join(self.path, os.path.dirname(DESCRIPTORS_SUBFOLDER))
-      if os.path.isdir(pipeline_dir):
-        shutil.rmtree(pipeline_dir)
+      # descriptors/ + model/ are throwaway at predict. Keeps results/ + report/ + metadata/ (and
+      # inputs/data.csv + input_schema.json for provenance). NB: these are now sibling top-level dirs
+      # (not a single pipeline/ tree), so each is removed explicitly.
+      for subfolder in (DESCRIPTORS_SUBFOLDER, MODEL_SUBFOLDER):
+        throwaway_dir = os.path.join(self.path, subfolder)
+        if os.path.isdir(throwaway_dir):
+          shutil.rmtree(throwaway_dir)
 
   def _predictions_file(self):
     src = os.path.join(self.path, POOL_SUBFOLDER, RESULTS_MAPPED_FILENAME)

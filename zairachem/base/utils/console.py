@@ -105,6 +105,20 @@ def themed_table(title, *, color=None, caption=None):
   )
 
 
+def heat_hex(t):
+  """Map ``t`` in ``[0, 1]`` to a hex colour on a green→amber→red ramp.
+
+  Uses the report's GitHub-ish palette (green ``#3fb950`` → amber ``#d29922`` → red ``#f85149``) so
+  terminal-shaded magnitudes/deviations read the same as the HTML report. Handy for tinting a numeric
+  column in a :func:`themed_table` (0 = calm/good, 1 = attention).
+  """
+  t = 0.0 if t < 0 else 1.0 if t > 1 else float(t)
+  green, amber, red = (0x3F, 0xB9, 0x50), (0xD2, 0x99, 0x22), (0xF8, 0x51, 0x49)
+  (a, b), u = ((green, amber), t / 0.5) if t < 0.5 else ((amber, red), (t - 0.5) / 0.5)
+  r, g, bl = (round(a[i] + (b[i] - a[i]) * u) for i in range(3))
+  return f"#{r:02x}{g:02x}{bl:02x}"
+
+
 def summary_panel(title, rows, *, border_style=None, icon=None):
   """Render a bordered panel wrapping a two-column label/value table (used sparingly).
 

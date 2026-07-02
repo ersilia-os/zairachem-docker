@@ -273,6 +273,28 @@ def summarize_pool(output_dir=None):
   return f"consensus of {_plurals(len(algos), 'algorithm')}" if algos else "predictions pooled"
 
 
+def summarize_holdout(output_dir=None):
+  d = _resolve_output_dir(output_dir)
+  if not d:
+    return ""
+  import json
+
+  path = os.path.join(d, "report", "holdout_summary.json")
+  if not os.path.exists(path):
+    return ""
+  try:
+    with open(path) as f:
+      summary = json.load(f)
+  except Exception:
+    return ""
+  n = summary.get("n_folds_run", 0)
+  scaffold = (summary.get("strategies", {}).get("scaffold", {}).get("auroc", {}) or {}).get("mean")
+  parts = [_plurals(n, "fold")]
+  if scaffold is not None:
+    parts.append(f"scaffold AUROC {scaffold:.2f}")
+  return " · ".join(parts)
+
+
 def summarize_report(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
@@ -295,6 +317,7 @@ SUMMARIES = {
   "treat": summarize_treat,
   "estimate": summarize_estimate,
   "pool": summarize_pool,
+  "holdout": summarize_holdout,
   "report": summarize_report,
   "finish": summarize_finish,
 }

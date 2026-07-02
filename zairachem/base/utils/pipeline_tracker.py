@@ -27,6 +27,8 @@ PIPELINE_STEPS = [
   ("treat", "Treat", "Impute and scale the descriptor matrix"),
   ("estimate", "Estimate", "Train and cross-validate models per descriptor"),
   ("pool", "Pool", "Combine descriptor models into a consensus"),
+  # Optional (only in the order when --evaluate is set); see the begin() call sites.
+  ("holdout", "Evaluate", "Validate the model on held-out chemistry splits"),
   ("report", "Report", "Render plots, tables and the HTML report"),
   ("finish", "Finish", "Finalize outputs and clean up"),
 ]
@@ -39,6 +41,7 @@ STEP_COLORS = {
   "treat": "magenta",
   "estimate": "yellow",
   "pool": "blue",
+  "holdout": "bright_blue",
   "report": "bright_magenta",
   "finish": "bright_green",
 }

@@ -61,9 +61,11 @@ VALUES_COLUMN = "value"
 
 # Model-folder layout. Top-level dirs separate concerns: inputs (the run's input + derived data),
 # metadata (run config/provenance), results (user-facing deliverables), report (visual report),
-# transformers (the fitted eosframes transformers predict needs), and pipeline (disposable internal
-# artifacts). The internal subfolders nest under pipeline/ via their constant values, so consumers
-# that join these constants relocate automatically.
+# transformers (the fitted eosframes transformers predict needs), descriptors (the featurized
+# matrices, computed once and shared), model (the final production estimators + pooler) and folds
+# (the held-out evaluation sub-runs, only written when --evaluate is set). Every internal subfolder
+# nests under one of these via its constant value, so consumers that join these constants relocate
+# automatically.
 DATA_SUBFOLDER = "inputs"  # the run's input + derived data (was "data")
 METADATA_SUBFOLDER = "metadata"  # parameters.json + provenance.json
 RESULTS_SUBFOLDER = "results"  # user-facing deliverables (output.csv, tables, xlsx)
@@ -74,10 +76,18 @@ SMILES_LIST_FILENAME = "smiles.csv"
 ERSILIA_DATA_FILENAME = "ersilia_data.csv"
 REFERENCE_FILENAME = "reference.csv"
 PROVENANCE_FILENAME = "provenance.json"
-# Numbered to reflect the order the steps run (descriptors -> estimators -> pool).
-DESCRIPTORS_SUBFOLDER = "pipeline/00_descriptors"
-ESTIMATORS_SUBFOLDER = "pipeline/01_estimators"
-POOL_SUBFOLDER = "pipeline/02_pool"
+# Descriptors are featurized once on the full dataset and shared by the final model and every fold.
+# The estimators + pooler of the final production model live under model/; each held-out fold gets a
+# mirror of that structure under folds/<fold_name>/ (see FOLDS_SUBFOLDER, written only by --evaluate).
+DESCRIPTORS_SUBFOLDER = "descriptors"
+ESTIMATORS_SUBFOLDER = "model/estimators"
+POOL_SUBFOLDER = "model/pool"
+# The final production model (estimators + pooler); parent of the two constants above.
+MODEL_SUBFOLDER = "model"
+# Held-out evaluation sub-runs, one dir per fold (only written when --evaluate is set).
+FOLDS_SUBFOLDER = "folds"
+SPLITS_FILENAME = "splits.json"  # metadata/: the fold index definitions computed at setup
+VALIDATION_TABLE_FILENAME = "validation_table.csv"  # report/: per-fold held-out metrics
 REPORT_SUBFOLDER = "report"
 # Deliverables live under results/. OUTPUT_FILENAME is deliverable-only, so it carries the results/
 # prefix and cascades through is_done()/required-artifacts/finish. The two table filenames are bare
@@ -124,6 +134,11 @@ DEFAULT_FEATURIZERS = ["eos3l5f", "eos8aa5", "eos4u6p", "eos9o72", "eos4ex3", "e
 # t-SNE/TMAP over the Ersilia reference library). The built-in MW-vs-LogP projection (computed
 # locally with RDKit) is always shown in addition. Override or disable via --projection-ids.
 DEFAULT_PROJECTIONS = ["eos1klk"]
+# Hard caps on how many Ersilia Model Hub models a single run may pull. Each model is a Docker
+# container featurizing the full dataset, so more models means proportionally more compute and
+# disk; these ceilings keep a run tractable. Exceeding either cap is rejected at setup.
+MAX_FEATURIZERS = 10
+MAX_PROJECTIONS = 3
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 
 DEFAULT_ISAURA_BATCH_SIZE = 10000

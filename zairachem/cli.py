@@ -100,10 +100,16 @@ def process_group(
   tracker.complete("treat", SUMMARIES["treat"]())
 
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
+  import time
 
   logger.configure()
   tracker.start("estimate")
+  _estimate_t0 = time.time()
   EstimatorPipeline(path=None, batch_size=batch_size).run()
+  # Wall-clock of training the full descriptor stack — the per-fold predictor for held-out validation
+  # (each fold refits the same stack). ~0 on a resume where estimate was already done; the monitor
+  # ignores tiny values.
+  estimate_seconds = time.time() - _estimate_t0
   tracker.complete("estimate", SUMMARIES["estimate"]())
 
   from zairachem.pool.pipe import PoolerPipeline
@@ -112,6 +118,15 @@ def process_group(
   tracker.start("pool")
   PoolerPipeline(path=None, batch_size=batch_size).run()
   tracker.complete("pool", SUMMARIES["pool"]())
+
+  # Held-out validation (--evaluate). Self-gates on params["evaluate"] read from parameters.json, so
+  # this is a no-op for a plain fit and for predict. Runs before the report so its section is rendered.
+  from zairachem.holdout.pipe import HoldoutValidationPipeline
+
+  logger.configure()
+  tracker.start("holdout")
+  HoldoutValidationPipeline(path=None, batch_size=batch_size, est_seconds=estimate_seconds).run()
+  tracker.complete("holdout", SUMMARIES["holdout"]())
 
   from zairachem.report.report import Reporter
 
@@ -151,6 +166,37 @@ def _resolve_store(value, default):
 
   name = default if value == _STORE_SENTINEL else value
   return sanitize_project_name(name) if name else None
+
+
+# `--evaluate` is an optional-value option: omitted -> off; bare `--evaluate` -> this sentinel (all
+# schemas); `--evaluate scaffold,random` -> that subset.
+_EVALUATE_SENTINEL = "\x00all"
+
+
+def _resolve_evaluate(value):
+  """Resolve the --evaluate value into ``(enabled, schemas)``.
+
+  ``None`` → ``(False, None)`` (off); the sentinel (bare ``--evaluate``) → ``(True, None)`` (all
+  schemas); a comma/space-separated list → ``(True, [names])`` validated against the selectable fold
+  schemas. Raises ``click.BadParameter`` on an unknown schema name.
+  """
+  if value is None:
+    return False, None
+  if value == _EVALUATE_SENTINEL:
+    return True, None
+  import re
+
+  from zairachem.holdout.splits import FOLD_SCHEMAS
+
+  names = [t for t in re.split(r"[,\s]+", str(value).strip()) if t]
+  bad = [t for t in names if t not in FOLD_SCHEMAS]
+  if not names or bad:
+    raise click.BadParameter(
+      f"'{value}': unknown split schema(s): {', '.join(bad) or '(empty)'}. Choose from "
+      f"{', '.join(FOLD_SCHEMAS)} (comma-separated), or pass --evaluate alone for all.",
+      param_hint="--evaluate",
+    )
+  return True, names
 
 
 def _trained_store(model_dir):
@@ -416,6 +462,25 @@ def cli(verbose):
   is_flag=True,
   help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
 )
+@click.option(
+  "--evaluate",
+  is_flag=False,
+  flag_value=_EVALUATE_SENTINEL,
+  default=None,
+  help="Run held-out validation: define 80:20 splits at setup and, after the final model is trained, "
+  "re-fit + score the pooled model on each held-out fold (adds a report section; classification only). "
+  "Bare --evaluate runs all schemas (random, scaffold, scaffold_det, butina); or pass a comma-separated "
+  "subset, e.g. --evaluate scaffold,random.",
+)
+@click.option(
+  "--repeats",
+  "evaluate_repeats",
+  default=3,
+  type=int,
+  help="Held-out repeats per schema (random/scaffold/Butina) when --evaluate is set (default: 3). "
+  "Total folds = 1 + 3 × repeats (so --repeats 0 leaves only the deterministic scaffold_det). Lower "
+  "it to cut compute proportionally — each fold still refits the exact production pipeline.",
+)
 def fit(
   input_file,
   classification,
@@ -429,6 +494,8 @@ def fit(
   keep_intermediate_data,
   no_report,
   describe_workers,
+  evaluate,
+  evaluate_repeats,
 ):
   from zairachem.setup.run_fit import run as run_fit
 
@@ -442,6 +509,8 @@ def fit(
     task = "regression"
   from zairachem.base.utils.progress import tracker
 
+  # --evaluate is an optional-value flag: off / bare (all schemas) / a comma-separated subset.
+  evaluate_on, evaluate_schemas = _resolve_evaluate(evaluate)
   store = _resolve_store(store, os.path.basename(os.path.normpath(model_dir)))
   # Config-affecting flags the user actually typed (vs click defaults). On resume, these are checked
   # against the trained model's on-disk config so a conflicting re-run aborts instead of silently
@@ -449,12 +518,25 @@ def fit(
   ctx = click.get_current_context()
   explicit_config = {
     name
-    for name in ("classification", "featurizer_ids", "projection_ids", "store")
+    for name in (
+      "classification",
+      "featurizer_ids",
+      "projection_ids",
+      "store",
+      "evaluate",
+      "evaluate_repeats",
+    )
     if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
   }
+  # The holdout (Evaluate) step is only part of the pipeline when --evaluate is set; drop it from the
+  # tracker order otherwise so step numbering and the run header reflect what actually runs.
+  from zairachem.base.utils.pipeline_tracker import PIPELINE_STEPS
+
+  steps = [k for k, _, _ in PIPELINE_STEPS if k != "holdout" or evaluate_on]
   tracker.begin(
     "ZairaChem · QSAR training",
     subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(model_dir))} · {task}",
+    steps=steps,
   )
   proceed = run_fit(
     input_file,
@@ -465,6 +547,9 @@ def fit(
     projection_ids=projection_ids,
     override=override_dir,
     explicit_config=explicit_config,
+    evaluate=evaluate_on,
+    evaluate_repeats=evaluate_repeats,
+    evaluate_schemas=evaluate_schemas,
   )
   if proceed:
     process_group(
@@ -520,7 +605,7 @@ def fit(
   is_flag=True,
   default=False,
   help="Keep the prediction run's intermediate data (descriptor matrices, projections, input copies, "
-  "and the whole pipeline/). By default a finished predict run keeps only the results and report.",
+  "and the model/ tree). By default a finished predict run keeps only the results and report.",
 )
 @click.option(
   "--anonymize",
@@ -747,7 +832,7 @@ def report_cmd(model_dir, plot_name, no_report):
   "--keep-intermediate-data",
   is_flag=True,
   default=False,
-  help="Keep ALL intermediate data (matrices, projections, input copies, predict pipeline); by default they are "
+  help="Keep ALL intermediate data (matrices, projections, input copies, predict model/ tree); by default they are "
   "cleaned. The fitted transformers are always kept.",
 )
 def finish_cmd(model_dir, anonymize, keep_intermediate_data):

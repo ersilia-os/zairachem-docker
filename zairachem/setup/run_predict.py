@@ -23,9 +23,13 @@ def run(
     time_budget=120,
     store=store,
   )
+  # Predict never runs held-out validation; keep the holdout step out of the tracker order.
+  from zairachem.base.utils.pipeline_tracker import PIPELINE_STEPS
+
   tracker.begin(
     "ZairaChem · Prediction",
     subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(ps.output_dir))}",
+    steps=[k for k, _, _ in PIPELINE_STEPS if k != "holdout"],
   )
   if ps.is_done():
     create_session_symlink(ps.output_dir)

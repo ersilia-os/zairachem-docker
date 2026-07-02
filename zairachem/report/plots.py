@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from matplotlib.patches import Rectangle
 
@@ -22,55 +23,30 @@ import pandas as pd
 from zairachem.report import BasePlot
 from zairachem.report.fetcher import ResultsFetcher
 from zairachem.report import perf
-from stylia import ArticleColors, CategoricalPalette, DivergingColormap
 import logging
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 
-# Publication palette: NPG (Nature Publishing Group) colors via stylia's ArticleColors, mapped to
-# the semantic names the plots use. Not Ersilia-branded — suitable for papers.
-_article_colors = ArticleColors()
-
-
-class _Palette:
-  blue = _article_colors.cobalt
-  gray = _article_colors.silver
-  black = _article_colors.black
-  purple = _article_colors.periwinkle
-  red = _article_colors.crimson
-  green = _article_colors.lime
-
-
-named_colors = _Palette()
-
-# Cycling NPG palette for categorical series (a distinct color per model / estimator).
-category_palette = CategoricalPalette("npg")
-
-# Pipeline phase → stylia article (NPG) named colour. One distinct palette colour per phase; silver is
-# reserved for the "other" bucket. The CSS dashboard mirrors these hexes (see perf.PHASE_COLORS).
-_PHASE_COLOR = {
-  "setup": _article_colors.cobalt,
-  "describe": _article_colors.turquoise,
-  "projections": _article_colors.amber,
-  "treat": _article_colors.periwinkle,
-  "estimate": _article_colors.crimson,
-  "pool": _article_colors.orchid,
-  "report": _article_colors.lime,
-  "finish": _article_colors.tangerine,
-  "other": _article_colors.silver,
-}
-
-
-def _phase_color(phase):
-  return _PHASE_COLOR.get(phase, _PHASE_COLOR["other"])
+# Colors come from the single source of truth in ``report/colors.py`` (semantic palette anchored to
+# stylia's NPG ArticleColors), shared with perf.py and the HTML dashboard so nothing drifts. The
+# color-keyed ``named_colors`` (named_colors.red etc.) and ``category_palette`` keep the names the
+# plot call sites already use.
+from zairachem.report.colors import (  # noqa: E402
+  category_palette,
+  descriptor_colors_rgb,
+  named_colors,
+  phase_color_rgb as _phase_color,
+  rgb as _color,
+)
+from zairachem.base.vars import REPORT_SUBFOLDER, VALIDATION_TABLE_FILENAME  # noqa: E402
 
 
 class ActivesInactivesPlot(BasePlot):
   """Bar chart of the active vs. inactive compound counts (classification only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
     if self.has_clf_data():
       self.is_available = True
       self.name = "actives-inactives"
@@ -82,33 +58,22 @@ class ActivesInactivesPlot(BasePlot):
       ax.bar(
         x=["Actives", "Inactives"],
         height=[actives, inactives],
-        color=[named_colors.red, named_colors.blue],
+        color=[_color("active"), _color("inactive")],
       )
-      y_min = 0
       y_max = max(actives, inactives)
-      y_range = y_max - y_min
-      ax.set_ylim(0 - y_range * 0.02, y_max + y_range * 0.1)
-      ax.text(
-        0,
-        actives + y_max * 0.02,
-        actives,
-        va="center",
-        ha="center",
-        color=named_colors.red,
-      )
-      ax.text(
-        1,
-        inactives + y_max * 0.02,
-        inactives,
-        va="center",
-        ha="center",
-        color=named_colors.blue,
-      )
+      ax.set_ylim(0, y_max * 1.12)
+      p = actives / len(y) * 100
+      q = 100 - p
+      # Counts above each bar; the class percentage inside the bar (no title needed).
+      for x, count, pct in ((0, actives, p), (1, inactives, q)):
+        ax.text(
+          x, count + y_max * 0.02, f"{count:,}", va="bottom", ha="center", color=named_colors.black
+        )
+        ax.text(
+          x, count / 2, f"{pct:.1f}%", va="center", ha="center", color="white", fontweight="bold"
+        )
       ax.set_ylabel("Number of compounds")
       ax.set_xlabel("")
-      p = np.round(actives / len(y) * 100, 1)
-      q = np.round(100 - p, 1)
-      ax.set_title("Actives = {0}%, Inactives = {1}%".format(p, q))
     else:
       self.is_available = False
 
@@ -117,7 +82,7 @@ class ConfusionPlot(BasePlot):
   """Confusion matrix of the pooled binary classifier (classification only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     if self.has_clf_data():
       self.is_available = True
       self.name = "confusion-matrix"
@@ -143,7 +108,7 @@ class RocCurvePlot(BasePlot):
   """ROC curve and AUROC of the pooled classifier (classification only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     if self.has_clf_data():
       self.is_available = True
       self.name = "roc-curve"
@@ -168,7 +133,7 @@ class ScoreViolinPlot(BasePlot):
   """Violin plot of the classifier score distribution split by true class (classification only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
     if self.has_clf_data():
       self.is_available = True
       self.name = "score-violin"
@@ -195,7 +160,7 @@ class ScoreStripPlot(BasePlot):
   """Per-compound classifier scores as a jittered strip with quartile boxes, by true class."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
     self.MAX_SAMPLES = 1000
     if self.has_clf_data():
       self.is_available = True
@@ -276,7 +241,7 @@ class IndividualEstimatorsAurocPlot(BasePlot):
   """Per-descriptor AUROC, one horizontal bar per descriptor model (classification only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     if self.has_clf_data():
       self.name = "roc-individual"
       ax = self.ax
@@ -328,7 +293,7 @@ class IndividualEstimatorsClassificationScorePlot(BasePlot):
   """Per-descriptor classifier score distributions as boxplots (classification only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     if self.has_clf_data():
       self.name = "raw-classification-scores"
       ax = self.ax
@@ -355,7 +320,7 @@ class IndividualEstimatorsR2Plot(BasePlot):
   """Per-descriptor R² against the transformed target (regression only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     if self.has_reg_data():
       self.name = "r2-individual"
       ax = self.ax
@@ -380,75 +345,84 @@ class IndividualEstimatorsR2Plot(BasePlot):
       self.is_available = False
 
 
-class ProjectionPlot(BasePlot):
-  """Generic 2-D projection scatter.
+def _subsample(n, cap=10000):
+  """Point indices to keep for a class of size ``n`` (random subsample above ``cap``) and an adaptive
+  alpha (lower for denser plots), so heavily populated projections stay readable."""
+  if n <= cap:
+    idx = np.arange(n)
+  else:
+    idx = np.random.default_rng(0).choice(n, cap, replace=False)
+  alpha = float(np.clip(1500.0 / max(1, len(idx)), 0.12, 0.9))
+  return idx, alpha
 
-  ``projection`` is a dict ``{name, title, x_label, y_label, xs, ys}`` (from
-  ``ResultsFetcher.get_projections``). Points are coloured by the pooled prediction (classification
-  probability, or regression value); known actives/inactives are outlined. In predict mode the
-  training set is shown as a faint grey backdrop.
+
+def _draw_class_density(ax, x, y, color):
+  """One class's filled-KDE density surface + translucent points onto ``ax`` (no legend)."""
+  x = np.asarray(x, dtype=float)
+  y = np.asarray(y, dtype=float)
+  if len(x) == 0:
+    return
+  idx, alpha = _subsample(len(x))
+  xs, ys = x[idx], y[idx]
+  try:
+    if len(xs) >= 5:
+      sns.kdeplot(
+        x=xs, y=ys, ax=ax, fill=True, color=color, levels=8, thresh=0.05, alpha=0.35, bw_adjust=1.1
+      )
+  except Exception:
+    pass
+  ax.scatter(xs, ys, color=color, s=8, alpha=alpha, edgecolors="none", zorder=5)
+
+
+def _projection_xy_by_class(path, projection):
+  """``(x, y, bt)`` for a projection keeping only finite-coordinate, labelled rows (bt in {0,1})."""
+  bt = np.asarray(ResultsFetcher(path=path).get_actives_inactives(), dtype=float)
+  xs = np.asarray(projection["xs"], dtype=float)
+  ys = np.asarray(projection["ys"], dtype=float)
+  keep = np.isfinite(xs) & np.isfinite(ys) & ~np.isnan(bt)
+  return xs[keep], ys[keep], bt[keep].astype(int)
+
+
+class ProjectionMergedPlot(BasePlot):
+  """A 2-D projection with both classes overlaid: per-class density surface + points (no legend).
+
+  ``projection`` is a dict ``{name, title, x_label, y_label, xs, ys}`` from
+  ``ResultsFetcher.get_projections``. Coloured by true class (crimson actives, cobalt inactives).
   """
 
   def __init__(self, ax, path, projection):
-    BasePlot.__init__(self, ax=ax, path=path)
-    self.name = "projection-" + projection["name"]
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "projection-merged-" + projection["name"]
+    self.is_available = False
+    x, y, bt = _projection_xy_by_class(path, projection)
+    if len(bt) == 0:
+      return
     ax = self.ax
-    fetcher = ResultsFetcher(path=path)
-    xs = np.array(projection["xs"], dtype=float)
-    ys = np.array(projection["ys"], dtype=float)
-
-    if self.is_predict():
-      trained = fetcher.get_projection_trained(projection["name"])
-      if trained is not None:
-        tx, ty = trained
-        ax.scatter(
-          tx, ty, color=named_colors.gray, s=5, alpha=0.5, edgecolors="none", label="Training set"
-        )
-
-    if self.has_clf_data():
-      bp = fetcher.get_actives_inactives()
-      y_pred = fetcher.get_pred_proba_clf()
-      cmap = DivergingColormap()
-      cmap.fit(y_pred)
-      ax.scatter(
-        xs, ys, color=cmap.transform(y_pred), alpha=0.7, s=15, zorder=100000, edgecolors="none"
-      )
-      ina = [i for i, v in enumerate(bp) if v == 0]
-      act = [i for i, v in enumerate(bp) if v == 1]
-      ax.scatter(
-        xs[ina],
-        ys[ina],
-        facecolor="none",
-        edgecolors=named_colors.blue,
-        s=15,
-        lw=0.5,
-        label="Known inactives",
-        zorder=1000000,
-      )
-      ax.scatter(
-        xs[act],
-        ys[act],
-        facecolor="none",
-        edgecolors=named_colors.red,
-        s=15,
-        lw=0.5,
-        label="Known actives",
-        zorder=10000000,
-      )
-    else:
-      y_pred = fetcher.get_pred_reg_raw() or fetcher.get_raw()
-      if y_pred is not None:
-        cmap = DivergingColormap()
-        cmap.fit(y_pred)
-        ax.scatter(xs, ys, color=cmap.transform(y_pred), alpha=0.7, s=15, edgecolors="none")
-      else:
-        ax.scatter(xs, ys, color=named_colors.blue, alpha=0.7, s=15, edgecolors="none")
-
-    ax.set_title(projection["title"])
+    _draw_class_density(ax, x[bt == 0], y[bt == 0], _color("inactive"))
+    _draw_class_density(ax, x[bt == 1], y[bt == 1], _color("active"))
     ax.set_xlabel(projection["x_label"])
     ax.set_ylabel(projection["y_label"])
-    if ax.get_legend_handles_labels()[1]:
-      ax.legend()
+    ax.set_title(projection["title"])
+    self.is_available = True
+
+
+class ProjectionClassPlot(BasePlot):
+  """A 2-D projection for a single class (active or inactive): density surface + points (no legend)."""
+
+  def __init__(self, ax, path, projection, cls):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    noun = "active" if cls == 1 else "inactive"
+    self.name = f"projection-{projection['name']}-{noun}"
+    self.is_available = False
+    x, y, bt = _projection_xy_by_class(path, projection)
+    mask = bt == cls
+    if not mask.any():
+      return
+    ax = self.ax
+    _draw_class_density(ax, x[mask], y[mask], _color(noun))
+    ax.set_xlabel(projection["x_label"])
+    ax.set_ylabel(projection["y_label"])
+    ax.set_title(f"{projection['title']} · {noun}s")
     self.is_available = True
 
 
@@ -456,7 +430,7 @@ class RegressionPlotTransf(BasePlot):
   """Predicted vs. observed scatter on the transformed activity, with R²/MAE (regression only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     if self.has_reg_data():
       self.is_available = True
       self.name = "regression-trans"
@@ -479,7 +453,7 @@ class HistogramPlotTransf(BasePlot):
   """Histogram of the predicted (transformed) activity (regression only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     if self.has_reg_data():
       self.is_available = True
       self.name = "histogram-trans"
@@ -497,7 +471,7 @@ class RegressionPlotRaw(BasePlot):
   """Predicted vs. observed scatter on the raw activity, with R²/MAE (regression only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     if self.has_reg_data():
       self.is_available = True
       self.name = "regression-raw"
@@ -520,7 +494,7 @@ class HistogramPlotRaw(BasePlot):
   """Histogram of the predicted (raw) activity (regression only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     if self.has_reg_data():
       self.is_available = True
       self.name = "histogram-raw"
@@ -538,7 +512,7 @@ class Transformation(BasePlot):
   """Scatter of the raw → transformed activity mapping applied before training (regression only)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     if self.has_reg_data():
       self.is_available = True
       self.name = "transformation"
@@ -553,26 +527,35 @@ class Transformation(BasePlot):
       self.is_available = False
 
 
+def _descriptor_color_map(stats):
+  """``{descriptor: rgb}`` identity colours by best-first rank (``stats`` from ``get_cv_stats``)."""
+  palette = descriptor_colors_rgb(len(stats))
+  return {s["descriptor"]: palette[i] for i, s in enumerate(stats)}
+
+
 class CvAurocPlot(BasePlot):
   """Per-descriptor cross-validation (OOF) AUROC bars, with the train AUROC marked for reference.
 
-  The gap between the bar (OOF) and the │ marker (train) is the per-descriptor overfitting.
+  Each bar carries the descriptor's identity colour (matching its ROC/PR line). The gap between the
+  bar (OOF) and the │ marker (train) is the per-descriptor overfitting.
   """
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     self.name = "cv-auroc"
     ax = self.ax
-    stats = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
-    if not stats:
+    stats_bf = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
+    if not stats_bf:
       self.is_available = False
       return
-    stats = sorted(stats, key=lambda s: s["oof_auc"])  # ascending → best on top
+    color_of = _descriptor_color_map(stats_bf)
+    stats = list(reversed(stats_bf))  # ascending → best on top
     labels = [s["descriptor"] for s in stats]
     oof = [s["oof_auc"] for s in stats]
     y = list(range(len(labels)))
-    colors = category_palette.get(len(labels))
-    ax.barh(y, oof, color=colors, alpha=0.85, height=0.6, zorder=2)
+    ax.barh(
+      y, oof, color=[color_of[s["descriptor"]] for s in stats], alpha=0.9, height=0.6, zorder=2
+    )
     for i, s in enumerate(stats):
       tr = s.get("train_auc")
       if tr is not None:
@@ -587,16 +570,59 @@ class CvAurocPlot(BasePlot):
     self.is_available = True
 
 
-class CvRocPlot(BasePlot):
-  """Overlaid out-of-fold ROC curves, one per descriptor (legend shows each CV AUROC)."""
+class CvAuprPlot(BasePlot):
+  """Per-descriptor cross-validation (OOF) AUPR bars, with the no-skill prior (base rate) marked."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
+    self.name = "cv-aupr"
+    ax = self.ax
+    rf = ResultsFetcher(path=path)
+    stats_bf = rf.get_cv_stats()
+    color_of = _descriptor_color_map(stats_bf)
+    rows, prior = [], None
+    for s in stats_bf:
+      oof = rf.get_cv_oof(s["descriptor"])
+      if oof is None:
+        continue
+      proba, yv = oof
+      if len(set(yv)) < 2:
+        continue
+      rows.append((s["descriptor"], average_precision_score(yv, proba)))
+      prior = float(np.mean(yv))
+    if not rows:
+      self.is_available = False
+      return
+    rows.sort(key=lambda r: r[1])  # ascending → best on top
+    labels = [r[0] for r in rows]
+    aupr = [r[1] for r in rows]
+    y = list(range(len(labels)))
+    ax.barh(y, aupr, color=[color_of[n] for n in labels], alpha=0.9, height=0.6, zorder=2)
+    for i, v in enumerate(aupr):
+      ax.text(0.01, i, f"{v:.2f}", va="center", ha="left", fontsize=7, zorder=4)
+    if prior is not None:
+      ax.axvline(prior, color=named_colors.gray, lw=1, ls="--", zorder=1, label="No skill")
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels)
+    ax.set_xlim(0, 1.03)
+    ax.set_xlabel("AUPR (average precision)")
+    ax.set_title("Cross-validation AUPR (bar) vs no-skill prior (--)")
+    self.is_available = True
+
+
+class CvRocPlot(BasePlot):
+  """Overlaid out-of-fold ROC curves, one per descriptor. Lines carry the descriptor identity colour
+  (the HTML bar strip is the shared legend), so no in-plot legend is drawn."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "cv-roc"
     ax = self.ax
     rf = ResultsFetcher(path=path)
+    stats_bf = rf.get_cv_stats()
+    color_of = _descriptor_color_map(stats_bf)
     curves = []
-    for s in rf.get_cv_stats():
+    for s in stats_bf:
       oof = rf.get_cv_oof(s["descriptor"])
       if oof is None:
         continue
@@ -604,19 +630,55 @@ class CvRocPlot(BasePlot):
       if len(set(yv)) < 2:
         continue
       fpr, tpr, _ = roc_curve(yv, proba)
-      curves.append((s["descriptor"], s.get("oof_auc"), fpr, tpr))
+      curves.append((s["descriptor"], fpr, tpr))
     if not curves:
       self.is_available = False
       return
-    colors = category_palette.get(len(curves))
-    for (name, a, fpr, tpr), c in zip(curves, colors):
-      label = f"{name} ({a:.2f})" if a is not None else name
-      ax.plot(fpr, tpr, color=c, lw=1.4, label=label)
-    ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--")
+    ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", zorder=1)
+    for name, fpr, tpr in curves:
+      ax.plot(fpr, tpr, color=color_of[name], lw=1.6, alpha=0.9, zorder=2)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
     ax.set_xlabel("1-Specificity (FPR)")
     ax.set_ylabel("Sensitivity (TPR)")
     ax.set_title("Cross-validation ROC")
-    ax.legend(fontsize=6, loc="lower right")
+    self.is_available = True
+
+
+class CvPrPlot(BasePlot):
+  """Overlaid out-of-fold precision-recall curves, one per descriptor (identity-coloured, no legend).
+  The dashed line is the no-skill prior (base rate of actives)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "cv-pr"
+    ax = self.ax
+    rf = ResultsFetcher(path=path)
+    stats_bf = rf.get_cv_stats()
+    color_of = _descriptor_color_map(stats_bf)
+    curves, prior = [], None
+    for s in stats_bf:
+      oof = rf.get_cv_oof(s["descriptor"])
+      if oof is None:
+        continue
+      proba, yv = oof
+      if len(set(yv)) < 2:
+        continue
+      precision, recall, _ = precision_recall_curve(yv, proba)
+      curves.append((s["descriptor"], recall, precision))
+      prior = float(np.mean(yv))
+    if not curves:
+      self.is_available = False
+      return
+    if prior is not None:
+      ax.plot([0, 1], [prior, prior], color=named_colors.gray, lw=1, ls="--", zorder=1)
+    for name, recall, precision in curves:
+      ax.plot(recall, precision, color=color_of[name], lw=1.6, alpha=0.9, zorder=2)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1.03)
+    ax.set_xlabel("Recall (sensitivity)")
+    ax.set_ylabel("Precision")
+    ax.set_title("Cross-validation precision-recall")
     self.is_available = True
 
 
@@ -624,7 +686,7 @@ class CvCalibrationPlot(BasePlot):
   """Reliability curve on the out-of-fold predictions of the best descriptor."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "cv-calibration"
     ax = self.ax
     rf = ResultsFetcher(path=path)
@@ -658,7 +720,7 @@ class CvScoreDistributionPlot(BasePlot):
   """Out-of-fold score distribution (actives vs inactives) for the best descriptor."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 5))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
     self.name = "cv-score-distribution"
     ax = self.ax
     rf = ResultsFetcher(path=path)
@@ -704,7 +766,7 @@ class PrCurvePlot(BasePlot):
   """Precision-Recall curve (+ average precision); dashed baseline at class prevalence."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "pr-curve"
     self.is_available = False
     if not self.has_clf_data():
@@ -731,7 +793,7 @@ class EnrichmentCurvePlot(BasePlot):
   """Cumulative gain: fraction of actives recovered vs fraction of the library screened (by score)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(4.5, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
     self.name = "enrichment-curve"
     self.is_available = False
     if not self.has_clf_data():
@@ -763,7 +825,7 @@ class EnrichmentFactorPlot(BasePlot):
   """Enrichment factor at 1% / 5% / 10% of the ranked library (hit-rate-in-top / prevalence)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "enrichment-factor"
     self.is_available = False
     if not self.has_clf_data():
@@ -797,7 +859,7 @@ class ThresholdSweepPlot(BasePlot):
   """Precision / recall / F1 / MCC as a function of the decision threshold."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(4.5, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
     self.name = "threshold-sweep"
     self.is_available = False
     if not self.has_clf_data():
@@ -840,7 +902,7 @@ class DescriptorMetricHeatmapPlot(BasePlot):
   """Per-descriptor CV metrics heatmap: OOF AUROC, train AUROC, overfit gap (column-normalized)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "descriptor-metric-heatmap"
     self.is_available = False
     stats = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
@@ -882,7 +944,7 @@ class OofOverfitScatterPlot(BasePlot):
   """Per-descriptor generalization map: out-of-fold AUROC vs overfit gap (train − OOF)."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "oof-overfit-scatter"
     self.is_available = False
     stats = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
@@ -915,7 +977,7 @@ class PooledVsBestAurocPlot(BasePlot):
   """Per-descriptor OOF AUROC bars with the pooled-model AUROC drawn as a reference line."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     self.name = "pooled-vs-best-auroc"
     self.is_available = False
     if not self.has_clf_data():
@@ -949,7 +1011,7 @@ class NormalizedConfusionPlot(BasePlot):
   """Row-normalized confusion matrix (per-class recall %), complementing the raw-count plot."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "confusion-normalized"
     self.is_available = False
     if not self.has_clf_data():
@@ -986,49 +1048,6 @@ class NormalizedConfusionPlot(BasePlot):
     self.is_available = True
 
 
-class ProjectionCorrectnessPlot(BasePlot):
-  """The MW-vs-LogP projection coloured by prediction correctness (TP / TN / FP / FN)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
-    self.name = "projection-correctness"
-    self.is_available = False
-    if not self.has_clf_data():
-      return
-    rf = ResultsFetcher(path=path)
-    projections = rf.get_projections()
-    bt = rf.get_actives_inactives()
-    bp = rf.get_pred_binary_clf()
-    if not projections or bt is None or bp is None:
-      return
-    proj = projections[0]
-    xs = np.array(proj["xs"], dtype=float)
-    ys = np.array(proj["ys"], dtype=float)
-    bt = np.asarray(bt, dtype=float)
-    bp = np.asarray(bp, dtype=float)
-    # Only labelled compounds can be scored TP/TN/FP/FN; drop unlabelled (NaN truth) rows, keeping
-    # the projection coordinates aligned.
-    keep = ~np.isnan(bt)
-    xs, ys, bt, bp = xs[keep], ys[keep], bt[keep].astype(int), bp[keep].astype(int)
-    if len(bt) == 0:
-      return
-    ax = self.ax
-    cats = [
-      ("TN", (bt == 0) & (bp == 0), named_colors.blue),
-      ("TP", (bt == 1) & (bp == 1), named_colors.green),
-      ("FP", (bt == 0) & (bp == 1), named_colors.purple),
-      ("FN", (bt == 1) & (bp == 0), named_colors.red),
-    ]
-    for label, mask, color in cats:
-      if mask.any():
-        ax.scatter(xs[mask], ys[mask], color=color, s=12, alpha=0.7, edgecolors="none", label=label)
-    ax.set_xlabel(proj["x_label"])
-    ax.set_ylabel(proj["y_label"])
-    ax.set_title("Errors in chemical space")
-    ax.legend(fontsize=6, markerscale=1.2)
-    self.is_available = True
-
-
 def _rdkit_properties(smiles):
   """(MW, LogP, TPSA) arrays for valid molecules; NaN where SMILES can't be parsed."""
   from rdkit import Chem
@@ -1048,55 +1067,150 @@ def _rdkit_properties(smiles):
   return np.array(mw), np.array(logp), np.array(tpsa)
 
 
-def _draw_property_distributions(axes, smiles, bt):
-  """Draw MW / LogP / TPSA histograms (actives vs inactives) onto the three given axes."""
+def _draw_one_property(ax, values, bt, label):
+  """Horizontal violin plot of one property split by class (actives vs inactives). Availability bool."""
   bt = np.asarray(bt, dtype=int)
-  props = list(zip(("Molecular weight", "LogP", "TPSA"), _rdkit_properties(smiles)))
-  for axx, (label, vals) in zip(axes, props):
-    act = vals[(bt == 1) & np.isfinite(vals)]
-    ina = vals[(bt == 0) & np.isfinite(vals)]
-    if len(act) == 0 and len(ina) == 0:
-      continue
-    lo = np.nanmin(vals[np.isfinite(vals)])
-    hi = np.nanmax(vals[np.isfinite(vals)])
-    bins = np.linspace(lo, hi, 25) if hi > lo else 10
-    axx.hist(ina, bins=bins, color=named_colors.blue, alpha=0.5, density=True, label="Inactive")
-    axx.hist(act, bins=bins, color=named_colors.red, alpha=0.5, density=True, label="Active")
-    axx.set_xlabel(label)
-    axx.set_ylabel("Density")
-  if len(axes):
-    axes[0].legend(fontsize=6)
+  vals = np.asarray(values, dtype=float)
+  finite = np.isfinite(vals)
+  order = [
+    n
+    for n, present in (
+      ("Inactive", np.any((bt == 0) & finite)),
+      ("Active", np.any((bt == 1) & finite)),
+    )
+    if present
+  ]
+  if not order:
+    return False
+  data = pd.DataFrame({
+    "value": vals[finite],
+    "cls": np.where(bt[finite] == 1, "Active", "Inactive"),
+  })
+  palette = {"Inactive": _color("inactive"), "Active": _color("active")}
+  sns.violinplot(
+    x="value", y="cls", data=data, ax=ax, order=order, palette=[palette[n] for n in order], cut=0
+  )
+  # Overlay a minimal white-outlined IQR box (no fill, no whiskers) with a white median line.
+  for i, name in enumerate(order):
+    cls = 1 if name == "Active" else 0
+    q1, med, q3 = np.percentile(vals[(bt == cls) & finite], [25, 50, 75])
+    h = 0.13
+    ax.add_patch(
+      Rectangle((q1, i - h), q3 - q1, 2 * h, fill=False, edgecolor="white", lw=1.4, zorder=10)
+    )
+    ax.plot([med, med], [i - h, i + h], color="white", lw=1.6, zorder=11)
+  ax.set_xlabel(label)
+  ax.set_ylabel("")
+  return True
 
 
-class PropertyDistributionsPlot(BasePlot):
-  """Physico-chemical property distributions (MW / LogP / TPSA) by class, as a 1×3 panel."""
+class _PropertyDistributionPlot(BasePlot):
+  """Base for a single physico-chemical property histogram (actives vs inactives). Subclasses set
+  ``stem``, ``label`` and ``prop_index`` (0=MW, 1=LogP, 2=TPSA in ``_rdkit_properties``)."""
+
+  stem = "property"
+  label = ""
+  prop_index = 0
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path)
-    self.name = "property-distributions"
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
+    self.name = self.stem  # BasePlot.__init__ sets self.name="base"; use the subclass stem
     self.is_available = False
     if not self.has_clf_data():
       return
-    import matplotlib.pyplot as plt
-
     rf = ResultsFetcher(path=path)
     smiles = rf.get_smiles()
     bt = rf.get_actives_inactives()
     if not smiles or bt is None:
       return
-    # Keep only labelled compounds (drop NaN truth) so the actives/inactives split is well-defined.
     keep = ~np.isnan(np.asarray(bt, dtype=float))
     smiles = [s for s, k in zip(smiles, keep) if k]
     bt = np.asarray(bt, dtype=float)[keep].astype(int)
     if len(bt) == 0:
       return
-    # Standalone: replace the single BasePlot axis with a 1×3 panel of its own.
-    plt.close()
-    import stylia
+    values = _rdkit_properties(smiles)[self.prop_index]
+    self.is_available = _draw_one_property(self.ax, values, bt, self.label)
 
-    _, axes = stylia.create_figure(1, 3, width=1.0, height=0.33)
-    _draw_property_distributions([axes[k] for k in range(3)], smiles, bt)
+
+class PropertyMwPlot(_PropertyDistributionPlot):
+  """Molecular-weight distribution by class."""
+
+  stem = "property-mw"
+  label = "Molecular weight"
+  prop_index = 0
+
+
+class PropertyLogpPlot(_PropertyDistributionPlot):
+  """LogP distribution by class."""
+
+  stem = "property-logp"
+  label = "LogP"
+  prop_index = 1
+
+
+class ClassDonutPlot(BasePlot):
+  """Donut of the active/inactive class balance (classification only)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
+    self.name = "class-donut"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    y = ResultsFetcher(path=path).clf_truth_proba()[0]
+    actives = int(np.sum(y))
+    inactives = len(y) - actives
+    if actives + inactives == 0:
+      return
     self.is_available = True
+    ax = self.ax
+    ax.pie(
+      [actives, inactives],
+      labels=["Active", "Inactive"],
+      colors=[_color("active"), _color("inactive")],
+      startangle=90,
+      counterclock=False,
+      wedgeprops=dict(width=0.42, edgecolor="white"),
+      autopct=lambda p: f"{p:.0f}%",
+      pctdistance=0.78,
+      textprops={"fontsize": 7},
+    )
+    ax.text(0, 0, f"{actives + inactives:,}", ha="center", va="center", fontsize=9)
+
+
+class ClassWafflePlot(BasePlot):
+  """Waffle grid (100 cells) coloured by class in proportion (classification only)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
+    self.name = "class-waffle"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    from matplotlib.colors import ListedColormap
+
+    y = ResultsFetcher(path=path).clf_truth_proba()[0]
+    actives = int(np.sum(y))
+    total = len(y)
+    if total == 0:
+      return
+    self.is_available = True
+    ax = self.ax
+    rows, cols = 5, 20
+    n_active_cells = int(round(100.0 * actives / total))
+    flat = np.array([1] * n_active_cells + [0] * (rows * cols - n_active_cells))
+    grid = flat.reshape(rows, cols)
+    ax.imshow(grid, cmap=ListedColormap([_color("inactive"), _color("active")]), aspect="equal")
+    # White gridlines between cells so the 100 squares read as a waffle rather than solid bands.
+    ax.set_xticks(np.arange(-0.5, cols, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, rows, 1), minor=True)
+    ax.grid(which="minor", color="white", linewidth=3)
+    ax.tick_params(which="both", length=0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+      spine.set_visible(False)
+    ax.set_xlabel(f"Each square ≈ 1%  ·  {n_active_cells}% active")
 
 
 # --- Computational performance figures (read session.json / provenance.json via perf) ------------
@@ -1106,7 +1220,7 @@ class StepTimingPlot(BasePlot):
   """Horizontal bars of wall-clock seconds per pipeline sub-step, coloured by phase."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(5, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     self.name = "step-timing"
     self.is_available = False
     steps = [s for s in perf.step_telemetry(path)["steps"] if s["seconds"] is not None]
@@ -1130,7 +1244,7 @@ class PhaseTimeDonutPlot(BasePlot):
   """Donut of total wall-clock time aggregated by pipeline phase."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(3.4, 3.4))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "phase-time"
     self.is_available = False
     agg = {}
@@ -1164,7 +1278,7 @@ class ResourceTimelinePlot(BasePlot):
   """CPU and RAM usage (%) across the pipeline steps."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(5, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     self.name = "resource-timeline"
     self.is_available = False
     steps = [
@@ -1195,7 +1309,7 @@ class ProvenanceBarPlot(BasePlot):
   """Per-model molecule provenance: descriptors read from the store vs freshly computed."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(5, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     self.name = "compute-provenance"
     self.is_available = False
     prov = perf.provenance(path)
@@ -1222,7 +1336,7 @@ class PerModelTimingPlot(BasePlot):
   """Wall-clock time spent computing each Ersilia model (featurizers + projections), if recorded."""
 
   def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, figsize=(5, 3))
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
     self.name = "model-timing"
     self.is_available = False
     prov = perf.provenance(path)
@@ -1242,3 +1356,69 @@ class PerModelTimingPlot(BasePlot):
     ax.set_yticklabels([m["id"] for m in models], fontsize=7)
     ax.invert_yaxis()
     ax.set_xlabel("Seconds")
+
+
+class HeldOutValidationPlot(BasePlot):
+  """Held-out AUROC per split schema, one point per fold (classification, ``--evaluate`` only).
+
+  Random is the optimism anchor (dashed reference line); a drop under scaffold / Butina indicates
+  weaker generalization to novel chemistry. Rendered only when ``--evaluate`` produced
+  ``report/validation_table.csv``; otherwise the plot marks itself unavailable and is skipped.
+  """
+
+  # Display order and friendly x-axis labels for the schemas.
+  _ORDER = [
+    ("random", "Random"),
+    ("scaffold", "Scaffold"),
+    ("scaffold_det", "Scaffold\n(DeepChem)"),
+    ("butina", "Butina"),
+  ]
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 3))
+    self.name = "heldout-validation"
+    self.is_available = False
+    csv_path = os.path.join(path, REPORT_SUBFOLDER, VALIDATION_TABLE_FILENAME)
+    if not os.path.exists(csv_path):
+      return
+    df = pd.read_csv(csv_path)
+    if df.empty or "auroc" not in df.columns or "strategy" not in df.columns:
+      return
+    seen = set(df["strategy"])
+    present = [(k, lbl) for k, lbl in self._ORDER if k in seen]
+    present += [(k, k) for k in sorted(seen) if k not in {p[0] for p in self._ORDER}]
+    if not present:
+      return
+    ax = self.ax
+    colors = category_palette.get(len(present))
+    random_mean = None
+    xticks, xticklabels = [], []
+    for i, (strat, lbl) in enumerate(present):
+      vals = np.asarray(df[df["strategy"] == strat]["auroc"], dtype=float)
+      vals = vals[~np.isnan(vals)]
+      if len(vals) == 0:
+        continue
+      jitter = np.random.uniform(-0.12, 0.12, len(vals))
+      ax.scatter(np.full(len(vals), i) + jitter, vals, color=colors[i], alpha=0.7, s=25, zorder=3)
+      m = float(vals.mean())
+      if strat == "random":
+        random_mean = m
+      ax.plot([i - 0.2, i + 0.2], [m, m], color=named_colors.black, lw=1.5, zorder=4)
+      if len(vals) > 1:
+        s = float(vals.std())
+        ax.plot([i, i], [m - s, m + s], color=named_colors.black, lw=1, zorder=4)
+      xticks.append(i)
+      xticklabels.append(lbl)
+    if not xticks:
+      return
+    if random_mean is not None:
+      ax.axhline(random_mean, ls="--", lw=1, color=named_colors.gray, zorder=1)
+    ax.axhline(0.5, ls=":", lw=1, color=named_colors.gray, zorder=1)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticklabels)
+    ax.set_xlim(-0.5, len(present) - 0.5)
+    ax.set_ylim(0.4, 1.0)
+    ax.set_xlabel("")
+    ax.set_ylabel("Held-out AUROC")
+    ax.set_title("Held-out validation")
+    self.is_available = True

@@ -26,16 +26,15 @@ from zairachem.base.vars import (
   REPORT_SUBFOLDER,
   SESSION_FILE,
 )
+from zairachem.report import CELL_CM as _CELL_CM
+from zairachem.report import GRID_COLS as _GRID_COLS
+from zairachem.report import GRID_ROWS as _GRID_ROWS
+from zairachem.report import colors as _colors
+from zairachem.report import colors
 from zairachem.report import perf
 
 # Plots grouped into sections (anchor, heading, description, member stems). Unlisted → "More".
 _CATEGORIES = [
-  (
-    "dataset",
-    "Dataset",
-    "Composition of the labelled set (training compounds at fit; the labelled inputs when predicting).",
-    ["actives-inactives", "property-distributions"],
-  ),
   (
     "performance",
     "Model performance",
@@ -60,30 +59,18 @@ _CATEGORIES = [
     ["pr-curve", "enrichment-curve", "enrichment-factor", "threshold-sweep"],
   ),
   (
-    "diagnostics",
-    "Per-descriptor diagnostics",
-    "How each descriptor generalizes in cross-validation, and whether pooling beats the best "
-    "single descriptor.",
-    ["descriptor-metric-heatmap", "oof-overfit-scatter", "pooled-vs-best-auroc"],
-  ),
-  (
-    "crossval",
-    "Cross-validation",
-    "Internal lazy-qsar cross-validation (out-of-fold) per descriptor — honest performance, "
-    "unlike the resubstitution numbers in Model performance.",
-    [],
+    "validation",
+    "Held-out validation",
+    "Out-of-sample pooled AUROC/AUPR under random, scaffold and Butina 80:20 splits, repeated "
+    "across seeds. Random is the optimism anchor; a large drop under scaffold/Butina indicates "
+    "limited generalization to novel chemistry.",
+    ["heldout-validation"],
   ),
   (
     "scores",
     "Score distributions",
     "Predicted scores across the active and inactive classes.",
     ["score-violin", "score-strip", "histogram-raw", "histogram-trans"],
-  ),
-  (
-    "space",
-    "Chemical space",
-    "Low-dimensional embeddings of the molecules.",
-    ["projection-umap", "projection-tsne", "projection-pca"],
   ),
   (
     "transform",
@@ -107,14 +94,17 @@ _TITLES = {
   "histogram-raw": "Value histogram (raw)",
   "histogram-trans": "Value histogram (transformed)",
   "transformation": "Value transformation",
-  "cv-auroc": "Cross-validation AUROC",
+  "cv-auroc": "Inner CV AUROC by descriptor",
+  "cv-aupr": "Inner CV AUPR by descriptor",
   "cv-roc": "Cross-validation ROC",
+  "cv-pr": "Cross-validation precision-recall",
   "cv-calibration": "Calibration (cross-validated)",
   "cv-score-distribution": "Out-of-fold score distribution",
   "projection-mwlogp": "Molecular weight vs LogP",
   "projection-umap": "UMAP projection",
   "projection-tsne": "t-SNE projection",
   "projection-pca": "PCA projection",
+  "projection-tmap": "TMAP projection",
   "projection-correctness": "Prediction correctness in chemical space",
   "pr-curve": "Precision-recall curve",
   "enrichment-curve": "Enrichment curve",
@@ -124,7 +114,11 @@ _TITLES = {
   "descriptor-metric-heatmap": "Descriptor metric heatmap",
   "oof-overfit-scatter": "Generalization vs overfitting",
   "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
-  "property-distributions": "Property distributions by class",
+  "heldout-validation": "Held-out AUROC by split",
+  "class-donut": "Class balance (donut)",
+  "class-waffle": "Class balance (waffle)",
+  "property-mw": "Molecular weight",
+  "property-logp": "LogP",
   "overview": "Report overview",
   "step-timing": "Step timing",
   "phase-time": "Time by phase",
@@ -137,7 +131,7 @@ _TITLES = {
 # its ``home`` section; its members are suppressed everywhere else. Members appear in listed order and
 # only if their PNG is present, so a group left with a single present member degrades to a plain card.
 _GROUPS = [
-  {"key": "roc", "title": "ROC curve", "home": "performance", "members": ["roc-curve", "cv-roc"]},
+  {"key": "roc", "title": "ROC curve", "home": "performance", "members": ["roc-curve"]},
   {
     "key": "confusion",
     "title": "Confusion matrix",
@@ -151,28 +145,16 @@ _GROUPS = [
     "members": ["regression-trans", "regression-raw"],
   },
   {
-    "key": "descauroc",
-    "title": "Per-descriptor AUROC",
-    "home": "diagnostics",
-    "members": ["roc-individual", "cv-auroc", "pooled-vs-best-auroc"],
-  },
-  {
     "key": "scoredist",
     "title": "Score distribution",
     "home": "scores",
-    "members": ["score-violin", "score-strip", "cv-score-distribution"],
+    "members": ["score-violin", "score-strip"],
   },
   {
     "key": "histogram",
     "title": "Value histogram",
     "home": "scores",
     "members": ["histogram-trans", "histogram-raw"],
-  },
-  {
-    "key": "projection",
-    "title": "Chemical space projection",
-    "home": "space",
-    "members": ["projection-mwlogp", "projection-umap", "projection-tsne", "projection-pca"],
   },
 ]
 _STEM_TO_GROUP = {m: g for g in _GROUPS for m in g["members"]}
@@ -205,9 +187,29 @@ _METRIC_COLS = [
 ]
 
 
+def _projection_label(stem):
+  """Clean label for a dynamic projection stem, reusing the base projection titles in ``_TITLES``.
+
+  ``projection-merged-umap`` → "UMAP projection"; ``projection-umap-active`` → "UMAP · actives".
+  """
+  body = stem[len("projection-") :]
+  if body.startswith("merged-"):
+    return _TITLES.get(f"projection-{body[len('merged-') :]}")
+  for noun in ("active", "inactive"):
+    if body.endswith(f"-{noun}"):
+      base = _TITLES.get(f"projection-{body[: -(len(noun) + 1)]}")
+      short = base.replace(" projection", "") if base else None
+      return f"{short} · {noun}s" if short else None
+  return None
+
+
 def _humanize(stem):
   if stem in _TITLES:
     return _TITLES[stem]
+  if stem.startswith("projection-"):
+    label = _projection_label(stem)
+    if label:
+      return label
   words = stem.replace("_", " ").replace("-", " ").split()
   return " ".join(_ACRONYMS.get(w.lower(), w.capitalize()) for w in words)
 
@@ -227,9 +229,6 @@ def _img_src(report_dir, stem):
 # pixels / 600 inches. The report documents a reference grid (it mirrors the old 6×10 matplotlib
 # poster grid) so users can tile the downloaded plots into a composite figure at the right scale.
 _FIGURE_DPI = 600
-_GRID_COLS = 10
-_GRID_ROWS = 6
-_CELL_CM = 3.0
 _CELL_IN = _CELL_CM / 2.54  # ≈ 1.181 in
 
 
@@ -268,14 +267,24 @@ def _figure_size(report_dir, stem):
   }
 
 
-def _dim_badge(report_dir, stem):
-  """Small card caption: the figure's grid footprint (n×m cells) + its real size in cm and inches."""
+def _figure_dims(report_dir, stem):
+  """``(cells, size)`` display strings for a figure, e.g. ``("2×4", "12.0×6.1 cm · 4.73×2.40 in")``."""
   sz = _figure_size(report_dir, stem)
   if sz is None:
+    return None
+  cells = f"{sz['rows']}×{sz['cols']}"
+  size = f"{sz['w_cm']:.1f}×{sz['h_cm']:.1f} cm · {sz['w_in']:.2f}×{sz['h_in']:.2f} in"
+  return cells, size
+
+
+def _dim_badge(report_dir, stem):
+  """Small card caption: the figure's grid footprint (n×m cells) + its real size in cm and inches."""
+  dims = _figure_dims(report_dir, stem)
+  if dims is None:
     return ""
+  cells, size = dims
   return (
-    f"<div class='dim'><span class='cells'>{sz['rows']}×{sz['cols']}</span> "
-    f"{sz['w_cm']:.1f}×{sz['h_cm']:.1f} cm · {sz['w_in']:.2f}×{sz['h_in']:.2f} in</div>"
+    f"<div class='dim'><span class='cells'>{cells}</span> <span class='dimsize'>{size}</span></div>"
   )
 
 
@@ -320,8 +329,18 @@ def _grid_svg():
   )
 
 
+def _color_key_html():
+  """The single transversal color key shared by every plot (built from colors.LEGEND)."""
+  items = "".join(
+    f"<span class='item'><span class='swatch' style='background:{_colors.hexcol(key)}'></span>"
+    f"{html.escape(label)}</span>"
+    for label, key in _colors.LEGEND
+  )
+  return f"<div class='legend-key'>{items}</div>"
+
+
 def _about_figures_html():
-  """Show the composite reference grid (full width) with a short one-line caption beneath it."""
+  """Show the composite reference grid (full width), a short caption, and the shared color key."""
   cap = (
     f"<p class='grid-cap'>Reference grid: <b>{_GRID_ROWS} rows × {_GRID_COLS} columns</b>, one cell "
     f"<b>{_CELL_CM:.0f} cm ({_CELL_IN:.2f} in)</b> square "
@@ -329,7 +348,34 @@ def _about_figures_html():
     "plot card's <b>n×m</b> badge is its footprint in cells (<b>rows × columns</b>) — download the "
     "plots and tile them to compose a figure at the right scale.</p>"
   )
-  return f"<div class='about'>{_grid_svg()}{cap}</div>"
+  key_caption = "<p class='grid-cap'>Colors are consistent across every plot:</p>"
+  return f"<div class='about'>{_grid_svg()}{cap}{key_caption}{_color_key_html()}</div>"
+
+
+def _semantic_css():
+  """CSS for semantic colors, generated from ``report.colors`` so it can never drift from the plots.
+
+  Defines the phase badges (``.ph-*``), provenance bars (``.prov-*``), the Task badges
+  (``.badge-clf`` / ``.badge-reg``), and the About color-key swatches.
+  """
+  ph = "".join(f".ph-{k}{{background:{v};}}" for k, v in _colors.PHASE_COLORS.items())
+  prov = (
+    f".prov-store{{background:{_colors.hexcol('store')};}}"
+    f".prov-computed{{background:{_colors.hexcol('computed')};}}"
+  )
+  clf, reg = _colors.hexcol("classification"), _colors.hexcol("regression")
+  badges = (
+    f".badge-clf{{background:{clf}22;border:1px solid {clf};color:var(--fg);}}"
+    f".badge-reg{{background:{reg}22;border:1px solid {reg};color:var(--fg);}}"
+  )
+  key = (
+    ".about .legend-key{display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:center;"
+    "margin:8px auto 0;max-width:760px;font-size:13px;color:var(--fg);}"
+    ".about .legend-key .item{display:inline-flex;align-items:center;gap:7px;}"
+    ".about .swatch{width:13px;height:13px;border-radius:3px;display:inline-block;"
+    "border:1px solid rgba(0,0,0,.08);}"
+  )
+  return ph + prov + badges + key
 
 
 def _load_params(output_dir):
@@ -394,8 +440,69 @@ def _performance_table_html(report_dir):
   )
 
 
+# Held-out validation schemas: (csv strategy key, display label). Random is styled as the anchor.
+_VALIDATION_SCHEMAS = [
+  ("random", "Random"),
+  ("scaffold", "Scaffold"),
+  ("scaffold_det", "Scaffold (DeepChem)"),
+  ("butina", "Butina"),
+]
+
+
+def _mean_std(values):
+  import statistics
+
+  vals = [v for v in values if v is not None]
+  if not vals:
+    return None, None
+  mean = sum(vals) / len(vals)
+  std = statistics.pstdev(vals) if len(vals) > 1 else 0.0
+  return mean, std
+
+
+def _validation_table_html(report_dir):
+  """Per-schema mean±std held-out AUROC/AUPR table from ``report/validation_table.csv``, or ''."""
+  try:
+    with open(os.path.join(report_dir, "validation_table.csv")) as f:
+      rows = list(csv.DictReader(f))
+  except Exception:
+    return ""
+  if not rows:
+    return ""
+
+  def _num(r, k):
+    try:
+      return float(r[k])
+    except (KeyError, ValueError, TypeError):
+      return None
+
+  by_strategy = {}
+  for r in rows:
+    by_strategy.setdefault(r.get("strategy"), []).append(r)
+  ordered = [(k, lbl) for k, lbl in _VALIDATION_SCHEMAS if k in by_strategy]
+  ordered += [(k, k) for k in by_strategy if k not in {s for s, _ in _VALIDATION_SCHEMAS}]
+  if not ordered:
+    return ""
+  body = []
+  for strat, label in ordered:
+    srows = by_strategy[strat]
+    au_m, au_s = _mean_std([_num(r, "auroc") for r in srows])
+    ap_m, ap_s = _mean_std([_num(r, "aupr") for r in srows])
+    au = f"{au_m:.3f} ± {au_s:.3f}" if au_m is not None else "—"
+    ap = f"{ap_m:.3f} ± {ap_s:.3f}" if ap_m is not None else "—"
+    cls = " class='pooled'" if strat == "random" else ""
+    body.append(
+      f"<tr{cls}><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{au}</td><td>{ap}</td></tr>"
+    )
+  head = "<th>Split schema</th><th>Folds</th><th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
+  return (
+    "<div class='table-wrap'><table class='metrics'>"
+    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+  )
+
+
 _CSS = """
-:root { color-scheme: light; --fg:#1f2328; --muted:#6e7781; --line:#e6e8eb; --bg:#fff; --soft:#f6f8fa; --link:#0969da; --sidebar:248px; }
+:root { color-scheme: light; --fg:#1f2328; --muted:#6e7781; --line:#e6e8eb; --bg:#fff; --soft:#f6f8fa; --link:#0969da; --sidebar:248px; --card-h:420px; }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:var(--fg); background:var(--bg); line-height:1.55; }
@@ -425,17 +532,21 @@ section { padding-top:40px; scroll-margin-top:24px; }
 section > h2 { font-size:17px; font-weight:600; margin:0 0 4px; }
 section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
-.grid2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+/* Two figure cards side by side, filling the main content column (same width as the tables/text). */
+.grid2 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 @media (max-width:720px) { .grid2 { grid-template-columns:1fr; } }
-.card { border:1px solid var(--line); border-radius:12px; background:#fff; padding:16px; transition:box-shadow .18s ease, transform .18s ease; }
+/* Every figure card is a fixed-height flex column (uniform boxes across the whole report): the header,
+   badge, controls and links are fixed rows; the image area flexes to fill and the figure is contained
+   (centred, never stretched) within it. */
+.card { margin:0; height:var(--card-h); display:flex; flex-direction:column; border:1px solid var(--line); border-radius:12px; background:#fff; padding:16px; transition:box-shadow .18s ease, transform .18s ease; }
 .card:hover { box-shadow:0 8px 24px rgba(27,31,36,.09); transform:translateY(-2px); }
-.card h3 { font-size:14.5px; font-weight:600; margin:0 0 12px; }
-.card a.fig { display:block; }
-.card img { width:100%; height:auto; display:block; border-radius:6px; }
-.card .links { margin-top:10px; font-size:12.5px; color:var(--muted); }
+.card h3 { font-size:14.5px; font-weight:600; margin:0 0 12px; flex:0 0 auto; }
+.card a.fig { flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; }
+.card img { max-width:100%; max-height:100%; width:auto; height:auto; display:block; border-radius:6px; }
+.card .links { margin-top:10px; font-size:12.5px; color:var(--muted); flex:0 0 auto; }
 .card .links a { color:var(--link); text-decoration:none; }
 .card .links a:hover { text-decoration:underline; }
-.card .dim { margin:-4px 0 12px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+.card .dim { margin:-4px 0 12px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; flex:0 0 auto; }
 .card .dim .cells { display:inline-block; background:var(--soft); border:1px solid var(--line); border-radius:999px; padding:0 8px; margin-right:6px; font-weight:600; color:var(--fg); }
 .about .gridfig { display:block; width:100%; max-width:760px; height:auto; margin:6px auto 0; }
 .about .gridfig line { stroke:var(--line); stroke-width:1; }
@@ -445,14 +556,16 @@ section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .about .gridfig .cap { fill:var(--muted); font:11px sans-serif; }
 .about .grid-cap { text-align:center; color:var(--muted); font-size:13px; max-width:760px; margin:12px auto 0; }
 .about .grid-cap b { color:var(--fg); }
-.carousel-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 0 12px; }
+.carousel-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 0 12px; flex:0 0 auto; }
 .carousel-head h3 { margin:0; }
 .carousel-label { color:var(--muted); font-size:12.5px; white-space:nowrap; }
-.carousel-track { position:relative; }
+.carousel-track { position:relative; flex:1 1 auto; min-height:0; }
 .carousel .slide { display:none; }
-.carousel .slide.active { display:block; }
-.carousel .slide img { width:100%; height:auto; display:block; border-radius:6px; }
-.carousel-ctl { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:12px; }
+.carousel .slide.active { display:flex; align-items:center; justify-content:center; height:100%; }
+/* Contain (not stretch) slide images so a tall figure in a wide slider doesn't blow up the card:
+   wide slides still fill the width, tall ones are centred and height-capped. */
+.carousel .slide img { max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; display:block; border-radius:6px; }
+.carousel-ctl { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:12px; flex:0 0 auto; }
 .carousel-ctl button.prev, .carousel-ctl button.next { border:1px solid var(--line); background:#fff; color:var(--fg); width:30px; height:30px; border-radius:50%; font-size:16px; line-height:1; cursor:pointer; padding:0; }
 .carousel-ctl button.prev:hover, .carousel-ctl button.next:hover { background:var(--soft); }
 .carousel-ctl .dots { display:flex; gap:7px; align-items:center; }
@@ -505,13 +618,13 @@ span.ver { display:inline-block; background:var(--soft); border:1px solid var(--
 .pill.lvl-low { background:#eaf6ec; border-color:#b7e0c0; color:#1a7f37; }
 .pill.lvl-med { background:#fdf3e3; border-color:#f2d9a8; color:#9a6700; }
 .pill.lvl-high { background:#fdecec; border-color:#f3c0c0; color:#c1342d; }
-.ph-setup { background:#457b9d; } .ph-describe { background:#2ec4b6; } .ph-projections { background:#fcbf49; }
-.ph-treat { background:#6c5ce7; } .ph-estimate { background:#e63946; } .ph-pool { background:#b05cc8; }
-.ph-report { background:#6bbf59; } .ph-finish { background:#f4845f; } .ph-other { background:#a0a0a0; }
+.caution { margin:14px 0 4px; padding:10px 14px; border-left:3px solid #c1342d; background:#fdecec; color:#8f2018; font-size:12.5px; line-height:1.5; border-radius:0 6px 6px 0; }
+.caution strong { color:#c1342d; }
 .prov-row { display:grid; grid-template-columns:120px 1fr auto; align-items:center; gap:12px; font-size:13px; margin-bottom:7px; }
 .prov-bar { display:flex; height:14px; background:var(--soft); border-radius:7px; overflow:hidden; }
+.balance-bar { display:flex; height:16px; background:var(--soft); border-radius:8px; overflow:hidden; margin:2px 0 10px; }
+.balance-bar i { display:block; height:100%; }
 .prov-bar i { display:block; height:100%; }
-.prov-store { background:#457b9d; } .prov-computed { background:#a0a0a0; }
 .perf-leg i.prov-store, .perf-leg i.prov-computed { border-radius:3px; }
 .prov-val { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
 footer { margin-top:56px; padding-top:22px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:16px; justify-content:space-between; }
@@ -525,10 +638,10 @@ footer a { color:var(--link); text-decoration:none; } footer a:hover { text-deco
 @media print {
   .sidebar { display:none; }
   .content { max-width:none; padding:0; }
-  .card { break-inside:avoid; box-shadow:none; }
+  .card { break-inside:avoid; box-shadow:none; height:auto; }
   section { break-inside:avoid-page; }
   .card:hover { transform:none; box-shadow:none; }
-  .carousel .slide { display:block !important; margin-bottom:10px; }
+  .carousel .slide { display:block !important; margin-bottom:10px; height:auto; }
   .carousel-ctl, .carousel-label { display:none; }
 }
 """
@@ -624,7 +737,7 @@ def _model_table_html(ids, versions, titles):
 def _config_section_html(output_dir, params, n):
   """Render the run configuration: a scalar stat grid plus featurizer and projection model tables."""
   task = params.get("task") or ""
-  stats = [("Task", task.capitalize() if task else "—")]
+  stats = []
   y_col = _y_column(output_dir)
   if y_col:
     stats.append(("Y column", y_col))
@@ -633,7 +746,16 @@ def _config_section_html(output_dir, params, n):
   date = _run_date(output_dir)
   if date:
     stats.append(("Run date", date))
-  cells = "".join(
+  # Task as a colored badge (Classification = turquoise / Regression = amber); plain text otherwise.
+  t = task.lower()
+  if t == "classification":
+    task_v = "<span class='badge badge-clf'>Classification</span>"
+  elif t == "regression":
+    task_v = "<span class='badge badge-reg'>Regression</span>"
+  else:
+    task_v = html.escape(task.capitalize() if task else "—")
+  cells = f"<div class='cfg-cell'><span class='k'>Task</span><span class='v'>{task_v}</span></div>"
+  cells += "".join(
     f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
     f"<span class='v'>{html.escape(str(v))}</span></div>"
     for k, v in stats
@@ -691,8 +813,6 @@ def _machine_line(output_dir):
   for key in ("arch", "system"):
     if h.get(key):
       bits.append(html.escape(str(h[key])))
-  if h.get("python"):
-    bits.append(f"Python {html.escape(str(h['python']))}")
   if not bits:
     return ""
   return f"<p class='perf-machine'>⊟ {' · '.join(bits)}</p>"
@@ -856,6 +976,140 @@ def _computational_performance_html(output_dir, report_dir, present, assigned, p
   return "".join(out)
 
 
+_DATASET_GROUPS = [
+  {
+    "key": "class-balance",
+    "title": "Class balance",
+    "members": ["actives-inactives", "class-donut", "class-waffle"],
+  },
+  {
+    "key": "properties",
+    "title": "Property distributions",
+    "members": ["property-mw", "property-logp"],
+  },
+]
+
+
+def _class_counts(output_dir):
+  """Active/inactive counts of the labelled set from ``inputs/data.csv``, or ``None``."""
+  try:
+    import pandas as pd
+
+    df = pd.read_csv(os.path.join(output_dir, DATA_SUBFOLDER, DATA_FILENAME))
+    col = next((c for c in df.columns if "bin" in c and "_skip" not in c and "_aux" not in c), None)
+    if col is None:
+      return None
+    y = pd.to_numeric(df[col], errors="coerce").dropna()
+    total = int(len(y))
+    if total == 0:
+      return None
+    actives = int((y == 1).sum())
+    return {
+      "total": total,
+      "actives": actives,
+      "inactives": total - actives,
+      "pct_active": 100.0 * actives / total,
+    }
+  except Exception:
+    return None
+
+
+def _dataset_html(output_dir, report_dir, present, assigned):
+  """Dataset composition: class-balance stat cells + bar, then the class-balance & property sliders."""
+  counts = _class_counts(output_dir)
+  fig_cards, fig_stems = [], []
+  for g in _DATASET_GROUPS:
+    members = [m for m in g["members"] if m in present]
+    if not members:
+      continue
+    fig_stems.extend(members)
+    fig_cards.append(
+      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
+    )
+  if not counts and not fig_cards:
+    return ""
+
+  out = []
+  if counts:
+    stats = [
+      ("Compounds", f"{counts['total']:,}"),
+      ("Actives", f"{counts['actives']:,}"),
+      ("Inactives", f"{counts['inactives']:,}"),
+      ("% active", f"{counts['pct_active']:.1f}%"),
+    ]
+    cells = "".join(
+      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
+      f"<span class='v'>{html.escape(v)}</span></div>"
+      for k, v in stats
+    )
+    a_col, i_col = colors.hexcol("active"), colors.hexcol("inactive")
+    a = counts["pct_active"]
+    out.append(f"<div class='cfg-grid'>{cells}</div>")
+    out.append(
+      "<div class='balance-bar'>"
+      f"<i style='width:{a:.1f}%;background:{a_col}'></i>"
+      f"<i style='width:{100 - a:.1f}%;background:{i_col}'></i></div>"
+      "<div class='perf-legend'>"
+      f"<span class='perf-leg'><i style='background:{a_col}'></i>Active</span>"
+      f"<span class='perf-leg'><i style='background:{i_col}'></i>Inactive</span></div>"
+    )
+  if fig_cards:
+    assigned.update(fig_stems)
+    grid = "<div class='grid grid2'>" + "".join(fig_cards) + "</div>"
+    out.append(f"<h3 class='cfg-h'>Figures</h3>{grid}")
+  return "".join(out)
+
+
+# Projection display order (interpretable MW-vs-LogP first, then the learned embeddings).
+_PROJECTION_ORDER = ["mwlogp", "umap", "tsne", "pca", "tmap"]
+
+
+def _chemical_space_html(output_dir, report_dir, present, assigned):
+  """Chemical space: two sliders over the projections, each coloured by true class (no in-plot legend).
+
+  Container 1 ("merged") pages the per-class density+point map of each projection; container 2
+  ("by class") pages, per projection, the actives map then the inactives map. Projections are
+  discovered from the ``projection-merged-*`` stems present.
+  """
+  bases = [s[len("projection-merged-") :] for s in present if s.startswith("projection-merged-")]
+  if not bases:
+    return ""
+  bases.sort(key=lambda b: (_PROJECTION_ORDER.index(b) if b in _PROJECTION_ORDER else 99, b))
+
+  merged = [f"projection-merged-{b}" for b in bases if f"projection-merged-{b}" in present]
+  by_class = []
+  for b in bases:
+    for noun in ("active", "inactive"):
+      stem = f"projection-{b}-{noun}"
+      if stem in present:
+        by_class.append(stem)
+
+  cards = []
+  if merged:
+    g = {"key": "chemspace-merged", "title": "Overview", "members": merged}
+    cards.append(
+      _card(report_dir, merged[0]) if len(merged) == 1 else _carousel(report_dir, g, merged)
+    )
+  if by_class:
+    g = {"key": "chemspace-class", "title": "By class", "members": by_class}
+    cards.append(
+      _card(report_dir, by_class[0]) if len(by_class) == 1 else _carousel(report_dir, g, by_class)
+    )
+  if not cards:
+    return ""
+  assigned.update(merged + by_class)
+
+  # No in-plot legends (per design) — a single crimson/cobalt colour key for the whole section.
+  a_col, i_col = colors.hexcol("active"), colors.hexcol("inactive")
+  legend = (
+    "<div class='perf-legend'>"
+    f"<span class='perf-leg'><i style='background:{a_col}'></i>Active</span>"
+    f"<span class='perf-leg'><i style='background:{i_col}'></i>Inactive</span></div>"
+  )
+  grid = "<div class='grid grid2'>" + "".join(cards) + "</div>"
+  return legend + grid
+
+
 def _read_cv_stats(output_dir):
   """Per-descriptor lazy-qsar CV reports (estimators/*/*/cv_report.json), best OOF AUROC first."""
   stats = []
@@ -892,7 +1146,7 @@ def _cv_table_html(cv_stats):
     return ""
   cols = [
     ("descriptor", "Descriptor"),
-    ("oof_auc", "CV AUROC"),
+    ("oof_auc", "Inner CV AUROC"),
     ("train_auc", "Train AUROC"),
     ("overfit_gap", "Overfit gap"),
     ("portfolio", "Algorithms"),
@@ -900,7 +1154,7 @@ def _cv_table_html(cv_stats):
   ]
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
-  for r in cv_stats:
+  for i, r in enumerate(cv_stats):
     cells = []
     for k, _ in cols:
       v = r.get(k)
@@ -910,17 +1164,140 @@ def _cv_table_html(cv_stats):
         cell = html.escape(", ".join(v) if isinstance(v, list) else str(v or "—"))
       elif v is None:
         cell = "—"
+      elif k == "overfit_gap":
+        cell = f"<span class='pill {_gap_level(v)}'>{float(v):.3f}</span>"
       else:
         try:
           cell = f"{float(v):.3f}"
         except Exception:
           cell = html.escape(str(v))
       cells.append(f"<td>{cell}</td>")
-    body.append(f"<tr>{''.join(cells)}</tr>")
+    # Highlight the best descriptor (cv_stats is sorted by OOF AUROC desc).
+    cls = " class='pooled'" if i == 0 else ""
+    body.append(f"<tr{cls}>{''.join(cells)}</tr>")
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
   )
+
+
+def _gap_level(gap):
+  """Overfit-gap → colour class: low (<0.05) green, medium (<0.12) amber, else red."""
+  try:
+    g = float(gap)
+  except (TypeError, ValueError):
+    return "lvl-med"
+  if g < 0.05:
+    return "lvl-low"
+  return "lvl-med" if g < 0.12 else "lvl-high"
+
+
+def _cv_stats(output_dir):
+  """Per-descriptor CV stats from the finished model, or the cached ``report/cv_stats.json`` fallback."""
+  stats = _read_cv_stats(output_dir)
+  if stats:
+    return stats
+  try:
+    with open(os.path.join(output_dir, REPORT_SUBFOLDER, "cv_stats.json")) as f:
+      return json.load(f).get("per_descriptor") or []
+  except Exception:
+    return []
+
+
+def _cv_bars_html(stats):
+  """HTML inner-CV AUROC bar per descriptor. The bar carries the descriptor's **identity colour**
+  (matching its line in the ROC/PR figures, so this strip doubles as the shared legend); the overfit
+  gap is shown as a colour-coded pill. ``stats`` is best-first, so its index is the identity rank."""
+  palette = _colors.descriptor_colors_hex(len(stats))
+  rows = []
+  for i, s in enumerate(stats):
+    auc = s.get("oof_auc")
+    if auc is None:
+      continue
+    gap = s.get("overfit_gap")
+    pct = max(2.0, min(100.0, (auc - 0.5) / 0.5 * 100))  # AUROC 0.5..1.0 → 0..100% of the track
+    did = html.escape(str(s.get("descriptor")))
+    href = f"https://github.com/{GITHUB_ORG}/{did}"
+    gap_pill = (
+      f"<span class='pill {_gap_level(gap)}'>gap {float(gap):.2f}</span>" if gap is not None else ""
+    )
+    rows.append(
+      f"<div class='perf-row'><a class='model' href='{href}' target='_blank'>{did} ↗</a>"
+      f"<span class='perf-bar'><i class='diag-fill' style='width:{pct:.1f}%;background:{palette[i]}'></i></span>"
+      f"<span class='perf-val'>{auc:.3f}</span><span class='perf-pills'>{gap_pill}</span></div>"
+    )
+  return f"<div class='perf-steps'>{''.join(rows)}</div>" if rows else ""
+
+
+_DIAG_GROUPS = [
+  {
+    "key": "diag-compare",
+    "title": "Per-descriptor comparison",
+    "members": [
+      "descriptor-metric-heatmap",
+      "cv-auroc",
+      "cv-aupr",
+      "pooled-vs-best-auroc",
+      "oof-overfit-scatter",
+    ],
+  },
+  {
+    "key": "diag-curves",
+    "title": "Cross-validation curves",
+    "members": ["cv-roc", "cv-pr", "cv-calibration", "cv-score-distribution"],
+  },
+]
+
+
+def _diagnostics_html(output_dir, report_dir, present, assigned):
+  """Per-descriptor inner (lazy-qsar CV) diagnostics: summary stats, OOF-AUROC bars, table, sliders."""
+  stats = _cv_stats(output_dir)
+  summary = _cv_summary(stats) if stats else {}
+
+  fig_cards, fig_stems = [], []
+  for g in _DIAG_GROUPS:
+    members = [m for m in g["members"] if m in present]
+    if not members:
+      continue
+    fig_stems.extend(members)
+    fig_cards.append(
+      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
+    )
+  if not summary and not fig_cards:
+    return ""
+
+  out = []
+  if summary:
+    cells_data = [
+      ("Descriptors", str(summary["n_descriptors"])),
+      ("Best descriptor", summary.get("best_descriptor") or "—"),
+    ]
+    if summary.get("best_oof_auc") is not None:
+      cells_data.append(("Best inner CV AUROC", f"{summary['best_oof_auc']:.3f}"))
+    if summary.get("mean_oof_auc") is not None:
+      cells_data.append(("Mean inner CV AUROC", f"{summary['mean_oof_auc']:.3f}"))
+    if summary.get("mean_overfit_gap") is not None:
+      cells_data.append(("Mean overfit gap", f"{summary['mean_overfit_gap']:.3f}"))
+    cells = "".join(
+      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
+      f"<span class='v'>{html.escape(v)}</span></div>"
+      for k, v in cells_data
+    )
+    out.append(f"<div class='cfg-grid'>{cells}</div>")
+    out.append(
+      "<p class='caution'>&#9888; These are <strong>inner</strong> cross-validation scores, "
+      "computed inside lazy-qsar during descriptor and algorithm selection. Treat them with "
+      "caution: they are optimistically biased and most likely <strong>overestimate</strong> "
+      "real-world performance. For an honest out-of-sample estimate use the held-out validation.</p>"
+    )
+    out.append(f"<h3 class='cfg-h'>Per-descriptor table</h3>{_cv_table_html(stats)}")
+    out.append(f"<h3 class='cfg-h'>Inner CV AUROC by descriptor</h3>{_cv_bars_html(stats)}")
+  if fig_cards:
+    assigned.update(fig_stems)
+    out.append(
+      "<h3 class='cfg-h'>Figures</h3><div class='grid grid2'>" + "".join(fig_cards) + "</div>"
+    )
+  return "".join(out)
 
 
 # Overview poster layout: rows of (figure stem, relative width). Mirrors the old 6×10 matplotlib
@@ -935,7 +1312,7 @@ _POSTER_ROWS = [
     ("descriptor-metric-heatmap", 2),
     ("projection-correctness", 2),
   ],
-  [("property-distributions", 10)],
+  [("property-mw", 5), ("property-logp", 5)],
 ]
 
 
@@ -957,11 +1334,25 @@ def _overview_poster_html(report_dir, present):
   return "<div class='poster'>" + "".join(rows_html) + "</div>"
 
 
+def _download_name(report_dir, stem, ext):
+  """Suggested download filename, encoding the figure's grid footprint, e.g. ``step-timing_2x4.png``."""
+  sz = _figure_size(report_dir, stem)
+  return f"{stem}_{sz['rows']}x{sz['cols']}.{ext}" if sz else f"{stem}.{ext}"
+
+
 def _links_html(report_dir, stem):
-  """The ``PNG · PDF`` download row for a single figure (PDF only if its file exists)."""
-  links = [f"<a class='png' href='png/{stem}.png' target='_blank'>PNG</a>"]
+  """The ``PNG · PDF`` download row for a single figure (PDF only if its file exists).
+
+  The ``download`` attribute names the saved file by its grid footprint (e.g. ``step-timing_2x4.png``)
+  so a downloaded plot carries its n×m for assembling composites; the on-disk path stays ``png/…``.
+  """
+  png_name = _download_name(report_dir, stem, "png")
+  links = [f"<a class='png' href='png/{stem}.png' download='{png_name}' target='_blank'>PNG</a>"]
   if os.path.exists(os.path.join(report_dir, "pdf", f"{stem}.pdf")):
-    links.append(f"<a class='pdf' href='pdf/{stem}.pdf' target='_blank'>PDF</a>")
+    pdf_name = _download_name(report_dir, stem, "pdf")
+    links.append(
+      f"<a class='pdf' href='pdf/{stem}.pdf' download='{pdf_name}' target='_blank'>PDF</a>"
+    )
   return " · ".join(links)
 
 
@@ -989,8 +1380,14 @@ def _carousel(report_dir, group, members):
       f"pdf/{stem}.pdf" if os.path.exists(os.path.join(report_dir, "pdf", f"{stem}.pdf")) else ""
     )
     active = " active" if i == 0 else ""
+    sz = _figure_size(report_dir, stem)
+    dl = f"{sz['rows']}x{sz['cols']}" if sz else ""
+    dims = _figure_dims(report_dir, stem)
+    cells_attr = html.escape(dims[0]) if dims else ""
+    size_attr = html.escape(dims[1]) if dims else ""
     slides.append(
-      f"<a class='slide{active}' data-label=\"{label}\" data-pdf='{pdf}' "
+      f"<a class='slide{active}' data-label=\"{label}\" data-pdf='{pdf}' data-dl='{dl}' "
+      f'data-cells="{cells_attr}" data-size="{size_attr}" '
       f"href='png/{stem}.png' target='_blank'>"
       f"<img src='{_img_src(report_dir, stem)}' alt='{label}' loading='lazy'></a>"
     )
@@ -1041,7 +1438,7 @@ def _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
   return cards
 
 
-_JS = """
+_JS = r"""
 document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.carousel').forEach(function (car) {
     var slides = Array.prototype.slice.call(car.querySelectorAll('.slide'));
@@ -1050,6 +1447,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var label = car.querySelector('.carousel-label');
     var pngLink = car.querySelector('.links a.png');
     var pdfLink = car.querySelector('.links a.pdf');
+    var cellsEl = car.querySelector('.dim .cells');
+    var sizeEl = car.querySelector('.dim .dimsize');
     var i = 0;
     function show(n) {
       i = (n + slides.length) % slides.length;
@@ -1057,11 +1456,24 @@ document.addEventListener('DOMContentLoaded', function () {
       dots.forEach(function (d, k) { d.classList.toggle('active', k === i); });
       var s = slides[i];
       if (label) label.textContent = s.getAttribute('data-label') || '';
-      if (pngLink) pngLink.setAttribute('href', s.getAttribute('href'));
+      if (cellsEl) cellsEl.textContent = s.getAttribute('data-cells') || '';
+      if (sizeEl) sizeEl.textContent = s.getAttribute('data-size') || '';
+      var href = s.getAttribute('href');
+      var stem = href.replace(/^png\//, '').replace(/\.png$/, '');
+      var dl = s.getAttribute('data-dl');
+      if (pngLink) {
+        pngLink.setAttribute('href', href);
+        if (dl) pngLink.setAttribute('download', stem + '_' + dl + '.png');
+      }
       if (pdfLink) {
         var pdf = s.getAttribute('data-pdf');
-        if (pdf) { pdfLink.setAttribute('href', pdf); pdfLink.style.display = ''; }
-        else { pdfLink.style.display = 'none'; }
+        if (pdf) {
+          pdfLink.setAttribute('href', pdf);
+          if (dl) pdfLink.setAttribute('download', stem + '_' + dl + '.pdf');
+          pdfLink.style.display = '';
+        } else {
+          pdfLink.style.display = 'none';
+        }
       }
     }
     var prev = car.querySelector('.prev'), next = car.querySelector('.next');
@@ -1107,7 +1519,6 @@ def write_html_report(output_dir):
   perf_table = _performance_table_html(report_dir)
   config_table = _config_section_html(output_dir, params, n)
   cv_stats = _read_cv_stats(output_dir)
-  cv_table = _cv_table_html(cv_stats)
   if cv_stats:
     with open(os.path.join(report_dir, "cv_stats.json"), "w") as f:
       json.dump({"per_descriptor": cv_stats, "summary": _cv_summary(cv_stats)}, f, indent=2)
@@ -1124,23 +1535,52 @@ def write_html_report(output_dir):
       "came from — reused from the isaura store or freshly computed.",
       perf_section,
     ))
+  dataset_section = _dataset_html(output_dir, report_dir, present, assigned)
+  if dataset_section:
+    sections.append((
+      "dataset",
+      "Dataset",
+      "Composition of the labelled set (training compounds at fit; the labelled inputs when "
+      "predicting) — class balance and molecular property distributions.",
+      dataset_section,
+    ))
+  space_section = _chemical_space_html(output_dir, report_dir, present, assigned)
+  if space_section:
+    sections.append((
+      "space",
+      "Chemical space",
+      "Low-dimensional embeddings of the molecules — the built-in molecular-weight-vs-LogP map and "
+      "each computed projection (UMAP, t-SNE, …).",
+      space_section,
+    ))
   for anchor, heading, desc, members in _CATEGORIES:
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))
-    elif anchor == "crossval":
-      items = sorted(s for s in stems if s.startswith("cv-"))
     else:
       items = [s for s in members if s in present]
     cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
     grid = "<div class='grid'>" + "".join(cards) + "</div>" if cards else ""
     if anchor == "performance":
       inner = perf_table + grid
-    elif anchor == "crossval":
-      inner = cv_table + grid
+    elif anchor == "validation":
+      inner = _validation_table_html(report_dir) + grid
     else:
       inner = grid
     if inner:
       sections.append((anchor, heading, desc, inner))
+  # Per-descriptor inner diagnostics (inner lazy-qsar CV): inserted right after the chemical space.
+  diag_section = _diagnostics_html(output_dir, report_dir, present, assigned)
+  if diag_section:
+    entry = (
+      "diagnostics",
+      "Per descriptor inner diagnostics",
+      "How each molecular descriptor performed under lazy-qsar's internal cross-validation — the "
+      "out-of-fold AUROC, the train-vs-CV overfit gap, and the algorithm portfolio chosen per "
+      "descriptor.",
+      diag_section,
+    )
+    idx = next((i + 1 for i, s in enumerate(sections) if s[0] == "space"), len(sections))
+    sections.insert(idx, entry)
   leftovers = [s for s in stems if s not in assigned]
   if leftovers:
     grid = "<div class='grid'>" + "".join(_card(report_dir, s) for s in leftovers) + "</div>"
@@ -1182,7 +1622,7 @@ def write_html_report(output_dir):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(tab_title)}</title>
-<style>{_CSS}</style>
+<style>{_CSS}{_semantic_css()}</style>
 </head>
 <body>
 <div class="layout">

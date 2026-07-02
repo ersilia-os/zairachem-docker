@@ -9,7 +9,8 @@ from zairachem.report.plots import (
   RocCurvePlot,
   ScoreViolinPlot,
   ScoreStripPlot,
-  ProjectionPlot,
+  ProjectionMergedPlot,
+  ProjectionClassPlot,
   RegressionPlotRaw,
   HistogramPlotRaw,
   RegressionPlotTransf,
@@ -18,7 +19,9 @@ from zairachem.report.plots import (
   IndividualEstimatorsAurocPlot,
   IndividualEstimatorsR2Plot,
   CvAurocPlot,
+  CvAuprPlot,
   CvRocPlot,
+  CvPrPlot,
   CvCalibrationPlot,
   CvScoreDistributionPlot,
   PrCurvePlot,
@@ -29,13 +32,16 @@ from zairachem.report.plots import (
   OofOverfitScatterPlot,
   PooledVsBestAurocPlot,
   NormalizedConfusionPlot,
-  ProjectionCorrectnessPlot,
-  PropertyDistributionsPlot,
+  PropertyMwPlot,
+  PropertyLogpPlot,
+  ClassDonutPlot,
+  ClassWafflePlot,
   StepTimingPlot,
   PhaseTimeDonutPlot,
   ResourceTimelinePlot,
   ProvenanceBarPlot,
   PerModelTimingPlot,
+  HeldOutValidationPlot,
 )
 from zairachem.report.fetcher import ResultsFetcher
 
@@ -47,6 +53,8 @@ from zairachem.base.utils.progress import LiveProgressBar, STEP_COLORS
 # (one per discovered projection) because their count depends on the run's manifest.
 _PLOT_SPECS = [
   ("actives-inactives", ActivesInactivesPlot),
+  ("class-donut", ClassDonutPlot),
+  ("class-waffle", ClassWafflePlot),
   ("confusion-matrix", ConfusionPlot),
   ("roc-curve", RocCurvePlot),
   ("score-violin", ScoreViolinPlot),
@@ -60,7 +68,9 @@ _PLOT_SPECS = [
   ("raw-classification-scores", IndividualEstimatorsClassificationScorePlot),
   ("r2-individual", IndividualEstimatorsR2Plot),
   ("cv-auroc", CvAurocPlot),
+  ("cv-aupr", CvAuprPlot),
   ("cv-roc", CvRocPlot),
+  ("cv-pr", CvPrPlot),
   ("cv-calibration", CvCalibrationPlot),
   ("cv-score-distribution", CvScoreDistributionPlot),
   ("pr-curve", PrCurvePlot),
@@ -70,9 +80,10 @@ _PLOT_SPECS = [
   ("confusion-normalized", NormalizedConfusionPlot),
   ("oof-overfit-scatter", OofOverfitScatterPlot),
   ("pooled-vs-best-auroc", PooledVsBestAurocPlot),
+  ("heldout-validation", HeldOutValidationPlot),
   ("descriptor-metric-heatmap", DescriptorMetricHeatmapPlot),
-  ("projection-correctness", ProjectionCorrectnessPlot),
-  ("property-distributions", PropertyDistributionsPlot),
+  ("property-mw", PropertyMwPlot),
+  ("property-logp", PropertyLogpPlot),
   ("step-timing", StepTimingPlot),
   ("phase-time", PhaseTimeDonutPlot),
   ("resource-timeline", ResourceTimelinePlot),
@@ -111,10 +122,21 @@ class Reporter(ZairaBase):
     for name, cls in _PLOT_SPECS:
       if not self.__skip(name):
         jobs.append((name.replace("-", " "), cls, {}))
-    # One plot per projection discovered in the manifest (always at least MW-vs-LogP).
+    # Per projection (always at least MW-vs-LogP): a merged density map + one map per class.
     for proj in ResultsFetcher(path=self.path).get_projections():
-      if not self.__skip(f"projection-{proj['name']}"):
-        jobs.append((f"projection {proj['name']}", ProjectionPlot, {"projection": proj}))
+      if not self.__skip(f"projection-merged-{proj['name']}"):
+        jobs.append((
+          f"projection {proj['name']} merged",
+          ProjectionMergedPlot,
+          {"projection": proj},
+        ))
+      for cls, noun in ((1, "active"), (0, "inactive")):
+        if not self.__skip(f"projection-{proj['name']}-{noun}"):
+          jobs.append((
+            f"projection {proj['name']} {noun}",
+            ProjectionClassPlot,
+            {"projection": proj, "cls": cls},
+          ))
     return jobs
 
   def _render_plots(self, jobs):

@@ -97,30 +97,49 @@ class ResultsFetcher(ZairaBase):
 
   # --- lazy-qsar internal cross-validation (captured at fit time) --------------------------------
 
+  def _cv_dirs(self):
+    """``{descriptor: dir}`` holding the lazy-qsar CV artefacts (cv_report.json / oof.csv).
+
+    Prefers the finished ``model/estimators`` layout; falls back to the in-pipeline
+    ``pipeline/01_estimators/lq_estimators/<descriptor>/`` so diagnostics still render before a run's
+    artefacts are copied into the trained tree.
+    """
+    dirs = {}
+    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
+      d = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath)
+      if os.path.exists(os.path.join(d, "cv_report.json")):
+        dirs[rpath[-1]] = d
+    if not dirs:
+      lq = os.path.join(self.trained_path, "pipeline", "01_estimators", "lq_estimators")
+      if os.path.isdir(lq):
+        for name in sorted(os.listdir(lq)):
+          d = os.path.join(lq, name)
+          if os.path.exists(os.path.join(d, "cv_report.json")):
+            dirs[name] = d
+    return dirs
+
   def get_cv_stats(self):
     """Per-descriptor lazy-qsar CV stats from cv_report.json (of the trained model), best first."""
     stats = []
-    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
-      f = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath, "cv_report.json")
-      if os.path.exists(f):
-        try:
-          with open(f) as fh:
-            rep = json.load(fh)
-          rep["descriptor"] = rpath[-1]
-          stats.append(rep)
-        except Exception:
-          continue
+    for descriptor, d in self._cv_dirs().items():
+      try:
+        with open(os.path.join(d, "cv_report.json")) as fh:
+          rep = json.load(fh)
+        rep["descriptor"] = descriptor
+        stats.append(rep)
+      except Exception:
+        continue
     stats.sort(key=lambda r: r.get("oof_auc") if r.get("oof_auc") is not None else -1, reverse=True)
     return stats
 
   def get_cv_oof(self, descriptor):
     """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None."""
-    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
-      if rpath[-1] == descriptor:
-        f = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath, "oof.csv")
-        if os.path.exists(f):
-          df = pd.read_csv(f)
-          return list(df["oof_proba"]), list(df["y"])
+    d = self._cv_dirs().get(descriptor)
+    if d is not None:
+      f = os.path.join(d, "oof.csv")
+      if os.path.exists(f):
+        df = pd.read_csv(f)
+        return list(df["oof_proba"]), list(df["y"])
     return None
 
   def cv_summary(self):

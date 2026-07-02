@@ -9,6 +9,7 @@ from zairachem.base.utils.preflight import (
   validate_model_roles,
 )
 from zairachem.base.utils.console import echo
+from zairachem.base.utils.logging import logger
 from zairachem.base.utils.utils import write_smiles_list
 from zairachem.base.utils.isaura_report import (
   report_store_availability,
@@ -31,6 +32,8 @@ from zairachem.setup.prep.base import BaseSetup, format_store_summary
 from zairachem.base.vars import (
   DEFAULT_FEATURIZERS,
   DEFAULT_PROJECTIONS,
+  MAX_FEATURIZERS,
+  MAX_PROJECTIONS,
   DEFAULT_REFERENCE_LIBRARY,
   DATA_SUBFOLDER,
   DATA_FILENAME,
@@ -43,11 +46,50 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
+  SMILES_COLUMN,
+  SPLITS_FILENAME,
 )
 
 
+def _check_model_count(ids, cap, kind, flag):
+  """Reject a run that requests more Hub models of one kind than the cap allows.
+
+  Parameters
+  ----------
+  ids : list of str
+    The resolved Ersilia Model Hub IDs.
+  cap : int
+    Maximum number of IDs permitted for this kind.
+  kind : str
+    Human-readable model kind (e.g. ``"descriptor"``), used in the error message.
+  flag : str
+    The CLI flag the user would use to change the list, named in the error message.
+
+  Raises
+  ------
+  ValueError
+    If ``len(ids)`` exceeds ``cap``.
+  """
+  if len(ids) > cap:
+    raise ValueError(
+      f"Too many {kind} models: {len(ids)} requested but at most {cap} are allowed. "
+      f"Trim {flag} to {cap} or fewer IDs."
+    )
+
+
 class TrainSetup(BaseSetup):
-  def __init__(self, input_file, output_dir, task, model_ids, store, projection_ids=None):
+  def __init__(
+    self,
+    input_file,
+    output_dir,
+    task,
+    model_ids,
+    store,
+    projection_ids=None,
+    evaluate=False,
+    evaluate_repeats=3,
+    evaluate_schemas=None,
+  ):
     if output_dir is None:
       output_dir = input_file.split(".")[0]
     if model_ids is not None:
@@ -63,6 +105,9 @@ class TrainSetup(BaseSetup):
       self.projection_ids = ModelIdsFile.parse_ids(projection_ids, flag="--projection-ids")
     else:
       self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
+    # Enforce the per-run model-count ceilings regardless of source (CLI flag, JSON file, default).
+    _check_model_count(self.featurizer_ids, MAX_FEATURIZERS, "descriptor", "--featurizer-ids")
+    _check_model_count(self.projection_ids, MAX_PROJECTIONS, "projection", "--projection-ids")
     self.input_file = os.path.abspath(input_file)
     self.output_dir = os.path.abspath(output_dir)
     self.task = task
@@ -84,6 +129,13 @@ class TrainSetup(BaseSetup):
       # Reference library whose pre-fitted transformers the treat step applies. Persisted so
       # predict runs reuse the exact same library (the transformer copies are also saved per model).
       "reference_library": DEFAULT_REFERENCE_LIBRARY,
+      # Held-out validation (--evaluate): when True, setup writes metadata/splits.json and the
+      # holdout step runs the folds after pooling. Classification only. ``evaluate_repeats`` is the
+      # per-schema fold count (random/scaffold/butina); total folds = 1 + 3 * repeats.
+      "evaluate": bool(evaluate) and task == "classification",
+      "evaluate_repeats": max(0, int(evaluate_repeats)),
+      # Which fold families to run (subset of holdout.splits.FOLD_SCHEMAS); None = all four.
+      "evaluate_schemas": list(evaluate_schemas) if evaluate_schemas else None,
     }
     # Set True by run_fit when continuing an unfinished run in an existing dir (no --override).
     self.resume = False
@@ -214,6 +266,35 @@ class TrainSetup(BaseSetup):
       SetupCleaner(os.path.join(self.output_dir, DATA_SUBFOLDER)).run()
       step.update()
 
+  def _evaluate_splits(self):
+    """Compute the held-out fold definitions and persist them to ``metadata/splits.json``.
+
+    Only runs when ``--evaluate`` is set (classification). Cheap and deterministic: it reads the
+    finalized ``data.csv`` (SMILES + ``bin`` label) and writes the 10-fold menu built by
+    :func:`zairachem.holdout.splits.build_fold_definitions`. The fold execution itself happens later
+    (after pooling), reusing the shared descriptors.
+    """
+    if not self.params.get("evaluate"):
+      return
+    step = PipelineStep("evaluate_splits", self.output_dir)
+    if step.is_done():
+      return
+    import pandas as pd
+    from zairachem.holdout.splits import build_fold_definitions
+
+    data_dir = os.path.join(self.output_dir, DATA_SUBFOLDER)
+    df = pd.read_csv(os.path.join(data_dir, DATA_FILENAME))
+    folds = build_fold_definitions(
+      list(df[SMILES_COLUMN]),
+      list(df["bin"]),
+      repeats=self.params.get("evaluate_repeats", 3),
+      schemas=self.params.get("evaluate_schemas"),
+    )
+    with open(os.path.join(self.output_dir, METADATA_SUBFOLDER, SPLITS_FILENAME), "w") as f:
+      json.dump(folds, f, indent=4)
+    logger.info(f"[evaluate] Wrote {len(folds)} held-out fold definitions to {SPLITS_FILENAME}")
+    step.update()
+
   def _isaura_summary(self):
     return format_store_summary(self.params.get("store"))
 
@@ -261,8 +342,69 @@ class TrainSetup(BaseSetup):
       proj = "[green]MW vs LogP[/] [dim](built-in)[/]"
     rows.append(("Projection", proj))
     rows.append(("Isaura store", self._isaura_summary()))
+    splits = self._load_splits()
+    if splits:
+      rows.append(("Held-out validation", self._splits_one_liner(splits)))
 
     summary_panel("ZairaChem · Setup", rows)
+    if splits:
+      self._print_splits_table(splits, df)
+
+  def _load_splits(self):
+    """Load metadata/splits.json (the fold definitions), or None if --evaluate was not set."""
+    path = os.path.join(self.output_dir, METADATA_SUBFOLDER, SPLITS_FILENAME)
+    if not os.path.exists(path):
+      return None
+    with open(path) as f:
+      return json.load(f)
+
+  @staticmethod
+  def _splits_one_liner(splits):
+    counts = {}
+    for spec in splits.values():
+      counts[spec["strategy"]] = counts.get(spec["strategy"], 0) + 1
+    parts = [f"{n}× {strat}" if n > 1 else strat for strat, n in counts.items()]
+    return f"[bold]{len(splits)}[/] folds — " + " · ".join(parts)
+
+  # Soft per-family tint for the fold names (cool hues, kept clear of the green→red % ramp).
+  _SPLIT_HUES = {
+    "random": "#79c0ff",
+    "scaffold": "#d2a8ff",
+    "scaffold_det": "#d2a8ff",
+    "butina": "#56d4dd",
+  }
+
+  def _print_splits_table(self, splits, df):
+    """Render the per-fold split table (Fold | Train | Test | Test % active) at setup.
+
+    The ``Test % active`` column is shaded green→amber→red by how far the fold's test-set active rate
+    deviates from the dataset's overall rate (calm green = well balanced; warm = imbalanced, e.g. the
+    scaffold split). Fold names are softly tinted by split family so the groups read at a glance.
+    """
+    from zairachem.base.utils.console import console, heat_hex, themed_table
+
+    table = themed_table("Held-out validation splits")
+    for col, just in (
+      ("Fold", "left"),
+      ("Train", "right"),
+      ("Test", "right"),
+      ("Test % active", "right"),
+    ):
+      table.add_column(col, justify=just, no_wrap=True)
+    overall = float(df["bin"].mean())
+    worst = max(overall, 1.0 - overall) or 1.0  # largest possible deviation, to normalize the ramp
+    for name, spec in splits.items():
+      test_idx = spec["test_idx"]
+      rate = df["bin"].iloc[test_idx].mean() if test_idx else 0.0
+      color = heat_hex(abs(rate - overall) / worst)
+      hue = self._SPLIT_HUES.get(spec["strategy"], "white")
+      table.add_row(
+        f"[{hue}]{name}[/]",
+        f"[dim]{len(spec['train_idx']):,}[/]",
+        f"[dim]{len(test_idx):,}[/]",
+        f"[{color}]{rate * 100:.0f}%[/]",
+      )
+    console.print(table)
 
   def setup(self):
     require_docker_and_base()
@@ -273,6 +415,7 @@ class TrainSetup(BaseSetup):
     self._merge()
     self._check()
     self._clean()
+    self._evaluate_splits()
     self._print_summary()
     validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
