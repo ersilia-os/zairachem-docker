@@ -1,11 +1,11 @@
-import json, h5py, os, gc
+import json, os, gc
 import pandas as pd
 import numpy as np
 from typing import Iterator, Tuple, Optional
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import Hdf5, ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
@@ -13,6 +13,7 @@ from zairachem.base.vars import (
   PARAMETERS_FILE,
   SMILES_COLUMN,
   DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
   DATA_FILENAME,
   ESTIMATORS_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
@@ -38,7 +39,7 @@ class BaseEstimator(ZairaBase):
     self.task = self._get_task()
 
   def _get_task(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       task = json.load(f)["task"]
     return task
 
@@ -53,7 +54,7 @@ class BaseEstimatorIndividual(BaseEstimator):
     self.task = self._get_task()
 
   def _get_task(self):
-    with open(os.path.join(self.path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       task = json.load(f)["task"]
     return task
 
@@ -102,7 +103,9 @@ class BaseEstimatorIndividual(BaseEstimator):
       chunk_size = self.batch_size
     h5 = self._open_h5()
     n_rows = h5.n_rows()
-    self.logger.info(f"[estimator] iterating {self.model_id} n_rows={n_rows} n_features={h5.n_features()}")
+    self.logger.info(
+      f"[estimator] iterating {self.model_id} n_rows={n_rows} n_features={h5.n_features()}"
+    )
     for start, end, chunk in h5.iter_values_with_indices(chunk_size):
       yield start, end, chunk
 

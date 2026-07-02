@@ -8,9 +8,7 @@ RETENTION = 5
 # Full module:function:line context makes file logs traceable; backtrace=True records
 # tracebacks for logged exceptions; diagnose=False avoids leaking variable values
 # (e.g. SMILES) into the log.
-_FILE_FORMAT = (
-  "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}"
-)
+_FILE_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}"
 
 logger.remove()
 
@@ -27,18 +25,23 @@ class Logger:
     self.logger = logger
     self._console = None
     self._file = None
+    # Quiet by default: the console shows WARNING/ERROR only. `set_verbosity(True)` (wired to
+    # the CLI --verbose flag) flips this to show the full DEBUG stream. The file sink always
+    # keeps everything regardless.
+    self._verbose = False
     self.configure()
 
   def configure(self):
     # Re-assert our sinks on the shared, process-global loguru logger. Third-party
     # packages (e.g. lazyqsar, isaura) call logger.remove() at import time, which wipes
     # ALL handlers — including ours — leaving zairachem silent. Call this after imports
-    # (e.g. at CLI startup) so logging works regardless of import order.
+    # (e.g. at CLI startup) so logging works regardless of import order. The console level
+    # follows self._verbose, so repeated re-assertions preserve the chosen verbosity.
     self.logger.remove()
     self._file = None
     self._console = None
     self._log_to_file()
-    self._log_to_console()
+    self._log_to_console(level="DEBUG" if self._verbose else "WARNING")
 
   def _log_to_file(self):
     self._file = self.logger.add(
@@ -51,7 +54,7 @@ class Logger:
       diagnose=False,
     )
 
-  def _log_to_console(self):
+  def _log_to_console(self, level="WARNING"):
     if self._console is None:
       rich_handler = RichHandler(
         rich_tracebacks=True,
@@ -62,23 +65,16 @@ class Logger:
       )
       self._console = self.logger.add(
         rich_handler,
+        level=level,
         format="{message}",
         colorize=True,
       )
 
-  def _unlog_from_console(self):
-    if self._console is not None:
-      try:
-        self.logger.remove(self._console)
-      except Exception:
-        pass
-      self._console = None
-
   def set_verbosity(self, verbose):
-    if verbose:
-      self._log_to_console()
-    else:
-      self._unlog_from_console()
+    # Store the choice and re-assert sinks so the new console level takes effect (and is kept
+    # by later configure() calls). Quiet (default) = WARNING+; verbose = full DEBUG stream.
+    self._verbose = bool(verbose)
+    self.configure()
 
   def debug(self, text):
     self.logger.debug(text)

@@ -28,6 +28,7 @@ from zairachem.base.vars import (
   MAPPING_DEDUPE_COLUMN,
   DATA_FILENAME,
   DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
@@ -48,20 +49,30 @@ class ResultsFetcher(ZairaBase):
     self.clf_task = "bin"
     self.reg_task = "val"
     self.params = self.get_parameters()
+    # Per-instance read caches. The report builds one fetcher and then queries it dozens of times
+    # (every plot guard, every output-table column), each of which previously re-read the same CSVs
+    # from disk. Frames returned from here are treated as READ-ONLY by callers (they slice columns or
+    # build new frames; none mutate in place), so a shared cached object is safe.
+    self._csv_cache = {}
+    self._map_cache = {}
+
+  def _read_csv_cached(self, path):
+    df = self._csv_cache.get(path)
+    if df is None:
+      df = pd.read_csv(path)
+      self._csv_cache[path] = df
+    return df
 
   def _read_data(self):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
 
   def _read_data_train(self):
-    df = pd.read_csv(os.path.join(self.trained_path, DATA_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.trained_path, DATA_SUBFOLDER, DATA_FILENAME))
 
   def _read_pooled_results(self, path=None):
     if path is None:
       path = self.path
-    df = pd.read_csv(os.path.join(path, POOL_SUBFOLDER, RESULTS_UNMAPPED_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(path, POOL_SUBFOLDER, RESULTS_UNMAPPED_FILENAME))
 
   def _read_pooled_results_train(self):
     return self._read_pooled_results(path=self.trained_path)
@@ -74,7 +85,7 @@ class ResultsFetcher(ZairaBase):
     for rpath in ResultsIterator(path=path).iter_relpaths():
       prefixes += ["-".join(rpath)]
       file_name = "/".join([path, ESTIMATORS_SUBFOLDER] + rpath + [RESULTS_UNMAPPED_FILENAME])
-      df = pd.read_csv(file_name)
+      df = self._read_csv_cached(file_name)
       R += [list(df[task])]
     d = collections.OrderedDict()
     for i in range(len(R)):
@@ -84,13 +95,74 @@ class ResultsFetcher(ZairaBase):
   def _read_individual_estimator_results_train(self, task):
     return self._read_individual_estimator_results(task=task, path=self.trained_path)
 
+  # --- lazy-qsar internal cross-validation (captured at fit time) --------------------------------
+
+  def _cv_dirs(self):
+    """``{descriptor: dir}`` holding the lazy-qsar CV artefacts (cv_report.json / oof.csv).
+
+    Prefers the finished ``model/estimators`` layout; falls back to the in-pipeline
+    ``pipeline/01_estimators/lq_estimators/<descriptor>/`` so diagnostics still render before a run's
+    artefacts are copied into the trained tree.
+    """
+    dirs = {}
+    for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
+      d = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath)
+      if os.path.exists(os.path.join(d, "cv_report.json")):
+        dirs[rpath[-1]] = d
+    if not dirs:
+      lq = os.path.join(self.trained_path, "pipeline", "01_estimators", "lq_estimators")
+      if os.path.isdir(lq):
+        for name in sorted(os.listdir(lq)):
+          d = os.path.join(lq, name)
+          if os.path.exists(os.path.join(d, "cv_report.json")):
+            dirs[name] = d
+    return dirs
+
+  def get_cv_stats(self):
+    """Per-descriptor lazy-qsar CV stats from cv_report.json (of the trained model), best first."""
+    stats = []
+    for descriptor, d in self._cv_dirs().items():
+      try:
+        with open(os.path.join(d, "cv_report.json")) as fh:
+          rep = json.load(fh)
+        rep["descriptor"] = descriptor
+        stats.append(rep)
+      except Exception:
+        continue
+    stats.sort(key=lambda r: r.get("oof_auc") if r.get("oof_auc") is not None else -1, reverse=True)
+    return stats
+
+  def get_cv_oof(self, descriptor):
+    """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None."""
+    d = self._cv_dirs().get(descriptor)
+    if d is not None:
+      f = os.path.join(d, "oof.csv")
+      if os.path.exists(f):
+        df = pd.read_csv(f)
+        return list(df["oof_proba"]), list(df["y"])
+    return None
+
+  def cv_summary(self):
+    """Aggregate of the per-descriptor CV stats, or {} when none are available."""
+    stats = self.get_cv_stats()
+    aucs = [s["oof_auc"] for s in stats if s.get("oof_auc") is not None]
+    if not aucs:
+      return {}
+    gaps = [s["overfit_gap"] for s in stats if s.get("overfit_gap") is not None]
+    best = max(stats, key=lambda s: s.get("oof_auc") if s.get("oof_auc") is not None else -1)
+    return {
+      "n_descriptors": len(stats),
+      "mean_oof_auc": float(np.mean(aucs)),
+      "best_oof_auc": float(best.get("oof_auc")),
+      "best_descriptor": best.get("descriptor"),
+      "mean_overfit_gap": float(np.mean(gaps)) if gaps else None,
+    }
+
   def _read_processed_data(self):
-    df = pd.read_csv(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME))
 
   def _read_processed_data_train(self):
-    df = pd.read_csv(os.path.join(self.trained_path, POOL_SUBFOLDER, DATA_FILENAME))
-    return df
+    return self._read_csv_cached(os.path.join(self.trained_path, POOL_SUBFOLDER, DATA_FILENAME))
 
   def get_tasks(self):
     df = self._read_data()
@@ -182,83 +254,61 @@ class ResultsFetcher(ZairaBase):
       if "reg" in c and "raw" in c:
         return list(df[c])
 
-  def get_projections_umap(self):
-    df = self._read_processed_data()
-    umap0 = [0] * df.shape[0]
-    umap1 = [0] * df.shape[0]
-    for c in list(df.columns):
-      if "umap-0" in c:
-        umap0 = list(df["umap-0"])
-      if "umap-1" in c:
-        umap1 = list(df["umap-1"])
-    return umap0, umap1
+  @staticmethod
+  def _humanize_axis(col):
+    """Axis label from a projection column name: 'mw_x'→'MW', 'logp_y'→'LogP', 'umap_x'→'UMAP'."""
+    label = col
+    for suffix in ("_x", "_y"):
+      if label.endswith(suffix):
+        label = label[: -len(suffix)]
+        break
+    fancy = {"mw": "MW", "logp": "LogP", "umap": "UMAP", "tsne": "t-SNE", "pca": "PCA"}
+    return fancy.get(label.lower(), label.replace("_", " "))
 
-  def get_projections_tsne(self):
-    df = self._read_processed_data()
-    tsne0 = [0] * df.shape[0]
-    tsne1 = [0] * df.shape[0]
-    for c in list(df.columns):
-      if "tsne-0" in c:
-        tsne0 = list(df["tsne-0"])
-      if "tsne-1" in c:
-        tsne1 = list(df["tsne-1"])
-    return tsne0, tsne1
+  def _read_projections(self, path):
+    from zairachem.base.vars import PROJECTIONS_FILENAME, PROJECTIONS_MANIFEST_FILENAME
 
-  def get_projections_pca(self):
-    df = self._read_processed_data()
-    pca0 = [0] * df.shape[0]
-    pca1 = [0] * df.shape[0]
-    for c in list(df.columns):
-      if "pca-0" in c:
-        pca0 = list(df["pca-0"])
-      if "pca-1" in c:
-        pca1 = list(df["pca-1"])
-    return pca0, pca1
+    data_dir = os.path.join(path, DATA_SUBFOLDER)
+    manifest_path = os.path.join(data_dir, PROJECTIONS_MANIFEST_FILENAME)
+    csv_path = os.path.join(data_dir, PROJECTIONS_FILENAME)
+    if not (os.path.exists(manifest_path) and os.path.exists(csv_path)):
+      return None, None
+    with open(manifest_path) as f:
+      manifest = json.load(f)
+    return manifest, pd.read_csv(csv_path)
 
-  def get_projections_umap_trained(self):
-    df = self._read_processed_data_train()
-    umap0 = [0] * df.shape[0]
-    umap1 = [0] * df.shape[0]
-    if "umap-0" not in df.columns or "umap-1" not in df.columns:
+  def get_projections(self):
+    """Projections for this run: ``[{name, title, x_label, y_label, xs, ys}, ...]`` (row-aligned)."""
+    manifest, df = self._read_projections(self.path)
+    if not manifest:
+      return []
+    out = []
+    for p in manifest:
+      x, y = p["x"], p["y"]
+      if x not in df.columns or y not in df.columns:
+        continue
+      out.append({
+        "name": p["name"],
+        "title": p.get("title", p["name"]),
+        "x_label": self._humanize_axis(x),
+        "y_label": self._humanize_axis(y),
+        "xs": list(df[x]),
+        "ys": list(df[y]),
+      })
+    return out
+
+  def get_projection_trained(self, name):
+    """``(xs, ys)`` of the named projection from the trained model, or None (for predict overlays)."""
+    manifest, df = self._read_projections(self.trained_path)
+    if not manifest:
       return None
-    else:
-      for c in list(df.columns):
-        if "umap-0" in c:
-          umap0 = list(df["umap-0"])
-        if "umap-1" in c:
-          umap1 = list(df["umap-1"])
-      return umap0, umap1
-
-  def get_projections_tsne_trained(self):
-    df = self._read_processed_data_train()
-    tsne0 = [0] * df.shape[0]
-    tsne1 = [0] * df.shape[0]
-    if "tsne-0" not in df.columns or "tsne-1" not in df.columns:
-      return None
-    else:
-      for c in list(df.columns):
-        if "tsne-0" in c:
-          tsne0 = list(df["tsne-0"])
-        if "tsne-1" in c:
-          tsne1 = list(df["tsne-1"])
-      return tsne0, tsne1
-
-  def get_projections_pca_trained(self):
-    df = self._read_processed_data_train()
-    pca0 = [0] * df.shape[0]
-    pca1 = [0] * df.shape[0]
-    if "pca-0" not in df.columns or "pca-1" not in df.columns:
-      return None
-    else:
-      for c in list(df.columns):
-        if "pca-0" in c:
-          pca0 = list(df["pca-0"])
-        if "pca-1" in c:
-          pca1 = list(df["pca-1"])
-      return pca0, pca1
+    for p in manifest:
+      if p["name"] == name and p["x"] in df.columns and p["y"] in df.columns:
+        return list(df[p["x"]]), list(df[p["y"]])
+    return None
 
   def get_parameters(self):
-    with open(os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
+    with open(os.path.join(self.trained_path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       return json.load(f)
 
   def get_smiles(self):
@@ -266,13 +316,13 @@ class ResultsFetcher(ZairaBase):
     return list(df[SMILES_COLUMN])
 
   def get_original_smiles(self):
-    raw_data = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME))
+    raw_data = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
     return list(raw_data[schema["smiles_column"]])
 
   def get_original_values(self):
-    raw_data = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME))
+    raw_data = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
     if schema["values_column"] is None:
@@ -288,7 +338,37 @@ class ResultsFetcher(ZairaBase):
       b[i] = 1
     return b
 
+  @staticmethod
+  def _aligned_truth_pred(y_true, y_pred):
+    """As float arrays with positions where ``y_true`` is NaN dropped (keeps truth↔pred aligned).
+
+    At predict, ground truth may be partial (unlabelled compounds carry NaN after the left-merge);
+    this yields the labelled subset for any (truth, prediction) pair. A no-op when truth is complete.
+    """
+    yt = np.asarray(y_true, dtype=float)
+    yp = np.asarray(y_pred, dtype=float)
+    mask = ~np.isnan(yt)
+    return yt[mask], yp[mask]
+
+  def clf_truth_proba(self):
+    """Labelled (y_true:int, y_proba:float) for the pooled classifier — NaN truth dropped."""
+    yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_proba_clf())
+    return yt.astype(int), yp
+
+  def clf_truth_binary(self):
+    """Labelled (y_true:int, y_pred_binary:int) for the pooled classifier — NaN truth dropped."""
+    yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_binary_clf())
+    return yt.astype(int), yp.astype(int)
+
+  def clf_labeled_mask(self):
+    """Boolean mask over current-run rows where the classification label is present (not NaN)."""
+    return ~np.isnan(np.asarray(self.get_actives_inactives(), dtype=float))
+
   def classification_performance_report(self, y_true_train, y_pred_train, y_true_test, y_pred_test):
+    # Drop unlabelled positions (NaN truth) so partial predict-time ground truth is handled, and
+    # ensure numpy arrays so the class-count comparisons below are elementwise.
+    y_true_train, y_pred_train = self._aligned_truth_pred(y_true_train, y_pred_train)
+    y_true_test, y_pred_test = self._aligned_truth_pred(y_true_test, y_pred_test)
     n_tr = len(y_true_train)
     n_te = len(y_true_test)
     n_tr_0 = int(np.sum(y_true_train == 0))
@@ -339,18 +419,30 @@ class ResultsFetcher(ZairaBase):
   def regression_performance_report(self):
     pass
 
+  def _dedupe_to_original_index(self):
+    """``(n_original, {dedupe_row -> [original_rows]})`` for remapping result rows back to the input.
+
+    Built once per fetcher and cached: ``map_to_original`` is called once per report column (10+), and
+    the raw-input + mapping files don't change within a run."""
+    cached = self._map_cache.get("index")
+    if cached is None:
+      n = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME)).shape[
+        0
+      ]
+      dm = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, MAPPING_FILENAME))
+      dm = dm[dm[MAPPING_DEDUPE_COLUMN].notnull()]
+      u2o = collections.defaultdict(list)
+      for v in dm[[MAPPING_ORIGINAL_COLUMN, MAPPING_DEDUPE_COLUMN]].values:
+        u2o[int(v[1])] += [int(v[0])]
+      cached = (n, u2o)
+      self._map_cache["index"] = cached
+    return cached
+
   def map_to_original(self, values):
-    n = pd.read_csv(os.path.join(self.path, RAW_INPUT_FILENAME)).shape[0]
-    dm = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, MAPPING_FILENAME))
-    dm = dm[dm[MAPPING_DEDUPE_COLUMN].notnull()]
-    u2o = collections.defaultdict(list)
-    for v in dm[[MAPPING_ORIGINAL_COLUMN, MAPPING_DEDUPE_COLUMN]].values:
-      u2o[int(v[1])] += [int(v[0])]
+    n, u2o = self._dedupe_to_original_index()
     mapped_values = [None] * n
     for i, v in enumerate(values):
       if i in u2o:
         for idx in u2o[i]:
           mapped_values[idx] = v
-      else:
-        continue
     return mapped_values

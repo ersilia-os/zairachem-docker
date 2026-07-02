@@ -1,7 +1,7 @@
-import collections, h5py, json, joblib, gc, os, glob
+import collections, h5py, json, joblib, gc, os
 import numpy as np
 import pandas as pd
-from typing import Iterator, Tuple, List, Optional, Union
+from typing import Iterator, Tuple, List
 from contextlib import contextmanager
 from zairachem.base.utils.logging import logger
 
@@ -459,7 +459,6 @@ def open_h5(path: str):
 
 
 class ChunkedH5Store:
-
   def __init__(self, base_path: str):
     if base_path.endswith(".h5"):
       self.dir = base_path.rsplit(".h5", 1)[0] + "_chunks"
@@ -597,7 +596,7 @@ class ChunkedH5Store:
     zeros = 0
     for vals in self.iter_values():
       flat = vals.ravel()
-      sample = flat[:SNIFF_N - count] if count + len(flat) > SNIFF_N else flat
+      sample = flat[: SNIFF_N - count] if count + len(flat) > SNIFF_N else flat
       zeros += np.sum(sample == 0)
       count += len(sample)
       if count >= SNIFF_N:

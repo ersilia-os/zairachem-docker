@@ -14,6 +14,12 @@ from zairachem.base.vars import (
 
 
 class PerformanceTable(BaseTable, ResultsFetcher):
+  """Writes ``report/performance_table.csv`` — per-model and pooled performance metrics.
+
+  One row per descriptor estimator plus a ``pooled`` row, each with the classification metrics
+  (regression is a TODO). Skips quietly when there is no/single-class labelled truth (e.g. predict
+  without ground truth)."""
+
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
@@ -45,19 +51,27 @@ class PerformanceTable(BaseTable, ResultsFetcher):
       yield (col, data)
 
   def _general_performance(self):
-    if self.is_clf:
-      y_true_train = list(self.get_actives_inactives_trained())
-      y_true_test = list(self.get_actives_inactives())
-      y_pred_train = list(self.get_pred_proba_clf_trained())
-      y_pred_test = list(self.get_pred_proba_clf())
-      data = self.classification_performance_report(
-        y_true_train, y_pred_train, y_true_test, y_pred_test
+    if not self.is_clf:
+      return None  # TODO regression
+    # Guard: validation needs at least two classes among the labelled (current-run) compounds.
+    # At predict with no/partial/single-class truth this is degenerate — skip metrics, don't crash.
+    yt_labeled = self.clf_truth_proba()[0]
+    if len(yt_labeled) == 0 or len(set(yt_labeled.tolist())) < 2:
+      from zairachem.base.utils.logging import logger
+
+      logger.warning(
+        "[report] Ground-truth labels are absent or single-class — skipping performance metrics."
       )
-    else:
-      data = None  # TODO
-    return data
+      return None
+    return self.classification_performance_report(
+      list(self.get_actives_inactives_trained()),
+      list(self.get_pred_proba_clf_trained()),
+      list(self.get_actives_inactives()),
+      list(self.get_pred_proba_clf()),
+    )
 
   def run(self):
+    """Compute every model's metrics and write the performance table CSV (no-op if metrics skip)."""
     data = collections.defaultdict(list)
     d = self._general_performance()
     data["model"] += ["pooled"]
@@ -77,6 +91,12 @@ class PerformanceTable(BaseTable, ResultsFetcher):
 
 
 class OutputTable(BaseTable, ResultsFetcher):
+  """Writes ``report/output_table.csv`` — the per-compound predictions, mapped back to the input rows.
+
+  Columns: input SMILES, InChIKey, standardized SMILES, true value (if known), pooled prediction, each
+  descriptor's ensemble prediction, and the projection (x, y) pairs. All values are remapped from the
+  deduplicated run rows to the original input order via :meth:`map_to_original`."""
+
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
@@ -117,13 +137,13 @@ class OutputTable(BaseTable, ResultsFetcher):
       values = self.get_pred_proba_clf()
       return self.map_to_original(values)
       # values = self.get_pred_reg_trans()
-    except:
+    except Exception:
       return None
 
   def _get_ensemble_predictions_columns(self):
     try:
       tasks = self.get_clf_tasks()
-    except:
+    except Exception:
       tasks = self.get_reg_tasks()
     task = tasks[0]
     df = self._read_individual_estimator_results(task)
@@ -134,35 +154,13 @@ class OutputTable(BaseTable, ResultsFetcher):
       yield (col, v)
 
   def _get_manifolds_columns(self):
-    umap = self.get_projections_umap()
-    pca = self.get_projections_pca()
-    data = {"umap-0": umap[0], "umap-1": umap[1], "pca-0": pca[0], "pca-1": pca[1]}
-    df = pd.DataFrame(data)
-    columns = list(df.columns)
-    for col in columns:
-      v = list(df[col])
-      v = self.map_to_original(v)
-      yield (col, v)
-
-  def _get_basic_properties_columns(self):
-    df = self.get_basic_properties()
-    if df is not None:
-      columns = list(df.columns)
-      for col in columns:
-        v = list(df[col])
-        v = self.map_to_original(v)
-        yield (col, v)
-
-  def _get_similarity_to_training_set_columns(self):
-    df = self.get_tanimoto_similarities_to_training_set()
-    if df is not None:
-      columns = list(df.columns)
-      for col in columns:
-        v = list(df[col])
-        v = self.map_to_original(v)
-        yield (col, v)
+    # Every projection (always at least MW-vs-LogP) contributes its x/y columns to the output table.
+    for proj in self.get_projections():
+      for axis, vals in ((proj["x_label"], proj["xs"]), (proj["y_label"], proj["ys"])):
+        yield (f"{proj['name']}-{axis}", self.map_to_original(list(vals)))
 
   def run(self):
+    """Assemble all output columns (remapped to input order) and write the output table CSV."""
     data = {}
     data["input-smiles"] = self._get_input_smiles_column()
     data["inchikey"] = self._get_inchikey_column()

@@ -28,6 +28,8 @@ SESSION_FILE = "session.json"
 ORG = "ersiliaos"
 NGINX_HOST_PORT = 80
 REDIS_IMAGE = "redis:latest"
+NGINX_IMAGE = "nginx:alpine"
+DEFAULT_ISAURA_BUCKET = "isaura-public"
 NETWORK_NAME = "ersilia_network"
 GITHUB_ORG = "ersilia-os"
 GITHUB_CONTENT_URL = f"https://raw.githubusercontent.com/{GITHUB_ORG}"
@@ -49,7 +51,6 @@ SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 
 DEFAULT_PUBLIC_BUCKET = ["isaura-public"]
 DEFAULT_PRIVATE_BUCKET = ["isaura-private"]
-DEFAULT_ = ["isaura-private"]
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"
@@ -58,18 +59,46 @@ SMILES_COLUMN = "smiles"
 STANDARD_SMILES_COLUMN = "standard_smiles"
 VALUES_COLUMN = "value"
 
-DATA_SUBFOLDER = "data"
+# Model-folder layout. Top-level dirs separate concerns: inputs (the run's input + derived data),
+# metadata (run config/provenance), results (user-facing deliverables), report (visual report),
+# transformers (the fitted eosframes transformers predict needs), descriptors (the featurized
+# matrices, computed once and shared), model (the final production estimators + pooler) and folds
+# (the held-out evaluation sub-runs, only written when --evaluate is set). Every internal subfolder
+# nests under one of these via its constant value, so consumers that join these constants relocate
+# automatically.
+DATA_SUBFOLDER = "inputs"  # the run's input + derived data (was "data")
+METADATA_SUBFOLDER = "metadata"  # parameters.json + provenance.json
+RESULTS_SUBFOLDER = "results"  # user-facing deliverables (output.csv, tables, xlsx)
+TRANSFORMERS_SUBFOLDER = "transformers"  # per-featurizer fitted transformers (predict reads these)
 DATA_FILENAME = "data.csv"
+# Bare one-column ("smiles") list of the run's compounds, for ad-hoc manual use.
+SMILES_LIST_FILENAME = "smiles.csv"
 ERSILIA_DATA_FILENAME = "ersilia_data.csv"
 REFERENCE_FILENAME = "reference.csv"
+PROVENANCE_FILENAME = "provenance.json"
+# Descriptors are featurized once on the full dataset and shared by the final model and every fold.
+# The estimators + pooler of the final production model live under model/; each held-out fold gets a
+# mirror of that structure under folds/<fold_name>/ (see FOLDS_SUBFOLDER, written only by --evaluate).
 DESCRIPTORS_SUBFOLDER = "descriptors"
-ESTIMATORS_SUBFOLDER = "estimators"
-POOL_SUBFOLDER = "pool"
+ESTIMATORS_SUBFOLDER = "model/estimators"
+POOL_SUBFOLDER = "model/pool"
+# The final production model (estimators + pooler); parent of the two constants above.
+MODEL_SUBFOLDER = "model"
+# Held-out evaluation sub-runs, one dir per fold (only written when --evaluate is set).
+FOLDS_SUBFOLDER = "folds"
+SPLITS_FILENAME = "splits.json"  # metadata/: the fold index definitions computed at setup
+VALIDATION_TABLE_FILENAME = "validation_table.csv"  # report/: per-fold held-out metrics
 REPORT_SUBFOLDER = "report"
-OUTPUT_FILENAME = "output.csv"
+# Deliverables live under results/. OUTPUT_FILENAME is deliverable-only, so it carries the results/
+# prefix and cascades through is_done()/required-artifacts/finish. The two table filenames are bare
+# because they are ALSO written inside report/ (report/<table>); finish copies them to results/ via
+# RESULTS_SUBFOLDER.
+OUTPUT_FILENAME = "results/output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
-OUTPUT_XLSX_FILENAME = "output.xlsx"
+# Report-only 2-D projections (row-aligned to data.csv); written by the treat/manifolds step.
+PROJECTIONS_FILENAME = "projections.csv"
+PROJECTIONS_MANIFEST_FILENAME = "projections.json"
 
 Y_HAT_FILE = "y_hat.joblib"
 
@@ -78,8 +107,6 @@ RESULTS_MAPPED_FILENAME = "results_mapped.csv"
 
 CLF_REPORT_FILENAME = "clf_report.json"
 REG_REPORT_FILENAME = "reg_report.json"
-
-CLF_PERCENTILES = [1, 10, 25, 50]
 
 MIN_CLASS = 30
 N_FOLDS = 5
@@ -90,15 +117,30 @@ _CONFIG_FILENAME = "config.json"
 PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
 ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
+# Reference library used to pre-fit the eosframes descriptor transformers. The treat step
+# downloads the transformer fitted on this library for each featurizer and applies it (rather than
+# fitting a scaler per run). The name is recorded per model in parameters.json so predict reuses it.
+DEFAULT_REFERENCE_LIBRARY = "ersilia_reference_library_v0"
+# Public base URL under which each reference library is a path segment holding one flat object per
+# featurizer/version, named "<eos_id>_<version>_transformer.json". The full object URL is
+# "<base>/<reference_library>/<eos_id>_<version>_transformer.json".
+REFERENCE_LIBRARY_S3_BASE_URL = "https://eosvc-public.s3.amazonaws.com/eosframes/output"
+# Per-model local copies of fetched transformers live under transformers/ as
+# "<eos_id>_<version>_transformer.json.gz" (gzipped, compact JSON). Predict reads them from there.
+TRANSFORMER_SUFFIX = "_transformer.json.gz"
+
 DEFAULT_FEATURIZERS = ["eos3l5f", "eos8aa5", "eos4u6p", "eos9o72", "eos4ex3", "eos82v1"]
+# Default Ersilia projection model for the report's 2-D embedding: eos1klk (lazy-chemvis PCA/UMAP/
+# t-SNE/TMAP over the Ersilia reference library). The built-in MW-vs-LogP projection (computed
+# locally with RDKit) is always shown in addition. Override or disable via --projection-ids.
 DEFAULT_PROJECTIONS = ["eos1klk"]
+# Hard caps on how many Ersilia Model Hub models a single run may pull. Each model is a Docker
+# container featurizing the full dataset, so more models means proportionally more compute and
+# disk; these ceilings keep a run tractable. Exceeding either cap is rejected at setup.
+MAX_FEATURIZERS = 10
+MAX_PROJECTIONS = 3
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 
 DEFAULT_ISAURA_BATCH_SIZE = 10000
 DEFAULT_API_BATCH_SIZE = 1000
-H5_CHUNK_ROWS = 10000
 DEFAULT_CHUNK_SIZE = 10000
-MAX_NA_RATIO = 0.2
-VARIANCE_THRESHOLD = 0.0
-SCALER_ABS_LIMIT = 10.0
-LARGE_DATASET_THRESHOLD = 20000

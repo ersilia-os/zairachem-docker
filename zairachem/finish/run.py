@@ -1,6 +1,6 @@
 from zairachem.finish.finish import Finisher
 
 
-def run(path=None, clean=False, flush=False, anonymize=False):
-  r = Finisher(path, clean, flush, anonymize)
+def run(path=None, anonymize=False):
+  r = Finisher(path, anonymize=anonymize)
   r.run()

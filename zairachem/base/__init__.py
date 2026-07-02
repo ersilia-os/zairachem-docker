@@ -3,7 +3,20 @@ import numpy as np
 import pandas as pd
 from time import time
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import BASE_DIR, DATA_FILENAME, DATA_SUBFOLDER, SESSION_FILE
+from zairachem.base.vars import (
+  BASE_DIR,
+  DATA_FILENAME,
+  DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
+  PARAMETERS_FILE,
+  SESSION_FILE,
+)
+
+
+def params_path(base):
+  """Absolute path to a model/run folder's ``parameters.json`` (under ``metadata/``)."""
+  return os.path.join(base, METADATA_SUBFOLDER, PARAMETERS_FILE)
+
 
 warnings.filterwarnings("ignore")
 
@@ -64,6 +77,12 @@ class ZairaBase(object):
       session = json.load(f)
     return session["model_dir"]
 
+  def _load_params(self):
+    """Load this run's ``parameters.json`` (from ``self.path``, else the active session dir)."""
+    base = getattr(self, "path", None) or self.get_output_dir()
+    with open(params_path(base), "r") as f:
+      return json.load(f)
+
   def is_predict(self):
     with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
       session = json.load(f)
@@ -80,7 +99,7 @@ class ZairaBase(object):
 
   def _dummy_indices(self, path):
     df = pd.read_csv(os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME))
-    idxs = np.array([i for i in range(df.shape[0])])
+    idxs = np.array(list(range(df.shape[0])))
     random.shuffle(idxs)
     return idxs
 
@@ -90,11 +109,6 @@ class ZairaBase(object):
     return idxs
 
   def get_validation_indices(self, path):
-    self.logger.warning(
-      "[yellow]Validation set is equivalent to the training set. Interpret with caution![/]"
-    )
+    self.logger.debug("Validation set is equivalent to the training set. Interpret with caution!")
     idxs = self._dummy_indices(path)
     return idxs
-
-
-__all__ = ["__version__"]

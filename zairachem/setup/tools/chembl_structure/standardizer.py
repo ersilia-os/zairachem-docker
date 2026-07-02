@@ -281,7 +281,6 @@ _salts_file = os.path.join(_data_dir, "salts.smi")
 
 
 def get_fragment_parent_mol(m, check_exclusion=False, neutralize=False, verbose=False):
-  basepath = os.path.dirname(os.path.abspath(__file__))
   with open(_solvents_file) as inf:
     solvents = []
     for l in inf:

@@ -92,12 +92,12 @@ def exclude_flag(mol, includeRDKitSanitization=True):
   metallic = False
   boron_count = 0
 
-  if type(mol) == str:
+  if isinstance(mol, str):
     mol = Chem.MolFromMolBlock(mol, sanitize=False)
     if includeRDKitSanitization:
       try:
         Chem.SanitizeMol(mol)
-      except:
+      except Exception:
         rdkit_fails = True
 
   for atom in mol.GetAtoms():

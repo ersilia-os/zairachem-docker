@@ -36,7 +36,7 @@ class InputSchema(ZairaBase):
     for v in values:
       try:
         mol = Chem.MolFromSmiles(v)
-      except:
+      except Exception:
         continue
       if mol is not None:
         c += 1
@@ -68,14 +68,14 @@ class InputSchema(ZairaBase):
       for v in values:
         try:
           float(v)
-        except:
+        except Exception:
           continue
         c += 1
       if c == len(values):
         return True
       else:
         return False
-    except:
+    except Exception:
       return False
 
   def find_values_column(self):
@@ -97,14 +97,37 @@ class InputSchema(ZairaBase):
         continue
     return cols
 
-  def resolve_columns(self):
+  def find_values_column_by_name(self, target_name):
+    """The input column whose header matches ``target_name`` (case-insensitive, trimmed), or ``[]``.
+
+    Used at predict time to recognise a ground-truth column *only* when it is named exactly like the
+    activity/output column used at fit — so unrelated extra columns are ignored (and never trigger the
+    "more than one values column" path).
+    """
+    if not target_name:
+      return []
+    want = str(target_name).strip().lower()
+    return [c for c in self.columns if str(c).strip().lower() == want]
+
+  def resolve_columns(self, values_column_name=None):
+    """Resolve the SMILES and values columns.
+
+    When ``values_column_name`` is given (predict), the values column is matched by that exact name
+    only (0 or 1 match by construction — no "more than one" assert). When ``None`` (fit), the values
+    column is auto-detected as before.
+    """
     smiles_column = self.find_smiles_column()
     assert len(smiles_column) == 1, "No SMILES column found!"
     smiles_column = smiles_column[0]
-    values_column = self.find_values_column()
+    if values_column_name is not None:
+      values_column = self.find_values_column_by_name(values_column_name)
+    else:
+      values_column = self.find_values_column()
     self.logger.debug("Values column {0}".format(values_column))
     if not values_column:
       values_column = None
+    elif values_column_name is not None:
+      values_column = values_column[0]
     else:
       assert len(values_column) == 1, "More than one values column found! {0}".format(values_column)
       values_column = values_column[0]

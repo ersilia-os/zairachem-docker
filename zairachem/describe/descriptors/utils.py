@@ -1,4 +1,4 @@
-import h5py, os, re, subprocess
+import contextlib, h5py, os, re, subprocess
 import numpy as np
 from pathlib import Path
 from typing import Optional
@@ -30,19 +30,6 @@ class Hdf5Data:
       f.create_dataset("Values", data=self.values)
       f.create_dataset("Inputs", data=self.inputs)
       f.create_dataset("Features", data=self.features)
-
-
-class Hdf5DataLoader(object):
-  def __init__(self):
-    self.values = None
-    self.inputs = None
-    self.features = None
-
-  def load(self, h5_file):
-    with h5py.File(h5_file, "r") as f:
-      self.values = f["Values"][:]
-      self.inputs = [x.decode("utf-8") for x in f["Inputs"][:]]
-      self.features = [x.decode("utf-8") for x in f["Features"][:]]
 
 
 def load_yml(file):
@@ -175,16 +162,26 @@ def _ensure_network(name):
   except Exception:
     out = ""
   if not re.search(rf"(?m)^{re.escape(name)}$", out):
-    try:
+    with contextlib.suppress(Exception):
       run_command(["docker", "network", "create", name], quiet=True)
-    except Exception:
-      pass
   out = subprocess.check_output(["docker", "network", "ls", "--format", "{{.Name}}"], text=True)
   if not re.search(rf"(?m)^{re.escape(name)}$", out):
     raise RuntimeError(f"docker network '{name}' not found")
 
 
 def _recreate_container_if_exists():
-  rc = run_command(["docker", "container", "inspect", "redis"], quiet=True)
-  if rc == 0:
-    s = run_command(["docker", "rm", "-f", "redis"], quiet=True)
+  # Probe quietly: a missing 'redis' container is the normal case and must not be logged as an
+  # error (run_command logs every non-zero exit), so check existence with a silent subprocess.
+  try:
+    exists = (
+      subprocess.run(
+        ["docker", "container", "inspect", "redis"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+      ).returncode
+      == 0
+    )
+  except OSError:
+    exists = False
+  if exists:
+    run_command(["docker", "rm", "-f", "redis"], quiet=True)

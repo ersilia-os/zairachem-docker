@@ -1,10 +1,8 @@
 import os
 import numpy as np
 import pandas as pd
-import collections
 from collections import OrderedDict
 import joblib
-import json
 from zairachem.base.vars import (
   COMPOUNDS_FILENAME,
   COMPOUND_IDENTIFIER_COLUMN,
@@ -15,7 +13,7 @@ from zairachem.base.vars import (
   TASKS_FILENAME,
 )
 from .files import ParametersFile
-from zairachem.base.vars import MIN_CLASS, DATA_SUBFOLDER
+from zairachem.base.vars import MIN_CLASS, DATA_SUBFOLDER, METADATA_SUBFOLDER
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 
@@ -35,7 +33,9 @@ class ExpectedTaskType(ZairaBase):
       self.trained_path = self.get_output_dir()
 
   def _get_params(self):
-    params = ParametersFile(path=os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE))
+    params = ParametersFile(
+      path=os.path.join(self.trained_path, METADATA_SUBFOLDER, PARAMETERS_FILE)
+    )
     return params.load()
 
   def get(self):
@@ -143,9 +143,9 @@ class ClfTasks(object):
   def __init__(self, data):
     self.values = self.binarize(np.array(data[VALUES_COLUMN]))
 
-  def _has_enough_min_class(self, bin):
-    n1 = np.sum(bin)
-    n0 = len(bin) - n1
+  def _has_enough_min_class(self, bins):
+    n1 = np.sum(bins)
+    n0 = len(bins) - n1
     if n1 < MIN_CLASS or n0 < MIN_CLASS:
       return False
     return True
@@ -156,11 +156,10 @@ class ClfTasks(object):
     for v in values:
       if v not in accepted:
         raise Exception("Data is not binary. Cannot do classification")
+      if v > 0:
+        bin_values += [1]
       else:
-        if v > 0:
-          bin_values += [1]
-        else:
-          bin_values += [0]
+        bin_values += [0]
     if not self._has_enough_min_class(bin_values):
       n1 = int(np.sum(bin_values))
       n0 = len(bin_values) - n1
@@ -180,13 +179,14 @@ class ClfTasksForPrediction(object):
     bin_values = []
     for v in values:
       if v not in accepted:
-        print("NOT ACCEPTED", v)
-        raise Exception("Data is not binary. Cannot do classification")
+        raise Exception(
+          f"Data is not binary (found value {v!r}; expected one of {sorted(accepted)}). "
+          "Cannot do classification."
+        )
+      if v > 0:
+        bin_values += [1]
       else:
-        if v > 0:
-          bin_values += [1]
-        else:
-          bin_values += [0]
+        bin_values += [0]
     return bin_values
 
 
@@ -204,7 +204,9 @@ class SingleTasks(ZairaBase):
     self._task = ExpectedTaskType(path=path).get()
 
   def _get_params(self):
-    params = ParametersFile(path=os.path.join(self.trained_path, DATA_SUBFOLDER, PARAMETERS_FILE))
+    params = ParametersFile(
+      path=os.path.join(self.trained_path, METADATA_SUBFOLDER, PARAMETERS_FILE)
+    )
     return params.load()
 
   def _get_data(self):
@@ -236,8 +238,16 @@ class SingleTasksForPrediction(SingleTasks):
     if self._task == "classification":
       self.logger.debug("It is simply a binary classification")
       logger.info("[tasks] Processing classification task")
-      ct = ClfTasksForPrediction(data=df)
-      df["bin"] = ct.values
+      try:
+        ct = ClfTasksForPrediction(data=df)
+        df["bin"] = ct.values
+      except Exception as e:
+        # The ground-truth column isn't binary {0, 0.5, 1}. We can't validate a classifier against
+        # raw values (the fit-time binarization cutoff isn't persisted), so warn and predict only:
+        # without a `bin` column the report simply omits the performance section. The run continues.
+        logger.warning(
+          f"[tasks] Ground-truth labels are not binary ({e}); skipping validation, predicting only."
+        )
       self._task = "classification"
     elif self._task == "regression":
       self.logger.debug("Data is not simply a binary classification")

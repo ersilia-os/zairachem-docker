@@ -1,51 +1,8 @@
 import os
 import pandas as pd
-import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import partial
 
-from rich.progress import (
-  Progress,
-  ProgressColumn,
-  SpinnerColumn,
-  TextColumn,
-  TimeElapsedColumn,
-  TimeRemainingColumn,
-  MofNCompleteColumn,
-)
-from rich.progress_bar import ProgressBar
-
-
-class _PulseBarColumn(ProgressColumn):
-  def __init__(
-    self,
-    bar_width: int = 40,
-    style: str = "bar.back",
-    complete_style: str = "bar.complete",
-    finished_style: str = "bar.finished",
-    pulse_style: str = "bar.pulse",
-  ) -> None:
-    super().__init__()
-    self.bar_width = int(bar_width)
-    self.style = style
-    self.complete_style = complete_style
-    self.finished_style = finished_style
-    self.pulse_style = pulse_style
-
-  def render(self, task) -> ProgressBar:
-    return ProgressBar(
-      total=task.total,
-      completed=task.completed,
-      width=max(1, self.bar_width),
-      pulse=not task.finished,
-      animation_time=task.get_time(),
-      style=self.style,
-      complete_style=self.complete_style,
-      finished_style=self.finished_style,
-      pulse_style=self.pulse_style,
-    )
-
-
+from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
   SMILES_COLUMN,
   COMPOUNDS_FILENAME,
@@ -57,21 +14,36 @@ from zairachem.setup.tools.chembl_structure.standardizer import (
 )
 from zairachem.base.utils.logging import logger
 
+# Single source of truth for quieting RDKit's C++ app logs (e.g. "Skipping unrecognized collection
+# type … MDLV30/STEABS" emitted while parsing V3000 molblocks during standardization) — pure noise
+# that otherwise interleaves with and shreds the progress bar. Set at import so it applies in every
+# context that standardizes: fit, predict, and the ProcessPoolExecutor workers (all import this
+# module).
+from rdkit import RDLogger
+
+RDLogger.logger().setLevel(RDLogger.CRITICAL)
+
 DEFAULT_BATCH_SIZE = 1000
 MAX_WORKERS = None
 
+# At or below this many molecules, standardize serially — the ProcessPool spawn + IPC overhead isn't
+# worth it for tiny inputs. Above it, fan out across processes (output is byte-identical to the serial
+# path: see run() — each molecule is standardized independently and results are reassembled in input
+# order). Overridable via ZAIRACHEM_STANDARDIZE_MIN_PARALLEL for tuning.
+DEFAULT_MIN_PARALLEL = 1000
 
-def _create_progress():
-  return Progress(
-    SpinnerColumn(),
-    TextColumn("[bold blue]{task.description}"),
-    _PulseBarColumn(bar_width=40),
-    MofNCompleteColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-    TimeElapsedColumn(),
-    TimeRemainingColumn(),
-    transient=True,
-  )
+
+def _min_parallel():
+  raw = os.environ.get("ZAIRACHEM_STANDARDIZE_MIN_PARALLEL")
+  if raw:
+    try:
+      return max(1, int(raw))
+    except ValueError:
+      logger.warning(
+        f"[standardize] Ignoring invalid ZAIRACHEM_STANDARDIZE_MIN_PARALLEL={raw!r}; "
+        f"using default {DEFAULT_MIN_PARALLEL}"
+      )
+  return DEFAULT_MIN_PARALLEL
 
 
 def _standardize_single(smi):
@@ -108,7 +80,7 @@ class ChemblStandardize(object):
   def _run_sequential(self, df):
     R = []
     n_total = len(df)
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_total)
       for idx, r in enumerate(df.values):
         identifier = r[0]
@@ -132,7 +104,7 @@ class ChemblStandardize(object):
       f"[standardize] Processing {n_total:,} molecules in {n_batches:,} batches (parallel)"
     )
     results_by_batch = {}
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_batches)
       with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
         futures = {executor.submit(_standardize_batch, batch): i for i, batch in enumerate(batches)}
@@ -155,7 +127,7 @@ class ChemblStandardize(object):
     n_total = len(df)
     logger.info(f"[standardize] Processing {n_total:,} molecules")
     R = []
-    with _create_progress() as progress:
+    with SetupProgress() as progress:
       task = progress.add_task("Standardizing molecules", total=n_total)
       for r in df.values:
         identifier = r[0]
@@ -170,7 +142,7 @@ class ChemblStandardize(object):
     df = pd.read_csv(self.input_file)
     n_total = len(df)
     logger.info(f"[standardize] Starting standardization of {n_total:,} compounds")
-    if n_total > 5000:
+    if n_total > _min_parallel():
       try:
         R = self._run_parallel(df)
       except Exception as e:
