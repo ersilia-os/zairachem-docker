@@ -13,7 +13,6 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.utils.progress import STEP_COLORS
 from zairachem.base.vars import (
-  DESCRIPTORS_SUBFOLDER,
   METADATA_SUBFOLDER,
   SPLITS_FILENAME,
 )
@@ -31,8 +30,12 @@ class HoldoutValidationPipeline(ZairaBase):
     self.params = self._load_params()
 
   def _model_ids(self):
-    with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json")) as f:
-      return list(json.load(f))
+    # The descriptors the production model uses — the --max-descriptors selection when screened, else
+    # all of done_eos. Folds reuse the global selection (screen-once-reuse-in-folds), so each fold
+    # trains and pools exactly the descriptors the shipped model does.
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    return effective_descriptors(self.path)
 
   def run(self):
     if self.is_predict() or not self.params.get("evaluate"):

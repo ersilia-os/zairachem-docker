@@ -1,4 +1,4 @@
-import json, os
+import os
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
@@ -6,9 +6,6 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.pool.bagger.pipe import BaggerPipeline
 from zairachem.pool.reliability_pooler.pipe import ReliabilityPoolerPipeline
-from zairachem.base.vars import (
-  DESCRIPTORS_SUBFOLDER,
-)
 
 
 class PoolerPipeline(ZairaBase):
@@ -26,9 +23,9 @@ class PoolerPipeline(ZairaBase):
 
   def get_descriptors(self):
     self.logger.debug("Getting individual descriptors")
-    with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      model_ids = list(json.load(f))
-    return model_ids
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    return effective_descriptors(self.path)
 
   def _pool_pipeline(self):
     step = PipelineStep("pool", self.output_dir)

@@ -162,6 +162,14 @@ class PredictSetup(BaseSetup):
     self._make_subfolder(POOL_SUBFOLDER)
     self._make_subfolder(REPORT_SUBFOLDER)
     shutil.copyfile(params_path(self.model_dir), params_path(self.output_dir))
+    # Carry the descriptor-screening artifacts (if the model was screened) so the prediction report can
+    # show the same Selected/Not-selected table as the training report. Best-effort.
+    from zairachem.base.vars import PROXY_SCORES_FILENAME, SELECTED_EOS_FILENAME
+
+    for fn in (SELECTED_EOS_FILENAME, PROXY_SCORES_FILENAME):
+      src = os.path.join(self.model_dir, METADATA_SUBFOLDER, fn)
+      if os.path.exists(src):
+        shutil.copyfile(src, os.path.join(self.output_dir, METADATA_SUBFOLDER, fn))
     self._update_params()
 
   def _update_params(self):

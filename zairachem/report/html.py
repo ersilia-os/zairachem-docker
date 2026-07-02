@@ -38,14 +38,30 @@ _CATEGORIES = [
   (
     "performance",
     "Model performance",
-    "How the pooled model and individual estimators score against the ground-truth labels "
-    "(resubstitution at fit; held-out validation when predicting a labelled set).",
+    "How the pooled model and individual estimators score against the ground-truth labels. At fit "
+    "these are honest out-of-fold predictions (each descriptor contributes its cross-validated "
+    "prediction, then pooled); when predicting a labelled set they are the held-out predictions.",
     [
+      "oof-score-proba",
+      "oof-score-proba-pts",
+      "oof-score-logit",
+      "oof-score-logit-pts",
+      "oof-score-rank",
+      "oof-score-rank-pts",
+      "oof-score-lift",
+      "oof-score-lift-pts",
+      "oof-score-raw",
+      "oof-score-raw-pts",
       "roc-curve",
+      "pr-curve",
+      "calibration-curve",
+      "enrichment-curve",
+      "threshold-sweep",
       "confusion-matrix",
       "confusion-normalized",
-      "roc-individual",
-      "raw-classification-scores",
+      "confusion-precision",
+      "confusion-breakdown",
+      "descriptor-correlation",
       "r2-individual",
       "regression-raw",
       "regression-trans",
@@ -56,7 +72,7 @@ _CATEGORIES = [
     "Ranking & operating point",
     "Imbalance-aware ranking quality and the trade-offs around the decision threshold — what "
     "matters when triaging or screening a library.",
-    ["pr-curve", "enrichment-curve", "enrichment-factor", "threshold-sweep"],
+    ["enrichment-factor"],
   ),
   (
     "validation",
@@ -86,8 +102,6 @@ _TITLES = {
   "confusion-matrix": "Confusion matrix",
   "score-violin": "Score distribution (violin)",
   "score-strip": "Score distribution (strip)",
-  "roc-individual": "ROC by estimator",
-  "raw-classification-scores": "Raw classification scores",
   "r2-individual": "R² by estimator",
   "regression-raw": "Predicted vs observed (raw)",
   "regression-trans": "Predicted vs observed (transformed)",
@@ -116,7 +130,21 @@ _TITLES = {
   "enrichment-curve": "Enrichment curve",
   "enrichment-factor": "Enrichment factor",
   "threshold-sweep": "Threshold sweep",
-  "confusion-normalized": "Confusion matrix (normalized)",
+  "calibration-curve": "Calibration curve",
+  "confusion-normalized": "Confusion matrix (recall)",
+  "confusion-precision": "Confusion matrix (precision)",
+  "confusion-breakdown": "Outcome composition",
+  "descriptor-correlation": "Descriptor prediction correlation",
+  "oof-score-proba": "Probability",
+  "oof-score-logit": "Log-odds",
+  "oof-score-rank": "Percentile rank",
+  "oof-score-lift": "Lift",
+  "oof-score-raw": "Raw",
+  "oof-score-proba-pts": "Probability · points",
+  "oof-score-logit-pts": "Log-odds · points",
+  "oof-score-rank-pts": "Percentile rank · points",
+  "oof-score-lift-pts": "Lift · points",
+  "oof-score-raw-pts": "Raw · points",
   "descriptor-metric-heatmap": "Descriptor metric heatmap",
   "oof-overfit-scatter": "Generalization vs overfitting",
   "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
@@ -137,12 +165,45 @@ _TITLES = {
 # its ``home`` section; its members are suppressed everywhere else. Members appear in listed order and
 # only if their PNG is present, so a group left with a single present member degrades to a plain card.
 _GROUPS = [
-  {"key": "roc", "title": "ROC curve", "home": "performance", "members": ["roc-curve"]},
+  {
+    "key": "oof-scores",
+    "title": "Out-of-fold pooled score",
+    "home": "performance",
+    "members": [
+      "oof-score-proba",
+      "oof-score-proba-pts",
+      "oof-score-logit",
+      "oof-score-logit-pts",
+      "oof-score-rank",
+      "oof-score-rank-pts",
+      "oof-score-lift",
+      "oof-score-lift-pts",
+      "oof-score-raw",
+      "oof-score-raw-pts",
+    ],
+  },
+  {
+    "key": "perf-curves",
+    "title": "Performance curves",
+    "home": "performance",
+    "members": [
+      "roc-curve",
+      "pr-curve",
+      "calibration-curve",
+      "enrichment-curve",
+      "threshold-sweep",
+    ],
+  },
   {
     "key": "confusion",
     "title": "Confusion matrix",
     "home": "performance",
-    "members": ["confusion-matrix", "confusion-normalized"],
+    "members": [
+      "confusion-matrix",
+      "confusion-normalized",
+      "confusion-precision",
+      "confusion-breakdown",
+    ],
   },
   {
     "key": "regression",
@@ -507,6 +568,45 @@ def _validation_table_html(report_dir):
   )
 
 
+def _screening_table_html(output_dir):
+  """Per-descriptor pre-screening table (proxy AUROC + Selected/Not-selected badge), or ''.
+
+  Reads ``metadata/proxy_scores.json`` (all candidates) + ``metadata/selected_eos.json`` (the kept
+  subset), written by the --max-descriptors screening step. Rendered only when screening actually
+  pruned; a run that trained every descriptor has no proxy scores and the section is omitted.
+  """
+  meta = os.path.join(output_dir, "metadata")
+  try:
+    with open(os.path.join(meta, "proxy_scores.json")) as f:
+      scores = json.load(f)
+    with open(os.path.join(meta, "selected_eos.json")) as f:
+      selected = set(json.load(f))
+  except Exception:
+    return ""
+  if not scores:
+    return ""
+  body = []
+  for eos_id in sorted(scores, key=lambda e: scores[e], reverse=True):
+    keep = eos_id in selected
+    badge = (
+      "<span style='background:#3fb95022;color:#2ea043;padding:2px 9px;border-radius:10px;"
+      "font-weight:600;font-size:12px'>Selected</span>"
+      if keep
+      else "<span style='background:#f8514922;color:#cf222e;padding:2px 9px;border-radius:10px;"
+      "font-weight:600;font-size:12px'>Not selected</span>"
+    )
+    cls = "" if keep else " style='opacity:.6'"
+    body.append(
+      f"<tr{cls}><td>{html.escape(eos_id)}</td>"
+      f"<td>{_fmt_num(scores[eos_id])}</td><td>{badge}</td></tr>"
+    )
+  head = "<th>Descriptor</th><th>Held-out AUROC (screening)</th><th>Status</th>"
+  return (
+    "<div class='table-wrap'><table class='metrics'>"
+    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+  )
+
+
 _CSS = """
 :root { color-scheme: light; --fg:#1f2328; --muted:#6e7781; --line:#e6e8eb; --bg:#fff; --soft:#f6f8fa; --link:#0969da; --sidebar:248px; --card-h:420px; }
 * { box-sizing: border-box; }
@@ -538,6 +638,7 @@ section { padding-top:40px; scroll-margin-top:24px; }
 section > h2 { font-size:17px; font-weight:600; margin:0 0 4px; }
 section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .grid { display:grid; gap:20px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+.table-wrap + .grid { margin-top:26px; }
 /* Two figure cards side by side, filling the main content column (same width as the tables/text). */
 .grid2 { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
 @media (max-width:720px) { .grid2 { grid-template-columns:1fr; } }
@@ -563,8 +664,8 @@ section > .desc { color:var(--muted); font-size:13.5px; margin:0 0 18px; }
 .about .grid-cap { text-align:center; color:var(--muted); font-size:13px; max-width:760px; margin:12px auto 0; }
 .about .grid-cap b { color:var(--fg); }
 .carousel-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin:0 0 12px; flex:0 0 auto; }
-.carousel-head h3 { margin:0; }
-.carousel-label { color:var(--muted); font-size:12.5px; white-space:nowrap; }
+.carousel-head h3 { margin:0; flex:0 1 auto; min-width:0; }
+.carousel-label { color:var(--muted); font-size:12.5px; white-space:nowrap; flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; text-align:right; }
 .carousel-track { position:relative; flex:1 1 auto; min-height:0; }
 .carousel .slide { display:none; }
 .carousel .slide.active { display:flex; align-items:center; justify-content:center; height:100%; }
@@ -718,10 +819,26 @@ def _model_titles(output_dir, params, ids):
   return resolved
 
 
-def _model_table_html(ids, versions, titles):
-  """A table of Ersilia models: monospace id linked to the hub, version pill, human title."""
+_BADGE_KEPT = (
+  "<span style='background:#3fb95022;color:#2ea043;padding:1px 8px;border-radius:10px;"
+  "font-weight:600;font-size:11.5px'>kept</span>"
+)
+_BADGE_DISCARDED = (
+  "<span style='background:#f8514922;color:#cf222e;padding:1px 8px;border-radius:10px;"
+  "font-weight:600;font-size:11.5px'>discarded</span>"
+)
+
+
+def _model_table_html(ids, versions, titles, selected=None):
+  """A table of Ersilia models: monospace id linked to the hub, version pill, human title.
+
+  When ``selected`` is provided (a set of the descriptors kept by --max-descriptors screening), a
+  Status column is added marking each model ``kept`` (green) or ``discarded`` (red). Passed only for
+  featurizers on a screened run; ``None`` (no column) otherwise.
+  """
   if not ids:
     return ""
+  show_status = selected is not None
   rows = []
   for mid in ids:
     href = f"https://github.com/{GITHUB_ORG}/{html.escape(mid)}"
@@ -729,13 +846,19 @@ def _model_table_html(ids, versions, titles):
     ver_html = f"<span class='ver'>{html.escape(str(ver))}</span>" if ver else "—"
     title = titles.get(mid)
     title_html = html.escape(title) if title else "—"
+    status = ""
+    if show_status:
+      badge = _BADGE_KEPT if mid in selected else _BADGE_DISCARDED
+      status = f"<td>{badge}</td>"
+    cls = "" if (not show_status or mid in selected) else " style='opacity:.6'"
     rows.append(
-      f"<tr><td><a class='model' href='{href}' target='_blank'>{html.escape(mid)} ↗</a></td>"
-      f"<td>{ver_html}</td><td class='title'>{title_html}</td></tr>"
+      f"<tr{cls}><td><a class='model' href='{href}' target='_blank'>{html.escape(mid)} ↗</a></td>"
+      f"<td>{ver_html}</td><td class='title'>{title_html}</td>{status}</tr>"
     )
+  status_head = "<th>Status</th>" if show_status else ""
   return (
     "<div class='table-wrap'><table class='cfg-models'>"
-    "<thead><tr><th>Model</th><th>Version</th><th>Title</th></tr></thead>"
+    f"<thead><tr><th>Model</th><th>Version</th><th>Title</th>{status_head}</tr></thead>"
     f"<tbody>{''.join(rows)}</tbody></table></div>"
   )
 
@@ -784,7 +907,16 @@ def _config_section_html(output_dir, params, n):
   titles = _model_titles(output_dir, params, feats + projs)
 
   out = [grid]
-  feat_table = _model_table_html(feats, versions, titles)
+  # If --max-descriptors pre-screening ran, mark each featurizer kept/discarded in the table.
+  selected = None
+  sel_path = os.path.join(output_dir, "metadata", "selected_eos.json")
+  if os.path.exists(sel_path):
+    try:
+      with open(sel_path) as f:
+        selected = set(json.load(f))
+    except Exception:
+      selected = None
+  feat_table = _model_table_html(feats, versions, titles, selected=selected)
   if feat_table:
     out.append(f"<h3 class='cfg-h'>Featurizers</h3>{feat_table}")
   proj_table = _model_table_html(projs, versions, titles)
@@ -1116,8 +1248,28 @@ def _chemical_space_html(output_dir, report_dir, present, assigned):
   return legend + grid
 
 
+def _oof_aupr(oof_path):
+  """AUPRC (average precision) from a descriptor's out-of-fold predictions, or None."""
+  try:
+    from sklearn.metrics import average_precision_score
+
+    ys, ps = [], []
+    with open(oof_path) as fh:
+      for row in csv.DictReader(fh):
+        ys.append(int(float(row["y"])))
+        ps.append(float(row["oof_proba"]))
+    if len(set(ys)) < 2:
+      return None
+    return float(average_precision_score(ys, ps))
+  except Exception:
+    return None
+
+
 def _read_cv_stats(output_dir):
-  """Per-descriptor lazy-qsar CV reports (estimators/*/*/cv_report.json), best OOF AUROC first."""
+  """Per-descriptor lazy-qsar CV reports (estimators/*/*/cv_report.json), best OOF AUROC first.
+
+  Each report is enriched with ``aupr`` (average precision computed from the sibling oof.csv), so the
+  cached cv_stats.json — and the table built from it — carries the inner-CV AUPRC alongside AUROC."""
   stats = []
   pattern = os.path.join(output_dir, ESTIMATORS_SUBFOLDER, "*", "*", "cv_report.json")
   for f in glob.glob(pattern):
@@ -1125,6 +1277,7 @@ def _read_cv_stats(output_dir):
       with open(f) as fh:
         rep = json.load(fh)
       rep["descriptor"] = os.path.basename(os.path.dirname(f))
+      rep["aupr"] = _oof_aupr(os.path.join(os.path.dirname(f), "oof.csv"))
       stats.append(rep)
     except Exception:
       continue
@@ -1153,10 +1306,10 @@ def _cv_table_html(cv_stats):
   cols = [
     ("descriptor", "Descriptor"),
     ("oof_auc", "Inner CV AUROC"),
+    ("aupr", "Inner CV AUPRC"),
     ("train_auc", "Train AUROC"),
     ("overfit_gap", "Overfit gap"),
-    ("portfolio", "Algorithms"),
-    ("decision_cutoff_proba", "Cutoff"),
+    ("decision_cutoff_proba", "Ideal cutoff"),
   ]
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
@@ -1166,8 +1319,6 @@ def _cv_table_html(cv_stats):
       v = r.get(k)
       if k == "descriptor":
         cell = html.escape(str(v))
-      elif k == "portfolio":
-        cell = html.escape(", ".join(v) if isinstance(v, list) else str(v or "—"))
       elif v is None:
         cell = "—"
       elif k == "overfit_gap":
@@ -1525,7 +1676,6 @@ def write_html_report(output_dir):
   # Build sections. Configuration first; then the plot categories ("Chemical space" gathers any
   # projection-* figure generically); then any leftovers.
   assigned = set()
-  perf_table = _performance_table_html(report_dir)
   config_table = _config_section_html(output_dir, params, n)
   cv_stats = _read_cv_stats(output_dir)
   if cv_stats:
@@ -1569,9 +1719,7 @@ def write_html_report(output_dir):
       items = [s for s in members if s in present]
     cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
     grid = "<div class='grid'>" + "".join(cards) + "</div>" if cards else ""
-    if anchor == "performance":
-      inner = perf_table + grid
-    elif anchor == "validation":
+    if anchor == "validation":
       inner = _validation_table_html(report_dir) + grid
     else:
       inner = grid

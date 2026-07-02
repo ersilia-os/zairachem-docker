@@ -103,11 +103,6 @@ class RawDescriptors(ZairaBase):
     eos_ids = list(dict.fromkeys(self.params["featurizer_ids"]))
     return eos_ids
 
-  def done_eos_ids(self):
-    with open(os.path.join(self.trained_path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      done_eos_ids = json.load(f)
-    return done_eos_ids
-
   def output_h5_filename(self, eos_id):
     path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
     os.makedirs(path, exist_ok=True)
@@ -168,7 +163,15 @@ class RawDescriptors(ZairaBase):
         json.dump(self.params, f, indent=2)
 
   def run(self):
-    eos_ids = self.done_eos_ids() if self.is_predict() else self.eos_ids()
+    if self.is_predict():
+      # Featurize only the descriptors the trained model uses — the --max-descriptors selection when
+      # it was screened, else every trained featurizer (done_eos). No point computing descriptors the
+      # pooled model will ignore.
+      from zairachem.base.utils.descriptors import effective_descriptors
+
+      eos_ids = effective_descriptors(self.trained_path)
+    else:
+      eos_ids = self.eos_ids()
     self._prewarm_versions(eos_ids)
     workers = self._resolve_workers(len(eos_ids))
     # One shared live table for both paths: each model is a row (queued → featurizing → done). The

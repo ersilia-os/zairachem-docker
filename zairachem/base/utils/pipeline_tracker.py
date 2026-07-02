@@ -25,6 +25,8 @@ PIPELINE_STEPS = [
   ("describe", "Describe", "Compute molecular descriptors for each model"),
   ("projections", "Projections", "Compute the 2-D projections shown in the report"),
   ("treat", "Treat", "Impute and scale the descriptor matrix"),
+  # Optional (only in the order when --max-descriptors is set); see the begin() call sites.
+  ("screen", "Screen", "Pre-screen descriptors and keep the most promising"),
   ("estimate", "Estimate", "Train and cross-validate models per descriptor"),
   ("pool", "Pool", "Combine descriptor models into a consensus"),
   # Optional (only in the order when --evaluate is set); see the begin() call sites.
@@ -39,6 +41,7 @@ STEP_COLORS = {
   "describe": "green",
   "projections": "bright_cyan",
   "treat": "magenta",
+  "screen": "bright_yellow",
   "estimate": "yellow",
   "pool": "blue",
   "holdout": "bright_blue",

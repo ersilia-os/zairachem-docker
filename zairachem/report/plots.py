@@ -135,26 +135,16 @@ class ScoreViolinPlot(BasePlot):
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
-    if self.has_clf_data():
-      self.is_available = True
-      self.name = "score-violin"
-      ax = self.ax
-      bt, yp = ResultsFetcher(path=path).clf_truth_proba()
-      data = pd.DataFrame({"yp": yp, "bt": bt})
-      sns.violinplot(
-        x="bt",
-        y="yp",
-        data=data,
-        ax=ax,
-        palette=[named_colors.blue, named_colors.red],
-      )
-      ax.set_xticks([0, 1])
-      ax.set_xticklabels(["Inactive", "Active"])
-      ax.set_title("Score distribution")
-      ax.set_xlabel("")
-      ax.set_ylabel("Classifier score (probability)")
-    else:
-      self.is_available = False
+    self.name = "score-violin"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    bt, yp = ResultsFetcher(path=path).clf_truth_proba()
+    # Same style as the OOF score lenses: white inner box + median line, no whiskers.
+    if not _draw_score_violins(self.ax, yp, bt, "Classifier score (probability)"):
+      return
+    self.ax.set_title("Score distribution")
+    self.is_available = True
 
 
 class ScoreStripPlot(BasePlot):
@@ -236,6 +226,207 @@ class ScoreStripPlot(BasePlot):
 
     else:
       self.is_available = False
+
+
+def _percentile_rank(p):
+  """Empirical percentile rank in [0, 1] of each value (ties broken by first occurrence)."""
+  p = np.asarray(p, dtype=float)
+  order = np.argsort(p, kind="mergesort")
+  ranks = np.empty(len(p), dtype=float)
+  ranks[order] = np.arange(len(p))
+  return ranks / max(1, len(p) - 1)
+
+
+def _draw_score_violins(ax, values, y, ylabel, show_points=False, max_pts=1000):
+  """Vertical violins of a per-sample score split by class (inactive vs active).
+
+  Always overlays a white inner boxplot — IQR box + median line + whiskers to the 5th/95th
+  percentiles (with small caps). When ``show_points`` is set, up to ``max_pts`` jittered points per
+  class are drawn over a lightened violin. Returns False (unavailable) if neither class has finite
+  values."""
+  y = np.asarray(y, dtype=int)
+  v = np.asarray(values, dtype=float)
+  finite = np.isfinite(v)
+  present = [
+    (c, name, _color(key))
+    for c, name, key in ((0, "Inactive", "inactive"), (1, "Active", "active"))
+    if np.any((y == c) & finite)
+  ]
+  if not present:
+    return False
+  order = [name for _, name, _ in present]
+  palette = [col for _, _, col in present]
+  data = pd.DataFrame({
+    "value": v[finite],
+    "cls": np.where(y[finite] == 1, "Active", "Inactive"),
+  })
+  sns.violinplot(
+    x="cls", y="value", data=data, ax=ax, order=order, palette=palette, cut=0, inner=None
+  )
+  if show_points:
+    for coll in ax.collections:  # lighten the violin bodies so the points read on top
+      coll.set_alpha(0.35)
+    rng = np.random.default_rng(0)
+    for i, (c, _, col) in enumerate(present):
+      pts = v[(y == c) & finite]
+      if len(pts) > max_pts:
+        pts = rng.choice(pts, max_pts, replace=False)
+      jitter = rng.uniform(-0.18, 0.18, size=len(pts))
+      ax.scatter(
+        i + jitter, pts, s=7, color=col, alpha=0.6, linewidths=0.3, edgecolors="white", zorder=5
+      )
+  # Inner white boxplot: whiskers (5th–95th pct, with caps) + IQR box + a median line.
+  for i, (c, _, _) in enumerate(present):
+    p5, q1, med, q3, p95 = np.percentile(v[(y == c) & finite], [5, 25, 50, 75, 95])
+    w, cap = 0.11, 0.05
+    ax.plot([i, i], [q3, p95], color="white", lw=1.2, zorder=10)
+    ax.plot([i, i], [p5, q1], color="white", lw=1.2, zorder=10)
+    ax.plot([i - cap, i + cap], [p95, p95], color="white", lw=1.2, zorder=10)
+    ax.plot([i - cap, i + cap], [p5, p5], color="white", lw=1.2, zorder=10)
+    ax.add_patch(
+      Rectangle((i - w, q1), 2 * w, q3 - q1, fill=False, edgecolor="white", lw=1.4, zorder=11)
+    )
+    ax.plot([i - w, i + w], [med, med], color="white", lw=1.8, zorder=12)
+  ax.set_xticks(range(len(present)))
+  ax.set_xticklabels(order)
+  ax.set_xlabel("")
+  ax.set_ylabel(ylabel)
+  return True
+
+
+class _PooledOofScorePlot(BasePlot):
+  """Base for a pooled out-of-fold score distribution (actives vs inactives), shown through one
+  score-type lens. The pooled classifier score (``clf_truth_proba``) is, at fit time, the honest
+  out-of-fold prediction (each descriptor contributes its OOF probability scattered to compound
+  order); this base draws it as vertical class-split violins with an inner white boxplot, optionally
+  with jittered points.
+
+  Subclasses set ``stem``/``title``/``ylabel`` and implement ``transform(p, y)`` → per-sample values
+  (same length as ``p``), or return ``None`` when the lens has no data yet (e.g. the raw score before
+  the pipeline persists it). ``show_points`` toggles the jittered-points variant. Classification only.
+  """
+
+  stem = None
+  title = ""
+  ylabel = ""
+  show_points = False
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
+    self.name = self.stem
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    ts = self._truth_score(path)
+    if ts is None:  # this lens' source score isn't available (e.g. raw before a re-fit persists it)
+      return
+    y, p = ts
+    y = np.asarray(y, dtype=int)
+    p = np.asarray(p, dtype=float)
+    if len(y) == 0 or len(set(y.tolist())) < 2:
+      return
+    vals = self.transform(p, y)
+    if vals is None:
+      return
+    if not _draw_score_violins(
+      self.ax, np.asarray(vals, dtype=float), y, self.ylabel, show_points=self.show_points
+    ):
+      return
+    self.ax.set_title(self.title)
+    self.is_available = True
+
+  def _truth_score(self, path):
+    """``(y_true, score)`` the lens operates on, or ``None`` if unavailable. Default: the pooled
+    calibrated OOF probability. Overridden by the raw lens to use the uncalibrated pooled score."""
+    return ResultsFetcher(path=path).clf_truth_proba()
+
+  def transform(self, p, y):
+    raise NotImplementedError
+
+
+class OofScoreProbaPlot(_PooledOofScorePlot):
+  stem = "oof-score-proba"
+  title = "Out-of-fold pooled score · probability"
+  ylabel = "Probability"
+
+  def transform(self, p, y):
+    return np.clip(p, 0.0, 1.0)
+
+
+class OofScoreLogitPlot(_PooledOofScorePlot):
+  stem = "oof-score-logit"
+  title = "Out-of-fold pooled score · log-odds"
+  ylabel = "Log-odds (logit)"
+
+  def transform(self, p, y):
+    pc = np.clip(p, 1e-6, 1 - 1e-6)
+    return np.log(pc / (1 - pc))
+
+
+class OofScoreRankPlot(_PooledOofScorePlot):
+  stem = "oof-score-rank"
+  title = "Out-of-fold pooled score · percentile rank"
+  ylabel = "Percentile rank"
+
+  def transform(self, p, y):
+    return _percentile_rank(p)
+
+
+class OofScoreLiftPlot(_PooledOofScorePlot):
+  stem = "oof-score-lift"
+  title = "Out-of-fold pooled score · lift"
+  ylabel = "Lift (× base rate)"
+
+  def transform(self, p, y):
+    prior = float(np.mean(y))
+    return p / prior if prior > 0 else None
+
+
+class OofScoreRawPlot(_PooledOofScorePlot):
+  """Uncalibrated raw-score lens: the pooled OOF score before per-head probability calibration
+  (lazy-qsar ≥ 3.4.2 exposes ``oof_raw_``; estimate pools & scatters it to a ``clf_raw`` column).
+  Unavailable (blank) for models fit before that, when no pooled raw OOF was persisted."""
+
+  stem = "oof-score-raw"
+  title = "Out-of-fold pooled score · raw (uncalibrated)"
+  ylabel = "Raw score (uncalibrated)"
+
+  def _truth_score(self, path):
+    return ResultsFetcher(path=path).clf_truth_raw()  # None when clf_raw wasn't persisted
+
+  def transform(self, p, y):
+    return np.clip(p, 0.0, 1.0)
+
+
+# Jittered-points variants (same transforms, points over a lightened violin).
+class OofScoreProbaPointsPlot(OofScoreProbaPlot):
+  stem = "oof-score-proba-pts"
+  title = "Out-of-fold pooled score · probability (points)"
+  show_points = True
+
+
+class OofScoreLogitPointsPlot(OofScoreLogitPlot):
+  stem = "oof-score-logit-pts"
+  title = "Out-of-fold pooled score · log-odds (points)"
+  show_points = True
+
+
+class OofScoreRankPointsPlot(OofScoreRankPlot):
+  stem = "oof-score-rank-pts"
+  title = "Out-of-fold pooled score · percentile rank (points)"
+  show_points = True
+
+
+class OofScoreLiftPointsPlot(OofScoreLiftPlot):
+  stem = "oof-score-lift-pts"
+  title = "Out-of-fold pooled score · lift (points)"
+  show_points = True
+
+
+class OofScoreRawPointsPlot(OofScoreRawPlot):
+  stem = "oof-score-raw-pts"
+  title = "Out-of-fold pooled score · raw (points)"
+  show_points = True
 
 
 class IndividualEstimatorsAurocPlot(BasePlot):
@@ -717,8 +908,8 @@ class CvCutoffPlot(_CvBarPlot):
 
 
 class CvRocPlot(BasePlot):
-  """Overlaid out-of-fold ROC curves, one per descriptor. Lines carry the descriptor identity colour
-  (the HTML bar strip is the shared legend), so no in-plot legend is drawn."""
+  """Overlaid out-of-fold ROC curves, one per descriptor (identity-coloured), with a bottom-right
+  legend giving each descriptor's OOF AUROC."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
@@ -736,24 +927,26 @@ class CvRocPlot(BasePlot):
       if len(set(yv)) < 2:
         continue
       fpr, tpr, _ = roc_curve(yv, proba)
-      curves.append((s["descriptor"], fpr, tpr))
+      curves.append((s["descriptor"], s.get("oof_auc"), fpr, tpr))
     if not curves:
       self.is_available = False
       return
     ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", zorder=1)
-    for name, fpr, tpr in curves:
-      ax.plot(fpr, tpr, color=color_of[name], lw=1.6, alpha=0.9, zorder=2)
+    for name, a, fpr, tpr in curves:
+      label = f"{name} ({a:.2f})" if a is not None else name
+      ax.plot(fpr, tpr, color=color_of[name], lw=1.6, alpha=0.9, zorder=2, label=label)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("1-Specificity (FPR)")
     ax.set_ylabel("Sensitivity (TPR)")
     ax.set_title("Cross-validation ROC")
+    ax.legend(loc="lower right", fontsize=6)
     self.is_available = True
 
 
 class CvPrPlot(BasePlot):
-  """Overlaid out-of-fold precision-recall curves, one per descriptor (identity-coloured, no legend).
-  The dashed line is the no-skill prior (base rate of actives)."""
+  """Overlaid out-of-fold precision-recall curves, one per descriptor (identity-coloured), with a
+  bottom-left legend giving each descriptor's AUPRC. The dashed line is the no-skill prior."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
@@ -771,20 +964,29 @@ class CvPrPlot(BasePlot):
       if len(set(yv)) < 2:
         continue
       precision, recall, _ = precision_recall_curve(yv, proba)
-      curves.append((s["descriptor"], recall, precision))
+      curves.append((s["descriptor"], average_precision_score(yv, proba), recall, precision))
       prior = float(np.mean(yv))
     if not curves:
       self.is_available = False
       return
     if prior is not None:
       ax.plot([0, 1], [prior, prior], color=named_colors.gray, lw=1, ls="--", zorder=1)
-    for name, recall, precision in curves:
-      ax.plot(recall, precision, color=color_of[name], lw=1.6, alpha=0.9, zorder=2)
+    for name, ap, recall, precision in curves:
+      ax.plot(
+        recall,
+        precision,
+        color=color_of[name],
+        lw=1.6,
+        alpha=0.9,
+        zorder=2,
+        label=f"{name} ({ap:.2f})",
+      )
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.03)
     ax.set_xlabel("Recall (sensitivity)")
     ax.set_ylabel("Precision")
     ax.set_title("Cross-validation precision-recall")
+    ax.legend(loc="lower left", fontsize=6)
     self.is_available = True
 
 
@@ -1004,6 +1206,42 @@ class ThresholdSweepPlot(BasePlot):
     self.is_available = True
 
 
+class CalibrationCurvePlot(BasePlot):
+  """Reliability curve of the pooled out-of-fold probability: mean predicted probability vs the
+  observed frequency of actives per decile bin, against the diagonal (perfect calibration). The title
+  reports the Brier score (lower = better-calibrated)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "calibration-curve"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    yt, yp = _clf_truth_proba(path)
+    if yt is None or len(np.unique(yt)) < 2:
+      return
+    ax = self.ax
+    p = np.asarray(yp, dtype=float)
+    y = np.asarray(yt, dtype=float)
+    bins = np.linspace(0, 1, 11)
+    idx = np.clip(np.digitize(p, bins) - 1, 0, 9)
+    xs, ys = [], []
+    for b in range(10):
+      m = idx == b
+      if m.sum() > 0:
+        xs.append(float(p[m].mean()))
+        ys.append(float(y[m].mean()))
+    brier = float(np.mean((p - y) ** 2))
+    ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", zorder=1)
+    ax.plot(xs, ys, color=named_colors.blue, lw=1.6, marker="o", ms=4, zorder=10)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Mean predicted probability")
+    ax.set_ylabel("Observed frequency of actives")
+    ax.set_title(f"Calibration · Brier = {brier:.3f}")
+    self.is_available = True
+
+
 class DescriptorMetricHeatmapPlot(BasePlot):
   """Per-descriptor CV metrics heatmap: OOF AUROC, train AUROC, overfit gap (column-normalized)."""
 
@@ -1150,7 +1388,137 @@ class NormalizedConfusionPlot(BasePlot):
           color="white" if norm[i, j] > 0.5 else "black",
         )
     ax.grid(False)
-    ax.set_title("Confusion (row-normalized)")
+    ax.set_title("Confusion (row-normalized · recall)")
+    self.is_available = True
+
+
+class ConfusionPrecisionPlot(BasePlot):
+  """Column-normalized confusion matrix (per-predicted-class precision %) — the complement of the
+  row-normalized recall view."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "confusion-precision"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    bt, bp = rf.clf_truth_binary()
+    if bt is None or bp is None or len(bt) == 0 or len(set(bp.tolist())) < 2:
+      return
+    ax = self.ax
+    cm = metrics.confusion_matrix(bt, bp).astype(float)
+    col_sums = cm.sum(axis=0, keepdims=True)
+    norm = np.divide(cm, col_sums, out=np.zeros_like(cm), where=col_sums != 0)
+    ax.imshow(norm, cmap=plt.cm.Greens, vmin=0, vmax=1)
+    labels = ["I (0)", "A (1)"]
+    ax.set_xticks([0, 1])
+    ax.set_yticks([0, 1])
+    ax.set_xticklabels(labels)
+    ax.set_yticklabels(labels)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+    for i in range(2):
+      for j in range(2):
+        ax.text(
+          j,
+          i,
+          f"{norm[i, j] * 100:.0f}%",
+          va="center",
+          ha="center",
+          fontsize=8,
+          color="white" if norm[i, j] > 0.5 else "black",
+        )
+    ax.grid(False)
+    ax.set_title("Confusion (column-normalized · precision)")
+    self.is_available = True
+
+
+class ConfusionBreakdownPlot(BasePlot):
+  """Outcome composition: each true class as a stacked bar split into correct vs error calls
+  (Actives → TP / FN; Inactives → TN / FP), a more intuitive read than the matrix."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 3))
+    self.name = "confusion-breakdown"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    bt, bp = rf.clf_truth_binary()
+    if bt is None or bp is None or len(bt) == 0 or len(set(bp.tolist())) < 2:
+      return
+    ax = self.ax
+    cm = metrics.confusion_matrix(bt, bp)
+    tn, fp, fn, tp = int(cm[0, 0]), int(cm[0, 1]), int(cm[1, 0]), int(cm[1, 1])
+
+    def seg(y, x0, w, color, txt):
+      if w <= 0:
+        return
+      ax.barh(y, w, left=x0, color=color, edgecolor="white", height=0.62, zorder=2)
+      ax.text(x0 + w / 2, y, txt, ha="center", va="center", color="white", fontweight="bold")
+
+    # Active row (top): correct TP then error FN; Inactive row (bottom): correct TN then error FP.
+    seg(1, 0, tp, _color("correct_positive"), f"TP {tp}")
+    seg(1, tp, fn, _color("false_negative"), f"FN {fn}")
+    seg(0, 0, tn, _color("correct_negative"), f"TN {tn}")
+    seg(0, tn, fp, _color("false_positive"), f"FP {fp}")
+    ax.set_yticks([0, 1])
+    ax.set_yticklabels(["Inactive", "Active"])
+    ax.set_xlabel("Number of compounds")
+    ax.set_title("Outcome composition by true class")
+    self.is_available = True
+
+
+class DescriptorCorrelationPlot(BasePlot):
+  """Spearman correlation between the per-descriptor out-of-fold predictions — how redundant vs
+  complementary the descriptor models are (high = agree, lower = adds a distinct signal)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "descriptor-correlation"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    tasks = rf.get_clf_tasks()
+    if not tasks:
+      return
+    df = rf._read_individual_estimator_results(tasks[0])
+    if df is None or df.shape[1] < 2:
+      return
+    # Order descriptors best-first (by inner-CV AUROC) when available, for a consistent reading.
+    ranked = [s["descriptor"] for s in rf.get_cv_stats()]
+    cols = sorted(
+      df.columns,
+      key=lambda c: ranked.index(c.split("-")[-1]) if c.split("-")[-1] in ranked else 999,
+    )
+    corr = df[cols].corr(method="spearman")
+    m = corr.values
+    labels = [c.split("-")[-1] for c in cols]
+    ax = self.ax
+    from matplotlib.colors import LinearSegmentedColormap
+
+    cmap = LinearSegmentedColormap.from_list("stylia_seq", ["#ffffff", _color("inactive")])
+    vmin = float(np.nanmin(m[~np.eye(len(m), dtype=bool)])) if len(m) > 1 else 0.0
+    ax.imshow(m, cmap=cmap, vmin=max(0.0, vmin - 0.02), vmax=1.0)
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticklabels(labels, fontsize=6, rotation=30, ha="right")
+    ax.set_yticklabels(labels, fontsize=6)
+    for i in range(len(labels)):
+      for j in range(len(labels)):
+        ax.text(
+          j,
+          i,
+          f"{m[i, j]:.2f}",
+          va="center",
+          ha="center",
+          fontsize=6,
+          color="white" if m[i, j] > 0.85 else "black",
+        )
+    ax.grid(False)
+    ax.set_title("Descriptor prediction correlation (Spearman)")
     self.is_available = True
 
 
@@ -1196,15 +1564,19 @@ def _draw_one_property(ax, values, bt, label):
   sns.violinplot(
     x="value", y="cls", data=data, ax=ax, order=order, palette=[palette[n] for n in order], cut=0
   )
-  # Overlay a minimal white-outlined IQR box (no fill, no whiskers) with a white median line.
+  # Overlay a white-outlined boxplot: whiskers (5th–95th pct, with caps) + IQR box + median line.
   for i, name in enumerate(order):
     cls = 1 if name == "Active" else 0
-    q1, med, q3 = np.percentile(vals[(bt == cls) & finite], [25, 50, 75])
-    h = 0.13
+    p5, q1, med, q3, p95 = np.percentile(vals[(bt == cls) & finite], [5, 25, 50, 75, 95])
+    h, cap = 0.13, 0.06
+    ax.plot([q3, p95], [i, i], color="white", lw=1.2, zorder=10)
+    ax.plot([p5, q1], [i, i], color="white", lw=1.2, zorder=10)
+    ax.plot([p95, p95], [i - cap, i + cap], color="white", lw=1.2, zorder=10)
+    ax.plot([p5, p5], [i - cap, i + cap], color="white", lw=1.2, zorder=10)
     ax.add_patch(
-      Rectangle((q1, i - h), q3 - q1, 2 * h, fill=False, edgecolor="white", lw=1.4, zorder=10)
+      Rectangle((q1, i - h), q3 - q1, 2 * h, fill=False, edgecolor="white", lw=1.4, zorder=11)
     )
-    ax.plot([med, med], [i - h, i + h], color="white", lw=1.6, zorder=11)
+    ax.plot([med, med], [i - h, i + h], color="white", lw=1.6, zorder=12)
   ax.set_xlabel(label)
   ax.set_ylabel("")
   return True

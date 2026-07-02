@@ -5,11 +5,10 @@ Shared by the estimate, pool and report steps (previously copy-pasted in each). 
 were actually produced (listed in ``descriptors/done_eos.json``).
 """
 
-import json
 import os
 
 from zairachem.base import ZairaBase
-from zairachem.base.vars import DESCRIPTORS_SUBFOLDER, ESTIMATORS_SUBFOLDER
+from zairachem.base.vars import ESTIMATORS_SUBFOLDER
 
 
 class ResultsIterator(ZairaBase):
@@ -21,9 +20,11 @@ class ResultsIterator(ZairaBase):
       self.path = path
 
   def _read_model_ids(self):
-    with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      model_ids = list(json.load(f))
-    return model_ids
+    # Honour --max-descriptors pre-screening: use the selected subset when present, else every
+    # featurizer in done_eos.json.
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    return effective_descriptors(self.path)
 
   def iter_relpaths(self):
     estimators_folder = os.path.join(self.path, ESTIMATORS_SUBFOLDER)

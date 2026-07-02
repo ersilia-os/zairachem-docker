@@ -19,6 +19,7 @@ def run(
   evaluate=False,
   evaluate_repeats=3,
   evaluate_schemas=None,
+  max_descriptors=3,
 ):
   ts = TrainSetup(
     input_file,
@@ -30,6 +31,7 @@ def run(
     evaluate=evaluate,
     evaluate_repeats=evaluate_repeats,
     evaluate_schemas=evaluate_schemas,
+    max_descriptors=max_descriptors,
   )
 
   # Decide fresh / resume / refuse for an existing model directory (a fresh run on an absent dir, or

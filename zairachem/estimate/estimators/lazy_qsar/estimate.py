@@ -17,7 +17,6 @@ from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
-  DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   Y_HAT_FILE,
 )
@@ -98,6 +97,7 @@ class Fitter(BaseEstimatorIndividual):
       # introduced (train_order no longer covers all rows) we fall back to a chunked re-read.
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
+      preds_raw = np.full(n_samples, np.nan, dtype=np.float32)  # uncalibrated OOF (report raw lens)
       ranks = np.full(n_samples, np.nan, dtype=np.float32)
       ads = np.full(n_samples, np.nan, dtype=np.float32)
       train_order_arr = np.asarray(train_order)
@@ -113,6 +113,10 @@ class Fitter(BaseEstimatorIndividual):
         logger.info(
           f"[lazyqsar:fit] {self.model_id}: OOF unavailable, using resubstitution for pooler input"
         )
+      # Uncalibrated (raw) pooled OOF — for the report's raw score lens. Independent of use_oof; simply
+      # absent (NaN → dropped) when raw OOF can't be reconstructed.
+      oof_raw, _ = self._safe_pooled_oof_raw(model, X_train, y_train)
+      use_raw = oof_raw is not None and len(oof_raw) == train_order_arr.size
       if covers_all:
         if use_oof:
           preds[train_order_arr] = np.asarray(oof_proba, dtype=np.float32)
@@ -120,6 +124,8 @@ class Fitter(BaseEstimatorIndividual):
           preds[train_order_arr] = self._batched(
             lambda xb: model.predict_proba(X=xb)[:, 1], X_train
           )
+        if use_raw:
+          preds_raw[train_order_arr] = np.asarray(oof_raw, dtype=np.float32)
         ranks[train_order_arr] = self._batched(
           lambda xb: model.predict_rank(X=xb)[:, 1], X_train, default=np.nan
         )
@@ -148,7 +154,8 @@ class Fitter(BaseEstimatorIndividual):
       self._write_pool_signals(model, curve, ad_cutoff, y, descriptor_dir)
       rank_arg = ranks if np.isfinite(ranks).any() else None
       ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
-      tasks[t] = make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg)
+      raw_arg = preds_raw if np.isfinite(preds_raw).any() else None
+      tasks[t] = make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg, y_raw=raw_arg)
     elif self.task == "regression":
       # No working regression estimator exists yet: lazyqsar.agnostic.LazyRegressor is a stub, so
       # the lazy_qsar family produces no regression output (and thus no OOF/rank/AD pooler signals).
@@ -253,6 +260,38 @@ class Fitter(BaseEstimatorIndividual):
       return self._pooled_oof(getattr(model, "_model", None), X, y)
     except Exception as e:
       logger.debug(f"[lazyqsar:fit] OOF reconstruction failed for {self.model_id}: {e}")
+      return None, None
+
+  @staticmethod
+  def _pooled_oof_raw(inner, X, y):
+    """Pooled UNCALIBRATED out-of-fold scores (single-batch case), aligned to X order.
+
+    Parallel to :meth:`_pooled_oof` but stacks each head's ``oof_raw_`` (the [0,1] pre-calibration OOF
+    probability, exposed by lazy-qsar ≥ 3.4.2) instead of the calibrated ``oof_probas_``, combined with
+    the same batch-pooler weights. Returns ``(None, None)`` when raw OOF is unavailable (older
+    lazy-qsar) or in the multi-batch / subsampled case.
+    """
+    models = getattr(inner, "models", None) or []
+    if len(models) != 1:
+      return None, None
+    batch = models[0]
+    heads = getattr(batch, "heads", None) or []
+    if not heads or not all(hasattr(getattr(h, "model", None), "oof_raw_") for h in heads):
+      return None, None
+    S = np.column_stack([h.model.oof_raw_ for h in heads])
+    if S.shape[0] != len(y):
+      return None, None
+    X_prep = batch.prep.transform(X)
+    W = batch.pooler.get_weights(X_prep)
+    pooled = (W * S).sum(axis=1)
+    return np.asarray(pooled, dtype=float), np.asarray(y, dtype=int)
+
+  def _safe_pooled_oof_raw(self, model, X, y):
+    """Guarded ``_pooled_oof_raw``: returns (None, None) instead of raising."""
+    try:
+      return self._pooled_oof_raw(getattr(model, "_model", None), X, y)
+    except Exception as e:
+      logger.debug(f"[lazyqsar:fit] raw OOF reconstruction failed for {self.model_id}: {e}")
       return None, None
 
   def _batched(self, fn, X, default=None):
@@ -463,9 +502,11 @@ class Estimator(ZairaBase):
       path_trained = self.get_trained_dir()
     else:
       path_trained = path
-    with open(os.path.join(path_trained, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      model_ids = list(json.load(f))
-    return model_ids
+    # Train only the descriptors the run actually uses (the --max-descriptors subset when screened,
+    # else every featurizer in done_eos.json).
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    return effective_descriptors(path_trained)
 
   def _read_cv_result(self, model_id):
     """Per-descriptor result for the live table, read from persisted artifacts.
