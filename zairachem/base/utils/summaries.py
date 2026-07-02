@@ -273,6 +273,28 @@ def summarize_pool(output_dir=None):
   return f"consensus of {_plurals(len(algos), 'algorithm')}" if algos else "predictions pooled"
 
 
+def summarize_screen(output_dir=None):
+  d = _resolve_output_dir(output_dir)
+  if not d:
+    return ""
+  import json
+
+  sel = os.path.join(d, "metadata", "selected_eos.json")
+  scores = os.path.join(d, "metadata", "proxy_scores.json")
+  if not os.path.exists(sel):
+    return ""
+  try:
+    with open(sel) as f:
+      n_sel = len(json.load(f))
+    n_all = n_sel
+    if os.path.exists(scores):
+      with open(scores) as f:
+        n_all = len(json.load(f))
+  except Exception:
+    return ""
+  return f"kept {n_sel} of {n_all} descriptors"
+
+
 def summarize_holdout(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
@@ -315,6 +337,7 @@ SUMMARIES = {
   "describe": summarize_describe,
   "projections": summarize_projections,
   "treat": summarize_treat,
+  "screen": summarize_screen,
   "estimate": summarize_estimate,
   "pool": summarize_pool,
   "holdout": summarize_holdout,

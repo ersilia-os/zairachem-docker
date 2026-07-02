@@ -50,8 +50,15 @@ class Describer(ZairaBase):
   def _get_models(self):
     with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
       data = json.load(f)
-    models = data["featurizer_ids"] + data["projection_ids"]
-    return models
+    featurizers = data["featurizer_ids"]
+    if self.is_predict():
+      # Only the descriptors the trained model actually uses (the --max-descriptors selection when it
+      # was screened, else all) — no point featurizing descriptors the pooled model will ignore.
+      from zairachem.base.utils.descriptors import effective_descriptors
+
+      selected = set(effective_descriptors(self.get_trained_dir()))
+      featurizers = [m for m in featurizers if m in selected]
+    return featurizers + data["projection_ids"]
 
   def create_config_files(self):
     all_service_exists = service_exists(compose_yml_file, self.models)

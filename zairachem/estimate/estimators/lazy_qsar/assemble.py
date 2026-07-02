@@ -1,8 +1,7 @@
-import collections, json, joblib, os
+import collections, joblib, os
 import pandas as pd
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
-  DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   Y_HAT_FILE,
   RESULTS_UNMAPPED_FILENAME,
@@ -83,8 +82,9 @@ class OutcomeAssembler(ZairaBase):
       path_trained = self.get_trained_dir()
     else:
       path_trained = path
-    with open(os.path.join(path_trained, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      model_ids = list(json.load(f))
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    model_ids = effective_descriptors(path_trained)
     model_ids_successful = []
     for model_id in model_ids:
       if os.path.isfile(

@@ -87,6 +87,10 @@ MODEL_SUBFOLDER = "model"
 # Held-out evaluation sub-runs, one dir per fold (only written when --evaluate is set).
 FOLDS_SUBFOLDER = "folds"
 SPLITS_FILENAME = "splits.json"  # metadata/: the fold index definitions computed at setup
+# metadata/: the descriptor subset chosen by --max-descriptors pre-screening (a subset of the
+# featurizers in done_eos.json). When present it overrides done_eos.json for training/pool/report.
+SELECTED_EOS_FILENAME = "selected_eos.json"
+PROXY_SCORES_FILENAME = "proxy_scores.json"  # metadata/: per-descriptor proxy AUROC from screening
 VALIDATION_TABLE_FILENAME = "validation_table.csv"  # report/: per-fold held-out metrics
 REPORT_SUBFOLDER = "report"
 # Deliverables live under results/. OUTPUT_FILENAME is deliverable-only, so it carries the results/

@@ -717,8 +717,8 @@ class CvCutoffPlot(_CvBarPlot):
 
 
 class CvRocPlot(BasePlot):
-  """Overlaid out-of-fold ROC curves, one per descriptor. Lines carry the descriptor identity colour
-  (the HTML bar strip is the shared legend), so no in-plot legend is drawn."""
+  """Overlaid out-of-fold ROC curves, one per descriptor (identity-coloured), with a bottom-right
+  legend giving each descriptor's OOF AUROC."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
@@ -736,24 +736,26 @@ class CvRocPlot(BasePlot):
       if len(set(yv)) < 2:
         continue
       fpr, tpr, _ = roc_curve(yv, proba)
-      curves.append((s["descriptor"], fpr, tpr))
+      curves.append((s["descriptor"], s.get("oof_auc"), fpr, tpr))
     if not curves:
       self.is_available = False
       return
     ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", zorder=1)
-    for name, fpr, tpr in curves:
-      ax.plot(fpr, tpr, color=color_of[name], lw=1.6, alpha=0.9, zorder=2)
+    for name, a, fpr, tpr in curves:
+      label = f"{name} ({a:.2f})" if a is not None else name
+      ax.plot(fpr, tpr, color=color_of[name], lw=1.6, alpha=0.9, zorder=2, label=label)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("1-Specificity (FPR)")
     ax.set_ylabel("Sensitivity (TPR)")
     ax.set_title("Cross-validation ROC")
+    ax.legend(loc="lower right", fontsize=6)
     self.is_available = True
 
 
 class CvPrPlot(BasePlot):
-  """Overlaid out-of-fold precision-recall curves, one per descriptor (identity-coloured, no legend).
-  The dashed line is the no-skill prior (base rate of actives)."""
+  """Overlaid out-of-fold precision-recall curves, one per descriptor (identity-coloured), with a
+  bottom-left legend giving each descriptor's AUPRC. The dashed line is the no-skill prior."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
@@ -771,20 +773,29 @@ class CvPrPlot(BasePlot):
       if len(set(yv)) < 2:
         continue
       precision, recall, _ = precision_recall_curve(yv, proba)
-      curves.append((s["descriptor"], recall, precision))
+      curves.append((s["descriptor"], average_precision_score(yv, proba), recall, precision))
       prior = float(np.mean(yv))
     if not curves:
       self.is_available = False
       return
     if prior is not None:
       ax.plot([0, 1], [prior, prior], color=named_colors.gray, lw=1, ls="--", zorder=1)
-    for name, recall, precision in curves:
-      ax.plot(recall, precision, color=color_of[name], lw=1.6, alpha=0.9, zorder=2)
+    for name, ap, recall, precision in curves:
+      ax.plot(
+        recall,
+        precision,
+        color=color_of[name],
+        lw=1.6,
+        alpha=0.9,
+        zorder=2,
+        label=f"{name} ({ap:.2f})",
+      )
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.03)
     ax.set_xlabel("Recall (sensitivity)")
     ax.set_ylabel("Precision")
     ax.set_title("Cross-validation precision-recall")
+    ax.legend(loc="lower left", fontsize=6)
     self.is_available = True
 
 

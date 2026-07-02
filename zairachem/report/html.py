@@ -59,6 +59,15 @@ _CATEGORIES = [
     ["pr-curve", "enrichment-curve", "enrichment-factor", "threshold-sweep"],
   ),
   (
+    "screening",
+    "Descriptor selection",
+    "Descriptors are pre-screened by their mean held-out AUROC across the chemistry-aware splits; "
+    "only the top ones (green) are fully trained and pooled into the model. Descriptors dropped at "
+    "screening are shown in red. Absent when every descriptor was trained (no --max-descriptors "
+    "pruning).",
+    [],
+  ),
+  (
     "validation",
     "Held-out validation",
     "Out-of-sample pooled AUROC/AUPR under random, scaffold and Butina 80:20 splits, repeated "
@@ -501,6 +510,45 @@ def _validation_table_html(report_dir):
       f"<tr{cls}><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{au}</td><td>{ap}</td></tr>"
     )
   head = "<th>Split schema</th><th>Folds</th><th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
+  return (
+    "<div class='table-wrap'><table class='metrics'>"
+    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+  )
+
+
+def _screening_table_html(output_dir):
+  """Per-descriptor pre-screening table (proxy AUROC + Selected/Not-selected badge), or ''.
+
+  Reads ``metadata/proxy_scores.json`` (all candidates) + ``metadata/selected_eos.json`` (the kept
+  subset), written by the --max-descriptors screening step. Rendered only when screening actually
+  pruned; a run that trained every descriptor has no proxy scores and the section is omitted.
+  """
+  meta = os.path.join(output_dir, "metadata")
+  try:
+    with open(os.path.join(meta, "proxy_scores.json")) as f:
+      scores = json.load(f)
+    with open(os.path.join(meta, "selected_eos.json")) as f:
+      selected = set(json.load(f))
+  except Exception:
+    return ""
+  if not scores:
+    return ""
+  body = []
+  for eos_id in sorted(scores, key=lambda e: scores[e], reverse=True):
+    keep = eos_id in selected
+    badge = (
+      "<span style='background:#3fb95022;color:#2ea043;padding:2px 9px;border-radius:10px;"
+      "font-weight:600;font-size:12px'>Selected</span>"
+      if keep
+      else "<span style='background:#f8514922;color:#cf222e;padding:2px 9px;border-radius:10px;"
+      "font-weight:600;font-size:12px'>Not selected</span>"
+    )
+    cls = "" if keep else " style='opacity:.6'"
+    body.append(
+      f"<tr{cls}><td>{html.escape(eos_id)}</td>"
+      f"<td>{_fmt_num(scores[eos_id])}</td><td>{badge}</td></tr>"
+    )
+  head = "<th>Descriptor</th><th>Held-out AUROC (screening)</th><th>Status</th>"
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -1116,8 +1164,28 @@ def _chemical_space_html(output_dir, report_dir, present, assigned):
   return legend + grid
 
 
+def _oof_aupr(oof_path):
+  """AUPRC (average precision) from a descriptor's out-of-fold predictions, or None."""
+  try:
+    from sklearn.metrics import average_precision_score
+
+    ys, ps = [], []
+    with open(oof_path) as fh:
+      for row in csv.DictReader(fh):
+        ys.append(int(float(row["y"])))
+        ps.append(float(row["oof_proba"]))
+    if len(set(ys)) < 2:
+      return None
+    return float(average_precision_score(ys, ps))
+  except Exception:
+    return None
+
+
 def _read_cv_stats(output_dir):
-  """Per-descriptor lazy-qsar CV reports (estimators/*/*/cv_report.json), best OOF AUROC first."""
+  """Per-descriptor lazy-qsar CV reports (estimators/*/*/cv_report.json), best OOF AUROC first.
+
+  Each report is enriched with ``aupr`` (average precision computed from the sibling oof.csv), so the
+  cached cv_stats.json — and the table built from it — carries the inner-CV AUPRC alongside AUROC."""
   stats = []
   pattern = os.path.join(output_dir, ESTIMATORS_SUBFOLDER, "*", "*", "cv_report.json")
   for f in glob.glob(pattern):
@@ -1125,6 +1193,7 @@ def _read_cv_stats(output_dir):
       with open(f) as fh:
         rep = json.load(fh)
       rep["descriptor"] = os.path.basename(os.path.dirname(f))
+      rep["aupr"] = _oof_aupr(os.path.join(os.path.dirname(f), "oof.csv"))
       stats.append(rep)
     except Exception:
       continue
@@ -1153,10 +1222,10 @@ def _cv_table_html(cv_stats):
   cols = [
     ("descriptor", "Descriptor"),
     ("oof_auc", "Inner CV AUROC"),
+    ("aupr", "Inner CV AUPRC"),
     ("train_auc", "Train AUROC"),
     ("overfit_gap", "Overfit gap"),
-    ("portfolio", "Algorithms"),
-    ("decision_cutoff_proba", "Cutoff"),
+    ("decision_cutoff_proba", "Ideal Cutoff"),
   ]
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
@@ -1166,8 +1235,6 @@ def _cv_table_html(cv_stats):
       v = r.get(k)
       if k == "descriptor":
         cell = html.escape(str(v))
-      elif k == "portfolio":
-        cell = html.escape(", ".join(v) if isinstance(v, list) else str(v or "—"))
       elif v is None:
         cell = "—"
       elif k == "overfit_gap":
@@ -1573,6 +1640,8 @@ def write_html_report(output_dir):
       inner = perf_table + grid
     elif anchor == "validation":
       inner = _validation_table_html(report_dir) + grid
+    elif anchor == "screening":
+      inner = _screening_table_html(output_dir) + grid
     else:
       inner = grid
     if inner:

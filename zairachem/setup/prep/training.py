@@ -89,6 +89,7 @@ class TrainSetup(BaseSetup):
     evaluate=False,
     evaluate_repeats=3,
     evaluate_schemas=None,
+    max_descriptors=3,
   ):
     if output_dir is None:
       output_dir = input_file.split(".")[0]
@@ -136,6 +137,10 @@ class TrainSetup(BaseSetup):
       "evaluate_repeats": max(0, int(evaluate_repeats)),
       # Which fold families to run (subset of holdout.splits.FOLD_SCHEMAS); None = all four.
       "evaluate_schemas": list(evaluate_schemas) if evaluate_schemas else None,
+      # Pre-screen descriptors and fully train only the top-K (classification only); None = train all.
+      "max_descriptors": int(max_descriptors)
+      if max_descriptors and task == "classification"
+      else None,
     }
     # Set True by run_fit when continuing an unfinished run in an existing dir (no --override).
     self.resume = False
@@ -210,6 +215,11 @@ class TrainSetup(BaseSetup):
       "featurizer_ids": ("featurizers", self.featurizer_ids, disk.get("featurizer_ids")),
       "projection_ids": ("projections", self.projection_ids, disk.get("projection_ids")),
       "store": ("store", self.params.get("store"), disk.get("store")),
+      "max_descriptors": (
+        "max descriptors",
+        self.params.get("max_descriptors"),
+        disk.get("max_descriptors"),
+      ),
     }
     conflicts = [
       f"{label} (requested {cli!r}, trained with {dsk!r})"
@@ -336,6 +346,16 @@ class TrainSetup(BaseSetup):
       rows.append(("Compounds", f"[bold]{n_compounds:,}[/]"))
     rows.append(("Activity column", f"[cyan]{values_column}[/]"))
     rows.append(("Featurizers", "  ".join(f"[green]{m}[/]" for m in self.featurizer_ids)))
+    md = self.params.get("max_descriptors")
+    if self.task == "classification" and md:
+      n = len(self.featurizer_ids)
+      if md < n:
+        rows.append((
+          "Ensemble cap",
+          f"top [bold]{md}[/] of {n} [dim](pre-screened by held-out AUROC)[/]",
+        ))
+      else:
+        rows.append(("Ensemble cap", f"[dim]all {n} (no pre-screening)[/]"))
     if self.projection_ids:
       proj = "MW vs LogP  " + "  ".join(f"[green]{m}[/]" for m in self.projection_ids)
     else:

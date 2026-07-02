@@ -17,7 +17,6 @@ from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
-  DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   Y_HAT_FILE,
 )
@@ -463,9 +462,11 @@ class Estimator(ZairaBase):
       path_trained = self.get_trained_dir()
     else:
       path_trained = path
-    with open(os.path.join(path_trained, DESCRIPTORS_SUBFOLDER, "done_eos.json"), "r") as f:
-      model_ids = list(json.load(f))
-    return model_ids
+    # Train only the descriptors the run actually uses (the --max-descriptors subset when screened,
+    # else every featurizer in done_eos.json).
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    return effective_descriptors(path_trained)
 
   def _read_cv_result(self, model_id):
     """Per-descriptor result for the live table, read from persisted artifacts.

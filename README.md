@@ -97,6 +97,7 @@ Run `zairachem <command> --help` for the authoritative, always-current options. 
 | `--skip-report` | off | Skip the plots/HTML report (still writes the results tables). |
 | `--keep-intermediate-data` | off | Keep descriptor matrices etc. instead of cleaning up. |
 | `--anonymize` | off | Blank out SMILES / InChIKey in all outputs. |
+| `--max-descriptors` | `3` | Cap the ensemble at the top-K descriptors, pre-screened by mean held-out AUROC across the chemistry-aware splits (classification only). Set ≥ the number you provide (e.g. `10`) to train all. Hard cap is 10. |
 | `--evaluate` | off | Held-out validation (classification only). Bare = all schemas (random, scaffold, scaffold_det, butina); or a subset, e.g. `--evaluate scaffold,random`. |
 | `--repeats` | `3` | Held-out repeats per schema when `--evaluate` is set (total folds = 1 + 3 × repeats). |
 

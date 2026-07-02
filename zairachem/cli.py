@@ -99,6 +99,16 @@ def process_group(
   Imputer(path=None, batch_size=batch_size).run()
   tracker.complete("treat", SUMMARIES["treat"]())
 
+  # Descriptor pre-screening (--max-descriptors). Self-gates on params["max_descriptors"]; a no-op
+  # otherwise. Runs after treat (needs the treated matrices) and before estimate so only the selected
+  # descriptors are fully trained.
+  from zairachem.screen.pipe import ScreenPipeline
+
+  logger.configure()
+  tracker.start("screen")
+  ScreenPipeline(path=None, batch_size=batch_size).run()
+  tracker.complete("screen", SUMMARIES["screen"]())
+
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
   import time
 
@@ -481,6 +491,16 @@ def cli(verbose):
   "Total folds = 1 + 3 × repeats (so --repeats 0 leaves only the deterministic scaffold_det). Lower "
   "it to cut compute proportionally — each fold still refits the exact production pipeline.",
 )
+@click.option(
+  "--max-descriptors",
+  "max_descriptors",
+  default=3,
+  type=int,
+  help="Cap the ensemble at the top-K descriptors (default: 3). They are pre-screened by mean held-out "
+  "AUROC across the chemistry-aware splits (shallow proxy model, floor 0.55) and only the top-K are "
+  "fully trained — cutting training cost and yielding a leaner model. Set it ≥ the number of "
+  "descriptors you provide (e.g. 10) to train them all. Classification only; the hard cap is 10.",
+)
 def fit(
   input_file,
   classification,
@@ -496,6 +516,7 @@ def fit(
   describe_workers,
   evaluate,
   evaluate_repeats,
+  max_descriptors,
 ):
   from zairachem.setup.run_fit import run as run_fit
 
@@ -525,14 +546,20 @@ def fit(
       "store",
       "evaluate",
       "evaluate_repeats",
+      "max_descriptors",
     )
     if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
   }
-  # The holdout (Evaluate) step is only part of the pipeline when --evaluate is set; drop it from the
-  # tracker order otherwise so step numbering and the run header reflect what actually runs.
+  # The optional screen (--max-descriptors) and holdout (--evaluate) steps are only in the pipeline
+  # when their flags are set; drop them from the tracker order otherwise so step numbering and the run
+  # header reflect what actually runs.
   from zairachem.base.utils.pipeline_tracker import PIPELINE_STEPS
 
-  steps = [k for k, _, _ in PIPELINE_STEPS if k != "holdout" or evaluate_on]
+  steps = [
+    k
+    for k, _, _ in PIPELINE_STEPS
+    if (k != "holdout" or evaluate_on) and (k != "screen" or (max_descriptors and classification))
+  ]
   tracker.begin(
     "ZairaChem · QSAR training",
     subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(model_dir))} · {task}",
@@ -550,6 +577,7 @@ def fit(
     evaluate=evaluate_on,
     evaluate_repeats=evaluate_repeats,
     evaluate_schemas=evaluate_schemas,
+    max_descriptors=max_descriptors,
   )
   if proceed:
     process_group(
