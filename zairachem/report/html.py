@@ -23,6 +23,7 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   GITHUB_ORG,
   INPUT_SCHEMA_FILENAME,
+  OUTPUT_TABLE_FILENAME,
   REPORT_SUBFOLDER,
   SESSION_FILE,
 )
@@ -35,6 +36,28 @@ from zairachem.report import perf
 
 # Plots grouped into sections (anchor, heading, description, member stems). Unlisted → "More".
 _CATEGORIES = [
+  (
+    "predictions",
+    "Predictions",
+    "What the model says about these molecules: the spread of predicted probabilities and where the "
+    "decision cutoff falls, and the screening operating point (how many rank above the cutoff). "
+    "Shown for a prediction run without ground truth.",
+    ["predicted-score-hist", "predicted-rank-curve"],
+  ),
+  (
+    "confidence",
+    "Confidence",
+    "How much to trust each prediction: agreement across the individual descriptor models, "
+    "applicability-domain coverage (how far the queries sit from the training chemistry), the "
+    "rank-reliability spread, and the physico-chemical make-up of the predicted classes.",
+    [
+      "descriptor-consensus",
+      "ad-coverage",
+      "rank-distribution",
+      "predicted-property-mw",
+      "predicted-property-logp",
+    ],
+  ),
   (
     "performance",
     "Model performance",
@@ -153,6 +176,18 @@ _TITLES = {
   "class-waffle": "Class balance (waffle)",
   "property-mw": "Molecular weight",
   "property-logp": "LogP",
+  "predicted-score-hist": "Predicted score distribution",
+  "predicted-rank-curve": "Ranked scores (operating point)",
+  "descriptor-consensus": "Descriptor consensus",
+  "ad-coverage": "Applicability-domain coverage",
+  "rank-distribution": "Rank reliability",
+  "predicted-property-mw": "Molecular weight (by predicted class)",
+  "predicted-property-logp": "LogP (by predicted class)",
+  "projection-mwlogp-proba": "MW vs LogP · by score",
+  "projection-pca-proba": "PCA · by score",
+  "projection-umap-proba": "UMAP · by score",
+  "projection-tsne-proba": "t-SNE · by score",
+  "projection-tmap-proba": "TMAP · by score",
   "overview": "Report overview",
   "step-timing": "Step timing",
   "phase-time": "Time by phase",
@@ -503,6 +538,59 @@ def _performance_table_html(report_dir):
     body.append(f"<tr{cls}>{''.join(cells)}</tr>")
   return (
     "<div class='table-wrap'><table class='metrics'>"
+    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+  )
+
+
+def _hitlist_table_html(report_dir, top_n=25):
+  """Top predictions by score — the actionable deliverable of a predict report (SMILES + scores).
+
+  Reads the already-written ``output_table.csv``, ranks by pooled probability and shows the top N with
+  the binary call, per-descriptor consensus (std of the individual descriptor probabilities) and, when
+  present, the applicability-domain in-domain fraction. No structure depictions."""
+  import numpy as _np
+  import pandas as _pd
+
+  path = os.path.join(report_dir, OUTPUT_TABLE_FILENAME)
+  if not os.path.exists(path):
+    return ""
+  try:
+    df = _pd.read_csv(path)
+  except Exception:
+    return ""
+  if "pred-value" not in df.columns or len(df) == 0:
+    return ""
+  total = len(df)
+  desc_cols = [c for c in df.columns if c.startswith("lq_estimators-")]
+  has_ad = "ad" in df.columns
+  top = df.sort_values("pred-value", ascending=False).head(top_n)
+  headers = ["#", "SMILES", "Score", "Call"]
+  if desc_cols:
+    headers.append("Consensus")
+  if has_ad:
+    headers.append("In-domain")
+  head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+  body = []
+  for i, (_, r) in enumerate(top.iterrows(), start=1):
+    try:
+      call = int(r["clf_bin"]) if "clf_bin" in top.columns else int(float(r["pred-value"]) >= 0.5)
+    except Exception:
+      call = int(float(r.get("pred-value", 0) or 0) >= 0.5)
+    cells = [
+      f"<td>{i}</td>",
+      f"<td class='smiles'>{html.escape(str(r.get('input-smiles', '')))}</td>",
+      f"<td>{_fmt_num(r['pred-value'])}</td>",
+      f"<td>{'active' if call == 1 else 'inactive'}</td>",
+    ]
+    if desc_cols:
+      spread = float(_np.nanstd(_np.asarray([r[c] for c in desc_cols], dtype=float)))
+      cells.append(f"<td>{_fmt_num(spread)}</td>")
+    if has_ad:
+      cells.append(f"<td>{_fmt_num(r['ad'])}</td>")
+    body.append(f"<tr>{''.join(cells)}</tr>")
+  note = f"<p class='muted'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
+  return (
+    note + "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
   )
 
@@ -1685,6 +1773,18 @@ def write_html_report(output_dir):
   rendered_groups = set()
   # (The Overview poster is intentionally omitted for now.)
   sections.append(("config", "Configuration", "Run settings and model identifiers.", config_table))
+  # Predict deliverable: the top-scoring molecules, up front (right after Configuration).
+  if kind == "Predict":
+    hitlist = _hitlist_table_html(report_dir)
+    if hitlist:
+      sections.append((
+        "hitlist",
+        "Hitlist",
+        "The highest-scoring molecules in this set — ranked by the pooled predicted probability, with "
+        "the binary call, the agreement across descriptor models, and the applicability-domain "
+        "coverage where available.",
+        hitlist,
+      ))
   perf_section = _computational_performance_html(output_dir, report_dir, present, assigned, params)
   if perf_section:
     sections.append((
@@ -1712,6 +1812,19 @@ def write_html_report(output_dir):
       "each computed projection (UMAP, t-SNE, …).",
       space_section,
     ))
+  elif kind == "Predict":
+    # No truth-keyed (projection-merged-*) maps in a prediction run — gather the projections coloured
+    # by predicted probability instead, so they form a proper Chemical space section (not "More").
+    proba = sorted(s for s in present if s.startswith("projection-") and s.endswith("-proba"))
+    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned)
+    if cards:
+      sections.append((
+        "space",
+        "Chemical space",
+        "Each 2-D projection coloured by the predicted probability — where the high- and low-scoring "
+        "molecules sit relative to one another in chemical space.",
+        "<div class='grid'>" + "".join(cards) + "</div>",
+      ))
   for anchor, heading, desc, members in _CATEGORIES:
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))

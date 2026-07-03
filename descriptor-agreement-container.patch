@@ -1,0 +1,345 @@
+diff --git a/zairachem/report/html.py b/zairachem/report/html.py
+index dd78810..4068e10 100644
+--- a/zairachem/report/html.py
++++ b/zairachem/report/html.py
+@@ -85,6 +85,11 @@ _CATEGORIES = [
+       "confusion-precision",
+       "confusion-breakdown",
+       "descriptor-correlation",
++      "descriptor-overlap-1pct",
++      "descriptor-overlap-5pct",
++      "descriptor-overlap-10pct",
++      "descriptor-dendrogram",
++      "descriptor-pooled-scatter",
+       "r2-individual",
+       "regression-raw",
+       "regression-trans",
+@@ -157,7 +162,12 @@ _TITLES = {
+   "confusion-normalized": "Confusion matrix (recall)",
+   "confusion-precision": "Confusion matrix (precision)",
+   "confusion-breakdown": "Outcome composition",
+-  "descriptor-correlation": "Descriptor prediction correlation",
++  "descriptor-correlation": "Prediction correlation (Spearman)",
++  "descriptor-overlap-1pct": "Top-1% shortlist overlap",
++  "descriptor-overlap-5pct": "Top-5% shortlist overlap",
++  "descriptor-overlap-10pct": "Top-10% shortlist overlap",
++  "descriptor-dendrogram": "Rank-agreement clustering",
++  "descriptor-pooled-scatter": "Descriptor vs pooled score",
+   "oof-score-proba": "Probability",
+   "oof-score-logit": "Log-odds",
+   "oof-score-rank": "Percentile rank",
+@@ -246,6 +256,19 @@ _GROUPS = [
+     "home": "performance",
+     "members": ["regression-trans", "regression-raw"],
+   },
++  {
++    "key": "correlation",
++    "title": "Descriptor agreement",
++    "home": "performance",
++    "members": [
++      "descriptor-correlation",
++      "descriptor-overlap-1pct",
++      "descriptor-overlap-5pct",
++      "descriptor-overlap-10pct",
++      "descriptor-dendrogram",
++      "descriptor-pooled-scatter",
++    ],
++  },
+   {
+     "key": "scoredist",
+     "title": "Score distribution",
+diff --git a/zairachem/report/plots.py b/zairachem/report/plots.py
+index b6a9386..823e56f 100644
+--- a/zairachem/report/plots.py
++++ b/zairachem/report/plots.py
+@@ -1728,6 +1728,45 @@ class ConfusionBreakdownPlot(BasePlot):
+     self.is_available = True
+ 
+ 
++def _descriptor_order(rf, columns):
++  """Descriptor result columns ordered best-first by inner-CV AUROC (falls back to input order for
++  any descriptor without CV stats), for a consistent reading across the agreement figures."""
++  ranked = [s["descriptor"] for s in rf.get_cv_stats()]
++  return sorted(
++    columns,
++    key=lambda c: ranked.index(c.split("-")[-1]) if c.split("-")[-1] in ranked else 999,
++  )
++
++
++def _agreement_heatmap(ax, m, labels, title, vmin):
++  """Draw a square descriptor-agreement heatmap (white→turquoise), annotated per cell.
++
++  ``m`` is a symmetric matrix in ``[0, 1]`` with a unit diagonal (a correlation or an overlap
++  fraction); ``vmin`` sets the low end of the colour ramp so the off-diagonal spread stays visible.
++  Shared by the correlation and top-shortlist-overlap plots so they read identically."""
++  from matplotlib.colors import LinearSegmentedColormap
++
++  cmap = LinearSegmentedColormap.from_list("stylia_seq", ["#ffffff", _color("inactive")])
++  ax.imshow(m, cmap=cmap, vmin=vmin, vmax=1.0)
++  ax.set_xticks(range(len(labels)))
++  ax.set_yticks(range(len(labels)))
++  ax.set_xticklabels(labels, fontsize=6, rotation=30, ha="right")
++  ax.set_yticklabels(labels, fontsize=6)
++  for i in range(len(labels)):
++    for j in range(len(labels)):
++      ax.text(
++        j,
++        i,
++        f"{m[i, j]:.2f}",
++        va="center",
++        ha="center",
++        fontsize=6,
++        color="white" if m[i, j] > 0.85 else "black",
++      )
++  ax.grid(False)
++  ax.set_title(title)
++
++
+ class DescriptorCorrelationPlot(BasePlot):
+   """Spearman correlation between the per-descriptor out-of-fold predictions — how redundant vs
+   complementary the descriptor models are (high = agree, lower = adds a distinct signal)."""
+@@ -1745,38 +1784,175 @@ class DescriptorCorrelationPlot(BasePlot):
+     df = rf._read_individual_estimator_results(tasks[0])
+     if df is None or df.shape[1] < 2:
+       return
+-    # Order descriptors best-first (by inner-CV AUROC) when available, for a consistent reading.
+-    ranked = [s["descriptor"] for s in rf.get_cv_stats()]
+-    cols = sorted(
+-      df.columns,
+-      key=lambda c: ranked.index(c.split("-")[-1]) if c.split("-")[-1] in ranked else 999,
++    cols = _descriptor_order(rf, df.columns)
++    m = df[cols].corr(method="spearman").values
++    labels = [c.split("-")[-1] for c in cols]
++    vmin = float(np.nanmin(m[~np.eye(len(m), dtype=bool)])) if len(m) > 1 else 0.0
++    _agreement_heatmap(
++      self.ax, m, labels, "Descriptor prediction correlation (Spearman)", max(0.0, vmin - 0.02)
+     )
+-    corr = df[cols].corr(method="spearman")
+-    m = corr.values
++    self.is_available = True
++
++
++class _DescriptorTopOverlapPlot(BasePlot):
++  """Pairwise overlap of each descriptor's top-fraction *shortlist* of molecules (by OOF score).
++
++  Each descriptor nominates its top ``⌈fraction·N⌉`` molecules; the cell is the **overlap
++  coefficient** ``|A∩B| / min(|A|,|B|)`` — with equal shortlist sizes this is simply the fraction of
++  the shortlist two descriptors agree on. It answers a sharper question than the overall Spearman
++  correlation: do the descriptors surface the *same hits* at the actionable end, even when their
++  full-ranking correlation is high? Classification only; subclasses set ``fraction``/``stem``."""
++
++  fraction = None
++  stem = None
++
++  def __init__(self, ax, path):
++    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
++    self.name = self.stem
++    self.is_available = False
++    if not self.has_clf_data():
++      return
++    rf = ResultsFetcher(path=path)
++    tasks = rf.get_clf_tasks()
++    if not tasks:
++      return
++    df = rf._read_individual_estimator_results(tasks[0])
++    if df is None or df.shape[1] < 2:
++      return
++    n = len(df)
++    k = int(np.ceil(self.fraction * n))
++    if (
++      k < 2 or k >= n
++    ):  # too few (or all) compounds — the top fraction isn't a meaningful shortlist
++      return
++    cols = _descriptor_order(rf, df.columns)
+     labels = [c.split("-")[-1] for c in cols]
+-    ax = self.ax
+-    from matplotlib.colors import LinearSegmentedColormap
++    # Index set of each descriptor's top-k molecules (highest OOF score = most active).
++    tops = [set(np.argsort(-df[c].to_numpy(dtype=float))[:k].tolist()) for c in cols]
++    d = len(cols)
++    m = np.eye(d)
++    for i in range(d):
++      for j in range(i + 1, d):
++        ov = len(tops[i] & tops[j]) / min(len(tops[i]), len(tops[j]))
++        m[i, j] = m[j, i] = ov
++    off = m[~np.eye(d, dtype=bool)]
++    vmin = max(0.0, float(np.nanmin(off)) - 0.02) if off.size else 0.0
++    pct = f"{self.fraction * 100:g}"
++    _agreement_heatmap(self.ax, m, labels, f"Top-{pct}% shortlist overlap (n={k})", vmin)
++    self.is_available = True
+ 
+-    cmap = LinearSegmentedColormap.from_list("stylia_seq", ["#ffffff", _color("inactive")])
+-    vmin = float(np.nanmin(m[~np.eye(len(m), dtype=bool)])) if len(m) > 1 else 0.0
+-    ax.imshow(m, cmap=cmap, vmin=max(0.0, vmin - 0.02), vmax=1.0)
+-    ax.set_xticks(range(len(labels)))
+-    ax.set_yticks(range(len(labels)))
+-    ax.set_xticklabels(labels, fontsize=6, rotation=30, ha="right")
+-    ax.set_yticklabels(labels, fontsize=6)
+-    for i in range(len(labels)):
+-      for j in range(len(labels)):
+-        ax.text(
+-          j,
+-          i,
+-          f"{m[i, j]:.2f}",
+-          va="center",
+-          ha="center",
+-          fontsize=6,
+-          color="white" if m[i, j] > 0.85 else "black",
+-        )
+-    ax.grid(False)
+-    ax.set_title("Descriptor prediction correlation (Spearman)")
++
++class DescriptorTopOverlap1Plot(_DescriptorTopOverlapPlot):
++  fraction = 0.01
++  stem = "descriptor-overlap-1pct"
++
++
++class DescriptorTopOverlap5Plot(_DescriptorTopOverlapPlot):
++  fraction = 0.05
++  stem = "descriptor-overlap-5pct"
++
++
++class DescriptorTopOverlap10Plot(_DescriptorTopOverlapPlot):
++  fraction = 0.10
++  stem = "descriptor-overlap-10pct"
++
++
++class DescriptorDendrogramPlot(BasePlot):
++  """Hierarchical clustering of the descriptors by rank agreement (distance = 1 − Spearman, average
++  linkage). Descriptors that merge early make near-redundant predictions; one that joins late adds a
++  distinct signal to the pool. Classification only, fit-only. Skipped if SciPy is unavailable."""
++
++  def __init__(self, ax, path):
++    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
++    self.name = "descriptor-dendrogram"
++    self.is_available = False
++    if not self.has_clf_data():
++      return
++    rf = ResultsFetcher(path=path)
++    tasks = rf.get_clf_tasks()
++    if not tasks:
++      return
++    df = rf._read_individual_estimator_results(tasks[0])
++    if df is None or df.shape[1] < 3:  # a dendrogram of two leaves carries no structure
++      return
++    try:
++      from scipy.cluster.hierarchy import dendrogram, linkage
++      from scipy.spatial.distance import squareform
++    except Exception:
++      return
++    cols = _descriptor_order(rf, df.columns)
++    labels = [c.split("-")[-1] for c in cols]
++    corr = df[cols].corr(method="spearman").values
++    dist = 1.0 - corr
++    np.fill_diagonal(dist, 0.0)
++    dist = (dist + dist.T) / 2.0  # enforce exact symmetry for squareform
++    z = linkage(squareform(dist, checks=False), method="average")
++    dendrogram(
++      z,
++      labels=labels,
++      orientation="left",
++      ax=self.ax,
++      color_threshold=0,
++      above_threshold_color=_color("inactive"),
++    )
++    for lbl in self.ax.get_yticklabels():
++      lbl.set_fontsize(7)
++    self.ax.tick_params(axis="x", labelsize=6)
++    self.ax.set_xlabel("1 − Spearman")
++    self.ax.set_title("Descriptor rank-agreement clustering")
++    self.is_available = True
++
++
++class PooledVsDescriptorScatterPlot(BasePlot):
++  """Small-multiples: each descriptor's out-of-fold score vs the pooled model's OOF score, one panel
++  per descriptor with the Spearman ρ. Shows which descriptors the pool tracks most closely (ρ→1,
++  points hugging the diagonal) and which pull against it. Classification only, fit-only."""
++
++  def __init__(self, ax, path):
++    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 4))
++    self.name = "descriptor-pooled-scatter"
++    self.is_available = False
++    if not self.has_clf_data():
++      return
++    rf = ResultsFetcher(path=path)
++    tasks = rf.get_clf_tasks()
++    if not tasks:
++      return
++    df = rf._read_individual_estimator_results(tasks[0])
++    pooled = rf._read_pooled_results()
++    if df is None or df.shape[1] < 1 or pooled is None or tasks[0] not in pooled.columns:
++      return
++    p = pooled[tasks[0]].to_numpy(dtype=float)
++    if len(p) != len(df):  # pooled and per-descriptor frames must be row-aligned (compound order)
++      return
++    cols = _descriptor_order(rf, df.columns)
++    labels = [c.split("-")[-1] for c in cols]
++    import math
++
++    # Replace the single default axes with a grid of per-descriptor panels on the same figure.
++    fig = self.ax.figure
++    self.ax.remove()
++    ncol = min(3, len(cols))
++    nrow = math.ceil(len(cols) / ncol)
++    gs = fig.add_gridspec(nrow, ncol, hspace=0.6, wspace=0.4)
++    color = _color("inactive")
++    p_series = pd.Series(p)
++    for idx, (c, lbl) in enumerate(zip(cols, labels)):
++      ax = fig.add_subplot(gs[idx // ncol, idx % ncol])
++      x = df[c].to_numpy(dtype=float)
++      ax.scatter(x, p, s=3, alpha=0.35, color=color, edgecolors="none", rasterized=True)
++      ax.plot([0, 1], [0, 1], color="#bbbbbb", lw=0.6, ls="--")
++      rho = pd.Series(x).corr(p_series, method="spearman")
++      ax.set_title(f"{lbl}  ρ={rho:.2f}" if rho == rho else lbl, fontsize=7)
++      ax.set_xlim(0, 1)
++      ax.set_ylim(0, 1)
++      ax.set_xticks([0, 0.5, 1])
++      ax.set_yticks([0, 0.5, 1])
++      ax.tick_params(labelsize=6)
++      if idx % ncol == 0:
++        ax.set_ylabel("Pooled", fontsize=7)
++      if idx // ncol == nrow - 1:
++        ax.set_xlabel("Descriptor", fontsize=7)
+     self.is_available = True
+ 
+ 
+diff --git a/zairachem/report/report.py b/zairachem/report/report.py
+index 7bc9425..46ac7c7 100644
+--- a/zairachem/report/report.py
++++ b/zairachem/report/report.py
+@@ -51,6 +51,11 @@ from zairachem.report.plots import (
+   ConfusionPrecisionPlot,
+   ConfusionBreakdownPlot,
+   DescriptorCorrelationPlot,
++  DescriptorTopOverlap1Plot,
++  DescriptorTopOverlap5Plot,
++  DescriptorTopOverlap10Plot,
++  DescriptorDendrogramPlot,
++  PooledVsDescriptorScatterPlot,
+   PropertyMwPlot,
+   PropertyLogpPlot,
+   PredictedPropertyMwPlot,
+@@ -121,6 +126,11 @@ _PLOT_SPECS = [
+   ("confusion-precision", ConfusionPrecisionPlot),
+   ("confusion-breakdown", ConfusionBreakdownPlot),
+   ("descriptor-correlation", DescriptorCorrelationPlot),
++  ("descriptor-overlap-1pct", DescriptorTopOverlap1Plot),
++  ("descriptor-overlap-5pct", DescriptorTopOverlap5Plot),
++  ("descriptor-overlap-10pct", DescriptorTopOverlap10Plot),
++  ("descriptor-dendrogram", DescriptorDendrogramPlot),
++  ("descriptor-pooled-scatter", PooledVsDescriptorScatterPlot),
+   ("heldout-validation", HeldOutValidationPlot),
+   ("property-mw", PropertyMwPlot),
+   ("property-logp", PropertyLogpPlot),
+@@ -148,6 +158,11 @@ _FIT_ONLY = {
+   "cv-roc",
+   "cv-pr",
+   "descriptor-correlation",
++  "descriptor-overlap-1pct",
++  "descriptor-overlap-5pct",
++  "descriptor-overlap-10pct",
++  "descriptor-dendrogram",
++  "descriptor-pooled-scatter",
+   "heldout-validation",
+ }
+ 

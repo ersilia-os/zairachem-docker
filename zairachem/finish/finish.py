@@ -256,7 +256,11 @@ class Finisher(ZairaBase):
     self.keep_intermediate_data = keep_intermediate_data
 
   def _anonymize(self):
-    Anonymizer(path=self.path).run()
+    # At predict, anonymize ONLY the prediction output — never the shared trained model directory
+    # (CLEAN_TARGET_ALL would blank the model's training data + delete its raw input, corrupting it
+    # for every later run). At fit, output_dir IS the model dir, so ALL is correct.
+    target = CLEAN_TARGET_PREDICT if self.is_predict() else CLEAN_TARGET_ALL
+    Anonymizer(path=self.path, target=target).run()
 
   @staticmethod
   def _rm(path):
@@ -280,7 +284,10 @@ class Finisher(ZairaBase):
     live in ``results/`` (with per-descriptor columns in the output table). Gated by
     ``keep_intermediate_data``.
     """
-    Cleaner(path=self.path).run()
+    # Predict cleans only its own descriptor matrices — not the shared trained model's (ALL would
+    # reach into trained_dir). Fit's output_dir is the model dir, so ALL is correct there.
+    clean_target = CLEAN_TARGET_PREDICT if self.is_predict() else CLEAN_TARGET_ALL
+    Cleaner(path=self.path, target=clean_target).run()
     data_dir = os.path.join(self.path, DATA_SUBFOLDER)
     # NB: raw_input.csv, projections.csv/.json and mapping.csv are deliberately NOT trimmed — the
     # report reads them, and keeping them (all tiny) lets a finished model be re-reported / re-run.

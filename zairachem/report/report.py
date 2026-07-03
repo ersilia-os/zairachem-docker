@@ -20,6 +20,12 @@ from zairachem.report.plots import (
   OofScoreRawPointsPlot,
   ProjectionMergedPlot,
   ProjectionClassPlot,
+  ProjectionProbaPlot,
+  PredictedScoreHistogramPlot,
+  ScoreRankCurvePlot,
+  DescriptorConsensusPlot,
+  AdCoveragePlot,
+  RankDistributionPlot,
   RegressionPlotRaw,
   HistogramPlotRaw,
   RegressionPlotTransf,
@@ -47,6 +53,8 @@ from zairachem.report.plots import (
   DescriptorCorrelationPlot,
   PropertyMwPlot,
   PropertyLogpPlot,
+  PredictedPropertyMwPlot,
+  PredictedPropertyLogpPlot,
   ClassDonutPlot,
   ClassWafflePlot,
   StepTimingPlot,
@@ -72,6 +80,12 @@ _PLOT_SPECS = [
   ("roc-curve", RocCurvePlot),
   ("score-violin", ScoreViolinPlot),
   ("score-strip", ScoreStripPlot),
+  # Predict-only (truth-free): render only when there is no ground-truth column.
+  ("predicted-score-hist", PredictedScoreHistogramPlot),
+  ("predicted-rank-curve", ScoreRankCurvePlot),
+  ("descriptor-consensus", DescriptorConsensusPlot),
+  ("ad-coverage", AdCoveragePlot),
+  ("rank-distribution", RankDistributionPlot),
   ("oof-score-proba", OofScoreProbaPlot),
   ("oof-score-logit", OofScoreLogitPlot),
   ("oof-score-rank", OofScoreRankPlot),
@@ -110,12 +124,32 @@ _PLOT_SPECS = [
   ("heldout-validation", HeldOutValidationPlot),
   ("property-mw", PropertyMwPlot),
   ("property-logp", PropertyLogpPlot),
+  ("predicted-property-mw", PredictedPropertyMwPlot),
+  ("predicted-property-logp", PredictedPropertyLogpPlot),
   ("step-timing", StepTimingPlot),
   ("phase-time", PhaseTimeDonutPlot),
   ("resource-timeline", ResourceTimelinePlot),
   ("compute-provenance", ProvenanceBarPlot),
   ("model-timing", PerModelTimingPlot),
 ]
+
+# Train-only diagnostics: these describe the TRAINED model (their cross-validation data is read from
+# the model directory, not the current run), so they are meaningless — and misleading — in a predict
+# report, which is about the NEW molecules. Excluded when running in predict mode.
+_FIT_ONLY = {
+  "cv-auroc",
+  "cv-aupr",
+  "cv-mcc",
+  "cv-f1",
+  "cv-balacc",
+  "cv-precision",
+  "cv-recall",
+  "cv-cutoff",
+  "cv-roc",
+  "cv-pr",
+  "descriptor-correlation",
+  "heldout-validation",
+}
 
 
 class Reporter(ZairaBase):
@@ -145,7 +179,10 @@ class Reporter(ZairaBase):
     single-plot filter). ``label`` is the human-readable figure name shown in the progress table.
     Projection figures are expanded from the run's manifest."""
     jobs = []
+    predict = self.is_predict()
     for name, cls in _PLOT_SPECS:
+      if predict and name in _FIT_ONLY:
+        continue  # train-only diagnostic — not shown in a predict report
       if not self.__skip(name):
         jobs.append((name.replace("-", " "), cls, {}))
     # Per projection (always at least MW-vs-LogP): a merged density map + one map per class.
@@ -163,6 +200,13 @@ class Reporter(ZairaBase):
             ProjectionClassPlot,
             {"projection": proj, "cls": cls},
           ))
+      # Predict-only: same projection coloured by predicted probability (renders only without truth).
+      if not self.__skip(f"projection-{proj['name']}-proba"):
+        jobs.append((
+          f"projection {proj['name']} score",
+          ProjectionProbaPlot,
+          {"projection": proj},
+        ))
     return jobs
 
   def _render_plots(self, jobs):
