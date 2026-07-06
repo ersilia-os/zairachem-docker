@@ -9,6 +9,7 @@ import rich_click as click
 import rich_click.rich_click as rc
 from click.core import ParameterSource
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.rich_help import StatusGroupMixin
 from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE, NGINX_IMAGE
 
 # Heavy pipeline classes (Describer, EstimatorPipeline, Reporter, run_fit, ...) pull in
@@ -34,10 +35,6 @@ rc.STYLE_METAVAR = "italic yellow"
 rc.STYLE_SWITCH = "underline cyan"
 rc.STYLE_USAGE = "bold blue"
 rc.STYLE_OPTION_DEFAULT = "dim italic"
-# Fix a proportional command-name/description column split so the description columns line up
-# across BOTH panels (otherwise each panel auto-sizes to its own longest command name and the
-# two panels misalign).
-rc.STYLE_COMMANDS_TABLE_COLUMN_WIDTH_RATIO = (1, 9)
 
 # Main commands get a bold-green panel border to stand out; the advanced pipeline steps are
 # dimmed (border + rows) so they clearly read as secondary.
@@ -294,8 +291,12 @@ def common_options(
           "-p",
           "projection_ids",
           required=False,
+          is_flag=False,
+          flag_value="none",
           default=None,
-          help="Projection model ID(s) for the report's 2-D embedding (default: eos1klk). Overrides any projection_ids in a --featurizer-ids JSON file.",
+          help="Projection model ID(s) for the report's 2-D embedding (default: eos1klk). Pass "
+          "'none' — or a bare -p — to skip Ersilia projections and show only the built-in MW-vs-LogP "
+          "map. Overrides any projection_ids in a --featurizer-ids JSON file.",
         )
       )
     if include_anonymize:
@@ -406,9 +407,12 @@ def _build_cli_help():
   )
 
 
-class _StatusGroup(click.RichGroup):
-  # Compute the title + live Docker/Isaura status lines only when help is actually rendered,
-  # so the (potentially slow) `docker info` probe never runs during normal command runs.
+class _StatusGroup(StatusGroupMixin, click.RichGroup):
+  # StatusGroupMixin renders the Options and command panels with a shared first-column width so
+  # their help text lines up at any terminal width (rich-click otherwise sizes the two panel
+  # types differently). Here we additionally compute the title + live Docker/Isaura status lines
+  # only when help is actually rendered, so the (potentially slow) `docker info` probe never runs
+  # during normal command runs.
   def format_help(self, ctx, formatter):
     self.help = _build_cli_help()
     super().format_help(ctx, formatter)

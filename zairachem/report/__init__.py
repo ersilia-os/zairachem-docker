@@ -115,7 +115,10 @@ class BasePlot(BaseResults):
     # visible difference at the HTML display size. The PDF stays vector (publication-quality download).
     plt.tight_layout()
     plt.savefig(
-      os.path.join(png_dir, self.name + ".png"), dpi=REPORT_DPI, transparent=False, bbox_inches="tight"
+      os.path.join(png_dir, self.name + ".png"),
+      dpi=REPORT_DPI,
+      transparent=False,
+      bbox_inches="tight",
     )
     plt.savefig(os.path.join(pdf_dir, self.name + ".pdf"), transparent=False, bbox_inches="tight")
     plt.close()
