@@ -25,6 +25,7 @@ from zairachem.base.utils.isaura_report import (
 from zairachem.base.vars import (
   DATA_SUBFOLDER,
   DATA_FILENAME,
+  INPUT_SCHEMA_FILENAME,
   METADATA_SUBFOLDER,
   RESULTS_SUBFOLDER,
   TRANSFORMERS_SUBFOLDER,
@@ -78,6 +79,20 @@ class PredictSetup(BaseSetup):
     self.model_dir = os.path.abspath(model_dir)
     self._check_model_ready()
     self.time_budget = time_budget  # TODO
+
+  @property
+  def has_tasks(self):
+    """Whether the prediction input carries ground-truth labels (validation applies).
+
+    Derived from persisted state so it stays correct on a resumed run (where the normalize_input
+    step is already done and no in-memory flag was set). normalize_input records the resolved
+    ground-truth column in ``input_schema.json`` — non-null iff the input has labelled data — and
+    that file survives the clean step (unlike the intermediate ``values.csv``)."""
+    schema_path = os.path.join(self.output_dir, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME)
+    if not os.path.exists(schema_path):
+      return False
+    with open(schema_path) as f:
+      return json.load(f).get("values_column") is not None
 
   def _required_artifacts(self):
     """(label, absolute path) pairs that a complete, trained ZairaChem model must contain."""
@@ -149,7 +164,14 @@ class PredictSetup(BaseSetup):
 
   def _open_session(self):
     sf = SessionFile(self.output_dir)
-    sf.open_session(mode="predict", output_dir=self.output_dir, model_dir=self.model_dir)
+    # Write the session DATA only when this output dir has none yet — a resumed run must keep its
+    # existing step log and elapsed time (open_session would reset them).
+    if not os.path.exists(sf.session_file):
+      sf.open_session(mode="predict", output_dir=self.output_dir, model_dir=self.model_dir)
+    # ALWAYS (re)point the global "active run" symlink at THIS run's output dir. Every path=None
+    # pipeline step (describe, treat, report, finish, …) resolves its directory through this symlink,
+    # so if it is left pointing at a prior run — e.g. the model dir from a fit, when the initialize
+    # step is skipped on resume — those steps would read and WRITE there instead of the output dir.
     create_session_symlink(self.output_dir)
 
   def _make_subfolders(self):
@@ -189,10 +211,13 @@ class PredictSetup(BaseSetup):
 
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)
+    # (Re)point the active-session symlink at this output dir on EVERY run, before any other step —
+    # including resumes, where the one-time initialize work below is skipped but the symlink must
+    # still be corrected so nothing writes into the (read-only) model dir.
+    self._open_session()
     if not step.is_done():
       self._make_output_dir()
       self._make_subfolders()
-      self._open_session()
       self._copy_input_file()
       step.update()
 
@@ -202,7 +227,6 @@ class PredictSetup(BaseSetup):
       params = ParametersFile(path=params_path(self.model_dir)).load()
       f = SingleFileForPrediction(self.input_file, params)
       f.process()
-      self.has_tasks = f.has_tasks
       step.update()
 
   def _standardize(self):
@@ -274,7 +298,7 @@ class PredictSetup(BaseSetup):
     data_path = os.path.join(data_dir, DATA_FILENAME)
     if os.path.exists(data_path):
       rows.append(("Compounds", f"{len(pd.read_csv(data_path)):,}"))
-    rows.append(("Featurizers", params.get("featurizer_ids", [])))
+    rows.append(("Featurizers", self._effective_featurizers()))
     projection_ids = params.get("projection_ids", [])
     if projection_ids:
       proj = "MW vs LogP  " + "  ".join(f"[green]{m}[/]" for m in projection_ids)
@@ -285,10 +309,20 @@ class PredictSetup(BaseSetup):
 
     summary_panel("ZairaChem · Predict", rows)
 
+  def _effective_featurizers(self):
+    """Descriptor ids the pooled model actually uses (the --max-descriptors selection when the model
+    was screened, else all trained descriptors).
+
+    Prediction only ever computes and scores these, so every predict-time print omits the
+    pre-screened-out descriptors entirely rather than listing them as unused."""
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    return effective_descriptors(self.model_dir)
+
   def _model_id_groups(self):
     with open(params_path(self.model_dir)) as f:
       p = json.load(f)
-    return p.get("featurizer_ids", []), p.get("projection_ids", [])
+    return self._effective_featurizers(), p.get("projection_ids", [])
 
   def setup(self):
     require_docker_and_base()
@@ -344,7 +378,6 @@ class ONNXPredictSetup(PredictSetup):
     if not step.is_done():
       f = SingleFileForPrediction(self.input_file, None)
       f.process()
-      self.has_tasks = f.has_tasks
       step.update()
 
   def setup(self):
