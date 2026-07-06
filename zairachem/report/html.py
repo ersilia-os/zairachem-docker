@@ -39,17 +39,13 @@ _CATEGORIES = [
   (
     "predictions",
     "Predictions",
-    "What the model says about these molecules: the spread of predicted probabilities and where the "
-    "decision cutoff falls, and the screening operating point (how many rank above the cutoff). "
-    "Shown for a prediction run without ground truth.",
+    "What the model predicts for these molecules and where the decision cutoff falls.",
     ["predicted-score-hist", "predicted-rank-curve"],
   ),
   (
     "confidence",
     "Confidence",
-    "How much to trust each prediction: agreement across the individual descriptor models, "
-    "applicability-domain coverage (how far the queries sit from the training chemistry), the "
-    "rank-reliability spread, and the physico-chemical make-up of the predicted classes.",
+    "How much to trust each prediction (descriptor agreement, applicability domain, rank reliability).",
     [
       "descriptor-consensus",
       "ad-coverage",
@@ -61,11 +57,7 @@ _CATEGORIES = [
   (
     "performance",
     "Inner model performance",
-    "Internal, cross-validated performance of the pooled model and individual estimators against the "
-    "ground-truth labels: at fit these are honest out-of-fold predictions (each descriptor "
-    "contributes its cross-validated prediction, then pooled). This is an internal estimate — see "
-    "Held-out validation for out-of-sample splits. (When predicting a labelled set, these are the "
-    "predictions on that set.)",
+    "Cross-validated (out-of-fold) performance of the pooled model against the labels.",
     [
       "oof-score-proba",
       "oof-score-proba-pts",
@@ -96,10 +88,16 @@ _CATEGORIES = [
   (
     "validation",
     "Held-out validation",
-    "Out-of-sample pooled AUROC/AUPR under random, scaffold and Butina 80:20 splits, repeated "
-    "across seeds. Random is the optimism anchor; a large drop under scaffold/Butina indicates "
-    "limited generalization to novel chemistry.",
-    ["heldout-validation"],
+    "Out-of-sample performance under random, scaffold, deterministic and Butina 80:20 splits.",
+    [
+      "heldout-roc",
+      "heldout-pr",
+      "heldout-calibration",
+      "heldout-enrichment-factor",
+      "heldout-validation",
+      "heldout-metric-bars",
+      "heldout-confusion",
+    ],
   ),
   (
     "transform",
@@ -154,6 +152,12 @@ _TITLES = {
   "oof-score-lift-pts": "Lift · points",
   "oof-score-raw-pts": "Raw · points",
   "heldout-validation": "Held-out AUROC by split",
+  "heldout-roc": "Held-out ROC by split",
+  "heldout-pr": "Held-out PR by split",
+  "heldout-calibration": "Held-out calibration by split",
+  "heldout-enrichment-factor": "Held-out enrichment by split",
+  "heldout-metric-bars": "Held-out metrics by split",
+  "heldout-confusion": "Held-out outcome composition by split",
   "class-donut": "Class balance (donut)",
   "class-waffle": "Class balance (waffle)",
   "property-mw": "Molecular weight",
@@ -234,6 +238,24 @@ _GROUPS = [
     "title": "Descriptor agreement",
     "home": "performance",
     "members": ["descriptor-correlation", "topk-overlap-curve"],
+  },
+  {
+    "key": "heldout-curves",
+    "title": "Held-out curves by split strategy",
+    "home": "validation",
+    "members": [
+      "heldout-roc",
+      "heldout-pr",
+      "heldout-calibration",
+      "heldout-enrichment-factor",
+      "heldout-validation",
+    ],
+  },
+  {
+    "key": "heldout-summary",
+    "title": "Held-out summary by split strategy",
+    "home": "validation",
+    "members": ["heldout-metric-bars", "heldout-confusion"],
   },
 ]
 _STEM_TO_GROUP = {m: g for g in _GROUPS for m in g["members"]}
@@ -527,11 +549,11 @@ def _hitlist_table_html(report_dir, top_n=25):
   )
 
 
-# Held-out validation schemas: (csv strategy key, display label). Random is styled as the anchor.
+# Held-out validation schemas: (csv strategy key, display label), in canonical (not ranked) order.
 _VALIDATION_SCHEMAS = [
   ("random", "Random"),
   ("scaffold", "Scaffold"),
-  ("scaffold_det", "Scaffold (DeepChem)"),
+  ("scaffold_det", "Deterministic"),
   ("butina", "Butina"),
 ]
 
@@ -570,18 +592,31 @@ def _validation_table_html(report_dir):
   ordered += [(k, k) for k in by_strategy if k not in {s for s, _ in _VALIDATION_SCHEMAS}]
   if not ordered:
     return ""
+
+  def _ratio(r):
+    """Test-set actives:inactives for one fold (num_test_1 / (num_test − num_test_1)), or None."""
+    n, a = _num(r, "num_test"), _num(r, "num_test_1")
+    if n is None or a is None or (n - a) <= 0:
+      return None
+    return a / (n - a)
+
   body = []
   for strat, label in ordered:
     srows = by_strategy[strat]
     au_m, au_s = _mean_std([_num(r, "auroc") for r in srows])
     ap_m, ap_s = _mean_std([_num(r, "aupr") for r in srows])
+    ratio_m, _ = _mean_std([_ratio(r) for r in srows])
     au = f"{au_m:.3f} ± {au_s:.3f}" if au_m is not None else "—"
     ap = f"{ap_m:.3f} ± {ap_s:.3f}" if ap_m is not None else "—"
-    cls = " class='pooled'" if strat == "random" else ""
+    ratio = f"{ratio_m:.2f}" if ratio_m is not None else "—"
     body.append(
-      f"<tr{cls}><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{au}</td><td>{ap}</td></tr>"
+      f"<tr><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{ratio}</td>"
+      f"<td>{au}</td><td>{ap}</td></tr>"
     )
-  head = "<th>Split schema</th><th>Folds</th><th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
+  head = (
+    "<th>Split schema</th><th>Folds</th><th>Active:inactive (test)</th>"
+    "<th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
+  )
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -1645,9 +1680,7 @@ def write_html_report(output_dir):
       sections.append((
         "hitlist",
         "Hitlist",
-        "The highest-scoring molecules in this set — ranked by the pooled predicted probability, with "
-        "the binary call, the agreement across descriptor models, and the applicability-domain "
-        "coverage where available.",
+        "The highest-scoring molecules, ranked by predicted probability.",
         hitlist,
       ))
   perf_section = _computational_performance_html(output_dir, report_dir, present, assigned, params)
@@ -1655,8 +1688,7 @@ def write_html_report(output_dir):
     sections.append((
       "compute",
       "Computational performance",
-      "How long the run took, how much memory and CPU it used, and where the molecular descriptors "
-      "came from — reused from the isaura store or freshly computed.",
+      "Run time, memory/CPU usage, and where the descriptors came from.",
       perf_section,
     ))
   dataset_section = _dataset_html(output_dir, report_dir, present, assigned)
@@ -1664,8 +1696,7 @@ def write_html_report(output_dir):
     sections.append((
       "dataset",
       "Dataset",
-      "Composition of the labelled set (training compounds at fit; the labelled inputs when "
-      "predicting) — class balance and molecular property distributions.",
+      "Class balance and molecular property distributions of the labelled set.",
       dataset_section,
     ))
   space_section = _chemical_space_html(output_dir, report_dir, present, assigned)
@@ -1673,8 +1704,7 @@ def write_html_report(output_dir):
     sections.append((
       "space",
       "Chemical space",
-      "Low-dimensional embeddings of the molecules — the built-in molecular-weight-vs-LogP map and "
-      "each computed projection (UMAP, t-SNE, …).",
+      "Low-dimensional embeddings of the molecules (MW-vs-LogP and each projection).",
       space_section,
     ))
   elif kind == "Predict":
@@ -1686,8 +1716,7 @@ def write_html_report(output_dir):
       sections.append((
         "space",
         "Chemical space",
-        "Each 2-D projection coloured by the predicted probability — where the high- and low-scoring "
-        "molecules sit relative to one another in chemical space.",
+        "Each 2-D projection coloured by the predicted probability.",
         "<div class='grid'>" + "".join(cards) + "</div>",
       ))
   for anchor, heading, desc, members in _CATEGORIES:
@@ -1709,9 +1738,7 @@ def write_html_report(output_dir):
     entry = (
       "diagnostics",
       "Per descriptor inner diagnostics",
-      "How each molecular descriptor performed under lazy-qsar's internal cross-validation — the "
-      "out-of-fold AUROC, the train-vs-CV overfit gap, and the algorithm portfolio chosen per "
-      "descriptor.",
+      "Per-descriptor lazy-qsar cross-validation (out-of-fold AUROC and overfit gap).",
       diag_section,
     )
     idx = next((i + 1 for i, s in enumerate(sections) if s[0] == "space"), len(sections))

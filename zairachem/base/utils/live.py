@@ -233,6 +233,10 @@ class LiveTableMonitor:
   #: Fixed width of the Status column. Status text varies as work progresses (substep, spinner); a
   #: fixed width stops it pushing later columns around. Truncated with an ellipsis if longer.
   status_width = 28
+  #: Shared minimum width for the first (item) column. A floor common to every step's table so their
+  #: later columns line up vertically across steps (ids are ~7 chars, labels ≤ ~10, so 12 fits all
+  #: without truncation); a longer id still widens just that table.
+  item_col_min = 12
   #: Opt in (subclass) to a trailing dim "Activity" column that streams the latest background line
   #: (set via :meth:`set_activity`) for the running row — e.g. lazy-qsar's raw loguru output.
   show_activity = False
@@ -403,7 +407,12 @@ class LiveTableMonitor:
     # Fixed widths + no_wrap throughout so columns never reflow as cell contents change length.
     # Item text is constant per row, so a min_width floor keeps the column stable without ever
     # truncating an id (a fixed width would ellipsize ids exactly as long as the width).
-    table.add_column(self.item_label, style="bold", min_width=self._item_width, no_wrap=True)
+    table.add_column(
+      self.item_label,
+      style="bold",
+      min_width=max(self._item_width, self.item_col_min),
+      no_wrap=True,
+    )
     table.add_column("Status", width=self.status_width, no_wrap=True, overflow="ellipsis")
     self._columns(table)
     activity_w = self._activity_width()

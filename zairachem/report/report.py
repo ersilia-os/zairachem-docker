@@ -60,6 +60,12 @@ from zairachem.report.plots import (
   ProvenanceBarPlot,
   PerModelTimingPlot,
   HeldOutValidationPlot,
+  HeldoutRocByStrategyPlot,
+  HeldoutPrByStrategyPlot,
+  HeldoutCalibrationByStrategyPlot,
+  HeldoutEnrichmentFactorByStrategyPlot,
+  HeldoutMetricBarsPlot,
+  HeldoutConfusionByStrategyPlot,
 )
 from zairachem.report.fetcher import ResultsFetcher
 
@@ -116,6 +122,12 @@ _PLOT_SPECS = [
   ("descriptor-correlation", DescriptorCorrelationPlot),
   ("topk-overlap-curve", TopKOverlapCurvePlot),
   ("heldout-validation", HeldOutValidationPlot),
+  ("heldout-roc", HeldoutRocByStrategyPlot),
+  ("heldout-pr", HeldoutPrByStrategyPlot),
+  ("heldout-calibration", HeldoutCalibrationByStrategyPlot),
+  ("heldout-enrichment-factor", HeldoutEnrichmentFactorByStrategyPlot),
+  ("heldout-metric-bars", HeldoutMetricBarsPlot),
+  ("heldout-confusion", HeldoutConfusionByStrategyPlot),
   ("property-mw", PropertyMwPlot),
   ("property-logp", PropertyLogpPlot),
   ("predicted-property-mw", PredictedPropertyMwPlot),
@@ -144,6 +156,12 @@ _FIT_ONLY = {
   "descriptor-correlation",
   "topk-overlap-curve",
   "heldout-validation",
+  "heldout-roc",
+  "heldout-pr",
+  "heldout-calibration",
+  "heldout-enrichment-factor",
+  "heldout-metric-bars",
+  "heldout-confusion",
 }
 
 
