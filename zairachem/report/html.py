@@ -60,10 +60,12 @@ _CATEGORIES = [
   ),
   (
     "performance",
-    "Model performance",
-    "How the pooled model and individual estimators score against the ground-truth labels. At fit "
-    "these are honest out-of-fold predictions (each descriptor contributes its cross-validated "
-    "prediction, then pooled); when predicting a labelled set they are the held-out predictions.",
+    "Inner model performance",
+    "Internal, cross-validated performance of the pooled model and individual estimators against the "
+    "ground-truth labels: at fit these are honest out-of-fold predictions (each descriptor "
+    "contributes its cross-validated prediction, then pooled). This is an internal estimate — see "
+    "Held-out validation for out-of-sample splits. (When predicting a labelled set, these are the "
+    "predictions on that set.)",
     [
       "oof-score-proba",
       "oof-score-proba-pts",
@@ -85,17 +87,11 @@ _CATEGORIES = [
       "confusion-precision",
       "confusion-breakdown",
       "descriptor-correlation",
+      "topk-overlap-curve",
       "r2-individual",
       "regression-raw",
       "regression-trans",
     ],
-  ),
-  (
-    "ranking",
-    "Ranking & operating point",
-    "Imbalance-aware ranking quality and the trade-offs around the decision threshold — what "
-    "matters when triaging or screening a library.",
-    ["enrichment-factor"],
   ),
   (
     "validation",
@@ -104,12 +100,6 @@ _CATEGORIES = [
     "across seeds. Random is the optimism anchor; a large drop under scaffold/Butina indicates "
     "limited generalization to novel chemistry.",
     ["heldout-validation"],
-  ),
-  (
-    "scores",
-    "Score distributions",
-    "Predicted scores across the active and inactive classes.",
-    ["score-violin", "score-strip", "histogram-raw", "histogram-trans"],
   ),
   (
     "transform",
@@ -123,13 +113,9 @@ _TITLES = {
   "actives-inactives": "Class balance",
   "roc-curve": "ROC curve",
   "confusion-matrix": "Confusion matrix",
-  "score-violin": "Score distribution (violin)",
-  "score-strip": "Score distribution (strip)",
   "r2-individual": "R² by estimator",
   "regression-raw": "Predicted vs observed (raw)",
   "regression-trans": "Predicted vs observed (transformed)",
-  "histogram-raw": "Value histogram (raw)",
-  "histogram-trans": "Value histogram (transformed)",
   "transformation": "Value transformation",
   "cv-auroc": "Inner CV AUROC by descriptor",
   "cv-aupr": "Inner CV AUPR by descriptor",
@@ -148,14 +134,15 @@ _TITLES = {
   "projection-tmap": "TMAP projection",
   "projection-correctness": "Prediction correctness in chemical space",
   "pr-curve": "Precision-recall curve",
-  "enrichment-curve": "Enrichment curve",
-  "enrichment-factor": "Enrichment factor",
+  "enrichment-curve": "Enrichment curve (cumulative gain)",
+  "enrichment-factor-curve": "Enrichment factor curve",
   "threshold-sweep": "Threshold sweep",
   "calibration-curve": "Calibration curve",
   "confusion-normalized": "Confusion matrix (recall)",
   "confusion-precision": "Confusion matrix (precision)",
   "confusion-breakdown": "Outcome composition",
   "descriptor-correlation": "Descriptor prediction correlation",
+  "topk-overlap-curve": "Descriptor agreement (top-x% overlap)",
   "oof-score-proba": "Probability",
   "oof-score-logit": "Log-odds",
   "oof-score-rank": "Percentile rank",
@@ -221,6 +208,7 @@ _GROUPS = [
       "pr-curve",
       "calibration-curve",
       "enrichment-curve",
+      "enrichment-factor-curve",
       "threshold-sweep",
     ],
   },
@@ -242,16 +230,10 @@ _GROUPS = [
     "members": ["regression-trans", "regression-raw"],
   },
   {
-    "key": "scoredist",
-    "title": "Score distribution",
-    "home": "scores",
-    "members": ["score-violin", "score-strip"],
-  },
-  {
-    "key": "histogram",
-    "title": "Value histogram",
-    "home": "scores",
-    "members": ["histogram-trans", "histogram-raw"],
+    "key": "descriptor-agreement",
+    "title": "Descriptor agreement",
+    "home": "performance",
+    "members": ["descriptor-correlation", "topk-overlap-curve"],
   },
 ]
 _STEM_TO_GROUP = {m: g for g in _GROUPS for m in g["members"]}
@@ -306,45 +288,51 @@ def _img_src(report_dir, stem):
 
 
 # --- Physical figure sizes & the composite reference grid ----------------------------------------
-# Figures are exported by stylia at 600 DPI (see report/__init__.py), so a saved PNG's real size is
-# pixels / 600 inches. The report documents a reference grid (it mirrors the old 6×10 matplotlib
-# poster grid) so users can tile the downloaded plots into a composite figure at the right scale.
-_FIGURE_DPI = 600
+# The report documents a reference grid (mirrors the old 6×10 matplotlib poster grid) so users can
+# tile the downloaded plots into a composite figure at the right scale. A card's footprint badge is
+# the plot's DECLARED cells (rows, cols) — persisted to report/figure_cells.json at render time — not
+# reverse-engineered from the (tight-cropped) PNG, which is unreliable.
 _CELL_IN = _CELL_CM / 2.54  # ≈ 1.181 in
+_FIGURE_CELLS_CACHE = {}
 
 
-def _png_px(path):
-  """(width_px, height_px) read from a PNG's IHDR header, or None on any failure."""
+def _load_figure_cells(report_dir):
+  """``{stem: (rows, cols)}`` declared footprints written by the report render; cached per report dir."""
+  cached = _FIGURE_CELLS_CACHE.get(report_dir)
+  if cached is not None:
+    return cached
+  import json
+
+  data = {}
   try:
-    with open(path, "rb") as f:
-      head = f.read(24)
-    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
-      return None
-    w = int.from_bytes(head[16:20], "big")
-    h = int.from_bytes(head[20:24], "big")
-    return (w, h) if w > 0 and h > 0 else None
+    with open(os.path.join(report_dir, "figure_cells.json")) as f:
+      raw = json.load(f)
+    data = {
+      k: (int(v[0]), int(v[1]))
+      for k, v in raw.items()
+      if isinstance(v, (list, tuple)) and len(v) == 2
+    }
   except Exception:
-    return None
+    data = {}
+  _FIGURE_CELLS_CACHE[report_dir] = data
+  return data
 
 
 def _figure_size(report_dir, stem):
-  """Physical size of a figure PNG and its footprint on the reference grid, or None.
-
-  Returns ``{w_cm, h_cm, w_in, h_in, cols, rows}`` where cols/rows are the size rounded to whole
-  3 cm cells (minimum 1).
-  """
-  px = _png_px(os.path.join(report_dir, "png", f"{stem}.png"))
-  if px is None:
+  """Physical size + grid footprint of a figure from its declared ``cells`` (rows, cols), recorded at
+  render time. Returns ``{w_cm, h_cm, w_in, h_in, cols, rows}``, or None if the footprint is unknown."""
+  cells = _load_figure_cells(report_dir).get(stem)
+  if cells is None:
     return None
-  w_in, h_in = px[0] / _FIGURE_DPI, px[1] / _FIGURE_DPI
-  w_cm, h_cm = w_in * 2.54, h_in * 2.54
+  rows, cols = cells
+  w_cm, h_cm = cols * _CELL_CM, rows * _CELL_CM
   return {
     "w_cm": w_cm,
     "h_cm": h_cm,
-    "w_in": w_in,
-    "h_in": h_in,
-    "cols": max(1, round(w_cm / _CELL_CM)),
-    "rows": max(1, round(h_cm / _CELL_CM)),
+    "w_in": w_cm / 2.54,
+    "h_in": h_cm / 2.54,
+    "cols": cols,
+    "rows": rows,
   }
 
 
@@ -1609,6 +1597,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (e.key === 'ArrowLeft') { show(i - 1); e.preventDefault(); }
       else if (e.key === 'ArrowRight') { show(i + 1); e.preventDefault(); }
     });
+    show(0);  // sync badge/label/links to the first slide from the JS (single source of truth)
   });
 });
 """

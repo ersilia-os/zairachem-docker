@@ -1243,7 +1243,7 @@ class EnrichmentCurvePlot(BasePlot):
     ax.set_xlabel("Fraction of library screened")
     ax.set_ylabel("Fraction of actives found")
     ax.set_title("Cumulative gain")
-    ax.legend(fontsize=6, loc="lower right")
+    ax.legend(loc="lower right", fontsize=6)
     self.is_available = True
 
 
@@ -1321,7 +1321,7 @@ class ThresholdSweepPlot(BasePlot):
     ax.set_xlabel("Decision threshold")
     ax.set_ylabel("Metric")
     ax.set_title("Threshold sweep")
-    ax.legend(fontsize=6, loc="lower center", ncol=2)
+    ax.legend(loc="lower center", ncol=2, fontsize=6)
     self.is_available = True
 
 
@@ -1529,6 +1529,100 @@ class DescriptorCorrelationPlot(BasePlot):
         )
     ax.grid(False)
     ax.set_title("Descriptor prediction correlation (Spearman)")
+    self.is_available = True
+
+
+class TopKOverlapCurvePlot(BasePlot):
+  """Do the descriptor models agree on their TOP compounds? For each top fraction x, the mean pairwise
+  overlap (shared fraction) of the descriptors' top-x% ranked compounds, plotted vs the chance line
+  ``y = x`` (the overlap two random top-x% sets share). Well above chance ⇒ the descriptors converge
+  on the same hits; near chance ⇒ they disagree on what ranks highest. Complements the (global)
+  Spearman correlation heatmap by focusing on the ranking head, which is what matters for
+  screening/triage."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
+    self.name = "topk-overlap-curve"
+    self.is_available = False
+    rf = ResultsFetcher(path=path)
+    tasks = rf.get_clf_tasks() or rf.get_reg_tasks()
+    if not tasks:
+      return
+    df = rf._read_individual_estimator_results(tasks[0])
+    if df is None or df.shape[1] < 2:
+      return
+    scores = [np.nan_to_num(df[c].to_numpy(dtype=float), nan=-np.inf) for c in df.columns]
+    orders = [np.argsort(-s) for s in scores]
+    n = len(orders[0])
+    if n < 5:
+      return
+    # ~40 log-spaced top-fractions, from ~0.5% of the set (floored to avoid single-compound noise)
+    # up to the whole library.
+    ks = np.unique(
+      np.clip(np.geomspace(max(1, int(round(0.005 * n))), n, 40).round().astype(int), 1, n)
+    )
+    xs, means, los, his = [], [], [], []
+    npd = len(orders)
+    for k in ks:
+      sets = [set(o[:k].tolist()) for o in orders]
+      ov = [len(sets[i] & sets[j]) / k for i in range(npd) for j in range(i + 1, npd)]
+      ov = np.asarray(ov, dtype=float)
+      xs.append(k / n)
+      means.append(float(ov.mean()))
+      los.append(float(np.percentile(ov, 10)))
+      his.append(float(np.percentile(ov, 90)))
+    xs = np.asarray(xs)
+    ax = self.ax
+    c = _npg(1)[0]
+    xx = np.geomspace(xs.min(), 1.0, 60)
+    ax.plot(xx, xx, color=named_colors.gray, lw=1, ls="--", label="Chance")
+    ax.fill_between(xs, los, his, color=c, alpha=0.16, lw=0)
+    ax.plot(xs, means, color=c, lw=1.6, label="Mean pairwise")
+    ax.set_xscale("log")
+    ax.set_xlim(xs.min(), 1.0)
+    ax.set_ylim(0, 1.03)
+    ax.set_xlabel("Top fraction (x)")
+    ax.set_ylabel("Mean top-x% overlap")
+    ax.set_title("Descriptor agreement on top-ranked compounds")
+    ax.legend(loc="upper left", fontsize=6)
+    self.is_available = True
+
+
+class EnrichmentFactorCurvePlot(BasePlot):
+  """Enrichment factor across ranking depth: EF(f) = hit-rate(top f) / prevalence, vs the fraction of
+  the library screened. EF = 1 (dashed) is random; higher = better early enrichment. Log x-axis so the
+  early, decision-relevant region is legible. A richer read than a fixed 1/5/10% barplot."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
+    self.name = "enrichment-factor-curve"
+    self.is_available = False
+    if not self.has_clf_data():
+      return
+    yt, yp = _clf_truth_proba(path)
+    if yt is None or yt.sum() < 1:
+      return
+    prevalence = float(yt.mean())
+    if not (0.0 < prevalence < 1.0):
+      return
+    ax = self.ax
+    n = len(yt)
+    yt_sorted = yt[np.argsort(-yp)]
+    ks = np.arange(1, n + 1)
+    ef = (np.cumsum(yt_sorted) / ks) / prevalence
+    frac = ks / n
+    # Floor the plotted range at ~0.5% so the volatile single-compound head doesn't dominate the axis.
+    kmin = max(1, int(round(0.005 * n)))
+    sel = ks >= kmin
+    c = _npg(1)[0]
+    ax.plot(frac[sel], ef[sel], color=c, lw=1.6, label="Model")
+    ax.axhline(1.0, color=named_colors.gray, lw=1, ls="--", label="Random")
+    ax.set_xscale("log")
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel("Fraction of library screened")
+    ax.set_ylabel("Enrichment factor")
+    ax.set_title(f"Enrichment factor · max {float(ef[sel].max()):.1f}×")
+    ax.legend(loc="lower left", fontsize=6)
     self.is_available = True
 
 

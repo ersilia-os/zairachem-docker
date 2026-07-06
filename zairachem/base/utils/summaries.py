@@ -634,10 +634,22 @@ def final_summary_panel(output_dir=None):
   rows = [("Output", f"[dim]{_collapse(d)}[/]"), ("Task", f"[magenta]{task}[/]")]
   if n is not None:
     rows.append(("Compounds", f"[bold]{n:,}[/]"))
-  rows.append((
-    "Descriptors",
-    "  ".join(f"[green]{m}[/]" for m in params.get("featurizer_ids", [])),
-  ))
+  # List the requested featurizers, distinguishing the ones the pooled model actually uses (green)
+  # from those dropped by --max-descriptors pre-screening (dimmed). effective_descriptors reads
+  # metadata/selected_eos.json when screening ran, else falls back to all trained descriptors.
+  all_desc = params.get("featurizer_ids", [])
+  try:
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    used = set(effective_descriptors(d))
+  except Exception:
+    used = set(all_desc)
+  if used and 0 < len(used) < len(all_desc):
+    cells = " ".join(f"[green]{m}[/]" if m in used else f"[dim strike]{m}[/]" for m in all_desc)
+    desc_label = f"{cells}   [dim]({len(used)}/{len(all_desc)} used · rest pre-screened)[/]"
+  else:
+    desc_label = "  ".join(f"[green]{m}[/]" for m in all_desc)
+  rows.append(("Descriptors", desc_label))
 
   m = _pooled_metrics(d)
   if m:

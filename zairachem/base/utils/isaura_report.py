@@ -40,11 +40,18 @@ class _NullProgress:
 
 @contextlib.contextmanager
 def quiet_isaura_reads():
-  """Silence isaura's read-time live displays (``ReadProgress`` + ``logger.console.status`` spinners)
-  for the duration, so they don't flash/collide with our own themed tables (rich allows one live
-  display at a time). Patched once around the work (not per thread) to avoid monkeypatch races;
-  best-effort and restored on exit. Writes are serialized elsewhere, so their display is left intact."""
+  """Fully silence isaura's own terminal output for the duration, so it can't collide with our themed
+  live tables (rich allows one live display at a time, and any stray print corrupts the region — e.g. a
+  repeated table title).
+
+  isaura writes through its **own** rich Console(s), which bypass our live region: ``ReadProgress`` and
+  ``console.status`` spinners, direct ``console.print`` calls (progress bars, the "✓ N molecules
+  written" line), and INFO logs via its loguru handler. We null the progress/status shims AND set
+  rich's ``quiet`` flag on every isaura console so nothing leaks. Patched once around the work (not per
+  thread) to avoid monkeypatch races; best-effort and restored on exit. Anything that actually matters
+  (e.g. a failed contribute) is surfaced by zairachem's own console/logger, not isaura's."""
   try:
+    import isaura.logging as _ilog
     import isaura.manage as _im
     from isaura.logging import logger as _il
   except Exception:
@@ -56,11 +63,21 @@ def quiet_isaura_reads():
   # had its own override so we can restore exactly — deleting our shim if there was none.
   had_status_attr = isaura_console is not None and "status" in vars(isaura_console)
   orig_status_attr = vars(isaura_console).get("status") if isaura_console is not None else None
+  # Every distinct isaura console: the module-level one used for console.print (writer "✓" line,
+  # progress) and the loguru handler's console. Mute both via rich's quiet flag; restore prior values.
+  quieted = []
+  seen_ids = set()
+  for c in (getattr(_ilog, "console", None), isaura_console):
+    if c is not None and hasattr(c, "quiet") and id(c) not in seen_ids:
+      seen_ids.add(id(c))
+      quieted.append((c, c.quiet))
   try:
     if orig_rp is not None:
       _im.ReadProgress = _NullProgress
     if isaura_console is not None:
       isaura_console.status = lambda *a, **k: contextlib.nullcontext()
+    for c, _ in quieted:
+      c.quiet = True
     yield
   finally:
     if orig_rp is not None:
@@ -71,6 +88,8 @@ def quiet_isaura_reads():
       else:
         with contextlib.suppress(AttributeError):
           del isaura_console.status
+    for c, prev in quieted:
+      c.quiet = prev
 
 
 def sanitize_project_name(name):

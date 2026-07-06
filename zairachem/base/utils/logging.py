@@ -56,7 +56,15 @@ class Logger:
 
   def _log_to_console(self, level="WARNING"):
     if self._console is None:
+      # Render logs through the SAME console the live tables use, so a log line emitted while a
+      # live region is active (e.g. a WARNING during the Describe table) is drawn cleanly above the
+      # live display instead of corrupting it (a separate Console bypasses rich's live bookkeeping
+      # and leaves stale lines — a repeated table title — behind). Imported lazily to keep this
+      # foundational module free of a top-level dependency on the console module.
+      from zairachem.base.utils.console import console as shared_console
+
       rich_handler = RichHandler(
+        console=shared_console,
         rich_tracebacks=True,
         markup=True,
         log_time_format="%H:%M:%S",
