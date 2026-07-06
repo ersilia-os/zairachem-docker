@@ -1,6 +1,4 @@
-<div id="top"></div>
-
-<p align="center">
+<p align="left">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3"></a>
   <img src="https://img.shields.io/badge/python-%E2%89%A5%203.10-blue.svg" alt="Python >= 3.10">
   <a href="https://ersilia.io"><img src="https://img.shields.io/badge/Powered%20by-Ersilia-6c5ce7.svg" alt="Powered by Ersilia"></a>
@@ -10,32 +8,24 @@
 
 ZairaChem trains structure-activity (QSAR) models straight from data files without manual feature engineering. Give it a labelled dataset and it will:
 
-1. **Featurize** the molecules with a curated set of [Ersilia](https://ersilia.io) featurizer (descriptor) models,
-2. **Train and pool** per-descriptor models into a single consensus predictor (classification),
-3. **Predict** activities for new molecules and a self-contained **report** with plots and metrics.
+1. **Featurize** the molecules with a curated set of [Ersilia](https://ersilia.io) descriptor models.
+2. **Train and pool** per-descriptor models into a single consensus predictor.
+3. **Predict** activities for new molecules and produce a **report** with plots and metrics.
 
-ZairaChem is built for chemists and modelers who want a strong baseline model over a compound library without writing ML code.
-
-## Requirements
-
-- **Docker**, installed and **running** — ZairaChem serves the descriptor models in containers during the `describe` step. Start Docker before you run `fit` or `predict`.
-- **Python ≥ 3.10** (a dedicated conda environment is recommended).
-- **[Ersilia](https://github.com/ersilia-os/ersilia)**, installed with the default descriptor models fetched. The default set is:
-  - featurizers: `eos3l5f`, `eos8aa5`, `eos4u6p`, `eos9o72`, `eos4ex3`, `eos82v1`
-  - projection (for the report's 2-D map): `eos1klk`
-
-  See the [Ersilia docs](https://ersilia.gitbook.io/ersilia-book/) for installation, then fetch each
-  model with `ersilia fetch <eos-id>`.
 ## Installation
 
-```bash
-conda create -n zairachem python=3.11 -y
-conda activate zairachem
+ZairaChem requires [Docker](https://docs.docker.com/engine/install/) to be installed and running.
 
+The quickest way to install ZairaChem is the interactive installer. It sets up a Python environment, installs
+ZairaChem, pulls the Docker base images, and (optionally) fetches the default Ersilia models:
+
+```bash
 git clone https://github.com/ersilia-os/zairachem-docker
 cd zairachem-docker
-pip install -e .
+bash install.sh
 ```
+
+Run `bash install.sh --help` for non-interactive flags.
 
 Check the install (this also prints a Docker readiness line):
 
@@ -50,36 +40,15 @@ Train a classifier and predict, using the example dataset shipped in `dev/data.c
 
 ```bash
 # 1. Train a classification model
-zairachem fit -i dev/data.csv -m ./dili_model -c
+zairachem fit -i example/data_train.csv -m example_model
 
 # 2. Predict on new molecules (reusing the example here)
-zairachem predict -i dev/data.csv -m ./dili_model -o ./predictions
-```
-
-**Input** — a CSV with a SMILES column (auto-detected). For `fit`, add a label column: `0`/`1` for
-classification, or a numeric value for regression.
-
-```csv
-smiles,dili
-CC(=O)OCC[N+](C)(C)C,0
-O=C(O)c1cccnc1,1
-```
-
-**Output** — predictions and a report land under the model dir (`fit`) or the `-o` dir (`predict`):
-
-- `./dili_model/results/output.csv` — the predictions
-- `./dili_model/report/report.html` — open in a browser for the plots and metrics
-
-```csv
-compound_id,smiles,clf,clf_bin
-CID000,CC(=O)OCC[N+](C)(C)C,0.13,0
-CID002,O=C(O)c1cccnc1,0.61,1
+zairachem predict -i example/smiles_test.csv -m example_model -o predictions_test
 ```
 
 ## CLI reference
 
-Run `zairachem <command> --help` for the authoritative, always-current options. Add `-v`/`--verbose`
-**before** the command for detailed logs (e.g. `zairachem -v fit ...`).
+Run `zairachem <command> --help` for the authoritative, always-current options.
 
 ### `fit` — train a model from a labelled CSV
 
@@ -109,24 +78,6 @@ Same core options as `fit` (`-i`, `-m`, `-s`, `--override`, `-b`, `--workers`, `
 | Option | Default | Description |
 | --- | --- | --- |
 | `-o, --output-dir` | *(required)* | Where predictions and the report are written. |
-
-### Advanced: run the pipeline step by step
-
-`fit` runs the full pipeline; you can also run (or re-run) individual steps against a model dir with
-`-m`. Order matters:
-
-```bash
-zairachem setup -i data.csv -c   # standardize & prepare the molecules
-zairachem describe               # compute descriptors (needs Docker)
-zairachem treat                  # impute & scale the descriptor matrix
-zairachem estimate               # train the per-descriptor estimators
-zairachem pool                   # combine them into a consensus
-zairachem report                 # render plots, tables & report.html
-zairachem finish                 # assemble final outputs & clean up
-```
-
-Re-running a single step is handy for iterating — e.g. `zairachem report -m ./dili_model` to
-re-render the report without redoing training.
 
 ## About the Ersilia Open Source Initiative
 

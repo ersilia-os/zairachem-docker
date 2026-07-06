@@ -30,16 +30,17 @@ from rich.progress import (
   TimeRemainingColumn,
 )
 
-try:
-  from isaura.manage import IsauraCopy, IsauraReader, IsauraRemover, IsauraWriter
-except Exception as e:
-  logger.debug(f"Isaura modules could not be imported: {e}")
-  IsauraCopy = None
-  IsauraReader = None
-  IsauraRemover = None
-  IsauraWriter = None
 
-ZAIRATEMP_BUCKET = "zairatemp"
+# isaura is an OPTIONAL dependency — only needed when a run requests a --store. We import the
+# classes zairachem uses directly against the CURRENT isaura API; there is deliberately no
+# compatibility shim for older isaura releases. When isaura is absent these stay None, and any run
+# that actually needs a store fails loudly at the point of use (see _contribute), never silently.
+try:
+  from isaura.manage import IsauraReader, IsauraWriter
+except Exception as e:
+  logger.debug(f"Isaura could not be imported: {e}")
+  IsauraReader = None
+  IsauraWriter = None
 
 _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
 _ALLOWED_RE = re.compile(
@@ -362,46 +363,50 @@ class BinaryStreamClient(ZairaBase):
       )
       raise
 
+  def _fail_contribute(self, bucket, err):
+    """Abort the run with a clear message when a requested store write fails.
+
+    A store was explicitly requested (``--store``), so a failed contribute is fatal: continuing
+    would report the run as successful while nothing was cached. Raises a normal ``Exception`` (not
+    ``SystemExit``) so it also propagates out of the parallel describe worker pool.
+    """
+    echo(
+      f"Failed to write descriptors for [bold]{self.model_id}[/] to isaura store "
+      f"'[bold]{bucket}[/]': {err}",
+      kind="error",
+    )
+    echo(
+      "A store was requested with --store but nothing could be cached. Re-run after fixing the "
+      "store, or run without --store. If the project bucket does not exist: "
+      f"[bold]isaura create -pn {bucket} --access <public|private>[/].",
+      kind="info",
+    )
+    raise RuntimeError(f"isaura contribute failed for {self.model_id} → {bucket}: {err}")
+
   def _contribute(self, any_results, batch_size=None):
     if not self.contribute_store:
       return
-    is_temp = self.contribute_store == ZAIRATEMP_BUCKET
-    write_bucket = ZAIRATEMP_BUCKET if is_temp else self.contribute_store
+    bucket = self.contribute_store
+    # A store was explicitly requested (--store), so a write failure is fatal — otherwise the run
+    # would report success while nothing was cached. isaura raises SystemExit (not Exception) for a
+    # missing bucket, so catch both and route every failure through _fail_contribute.
+    if IsauraWriter is None:
+      self._fail_contribute(
+        bucket,
+        "isaura's writer is unavailable — is 'isaura' installed and 'isaura.manage.IsauraWriter' "
+        "importable?",
+      )
     try:
-      logger.info(f"Writing precalculations to bucket: {write_bucket}")
+      logger.info(f"Writing precalculations to bucket: {bucket}")
       w = IsauraWriter(
         input_csv=None,
         model_id=self.model_id,
         model_version=self.version,
-        bucket=write_bucket,
+        bucket=bucket,
       )
       self._write_to_store(w, any_results, batch_size)
-      if is_temp:
-        logger.info(f"Copying precalculations from {ZAIRATEMP_BUCKET} to isaura-public")
-        c = IsauraCopy(
-          model_id=self.model_id,
-          model_version=self.version,
-          bucket=ZAIRATEMP_BUCKET,
-        )
-        c.copy()
-        logger.info(f"Removing temporary data from {ZAIRATEMP_BUCKET}")
-        r = IsauraRemover(
-          model_id=self.model_id,
-          model_version=self.version,
-          bucket=ZAIRATEMP_BUCKET,
-        )
-        r.remove()
-    except SystemExit as e:
-      # isaura raises SystemExit (not Exception) when the project/bucket does not
-      # exist; catch it explicitly so a missing bucket is a clear, non-fatal warning
-      # instead of silently aborting the whole run.
-      logger.warning(
-        f"Could not contribute descriptors to isaura bucket '{write_bucket}': {e}. "
-        f"Skipping upload and continuing. If the project does not exist, create it with: "
-        f"isaura create -pn {write_bucket} --access <public|private>"
-      )
-    except Exception as e:
-      logger.error(f"Error in Isaura contribute workflow: {e}")
+    except (Exception, SystemExit) as e:
+      self._fail_contribute(bucket, e)
 
   def _ersilia_chunk_df(self, inputs, values, dims):
     keys = [hashlib.md5(str(i).encode()).hexdigest() for i in inputs]
@@ -424,11 +429,15 @@ class BinaryStreamClient(ZairaBase):
       inputs = [str(x) for x in h5.inputs()]
       n = 0
       for start, end, chunk in h5.iter_values_with_indices(bs):
-        writer.write(df=self._ersilia_chunk_df(inputs[start:end], np.asarray(chunk), dims))
+        # show_progress=False: this runs inside the Describe live table; isaura's own progress bar
+        # would draw over our region (see quiet_isaura_reads).
+        writer.write(
+          df=self._ersilia_chunk_df(inputs[start:end], np.asarray(chunk), dims), show_progress=False
+        )
         n += end - start
       logger.info(f"Contributed {n} rows to bucket (streamed in chunks of {bs})")
     else:
-      writer.write(df=self._get_ersilia_df(res))
+      writer.write(df=self._get_ersilia_df(res), show_progress=False)
 
   def _report(self, *event):
     """Forward a progress event ``(model_id, *event)`` to the injected monitor callback, if any."""
@@ -559,25 +568,27 @@ class BinaryStreamClient(ZairaBase):
     }
 
   def _stored_inputs(self):
-    """Set of input molecules actually stored in the project for this model/version.
+    """Subset of this run's input molecules already stored for this model/version.
 
-    Uses isaura's authoritative index (not the bloom filter, which can over-report). An empty/absent
-    model prefix yields an empty set, so everything is treated as a cache miss.
+    Membership comes from isaura's **Bloom filter** — its authoritative "have we stored this?"
+    structure, which is always loaded and appended across writes. We deliberately do NOT use
+    ``index.sqlite`` (``IsauraInspect.load_index``): for wide models isaura writes a *partial* index
+    on each incremental append (only that write's keys — intentional, see isaura's build_location_index),
+    so it under-reports the cache and would force needless recompute + re-append. The Bloom is checked
+    against this run's inputs (already standardized, matching what isaura stored). An empty/absent model
+    yields an empty set, so everything is treated as a cache miss.
     """
-    from isaura.manage import IsauraInspect
+    from isaura.manage import IsauraChecker
 
-    # Serialized with all other store access: isaura's DuckDB layer isn't thread-safe (see _store_lock).
+    # Serialized with all other store access: isaura's DuckDB/S3 layer isn't thread-safe (see _store_lock).
     with BinaryStreamClient._store_lock:
       try:
-        insp = IsauraInspect(model_id=self.model_id, model_version=self.version, cloud=False)
-        idx = insp.load_index(self.read_store, self.model_id, self.version) or {}
-        return set(idx.keys())
+        with IsauraChecker(self.read_store, self.model_id, self.version) as checker:
+          seen = checker.seen_many(self.input_data)
+        return {s for s in self.input_data if seen.get(s, [False, None])[0]}
       except Exception:
         return set()
       finally:
-        # Tear the connection down deterministically while still holding the lock, so its (possibly
-        # shared) DuckDB connection can't be closed from this thread after another thread has reopened.
-        insp = None
         gc.collect()
 
   def _read_subset(self, smiles, isaura_batch_size):

@@ -101,9 +101,13 @@ class TrainSetup(BaseSetup):
     self.featurizer_ids = self.model_ids.get("featurizer_ids", DEFAULT_FEATURIZERS)
     # Projection models (--projection-ids) drive the report's 2-D embedding; they are NOT model
     # features. Explicit --projection-ids wins; else a projection_ids key in the --featurizer-ids
-    # JSON file; else the default. The report always also shows the built-in MW-vs-LogP projection.
-    if projection_ids:
-      self.projection_ids = ModelIdsFile.parse_ids(projection_ids, flag="--projection-ids")
+    # JSON file; else the default. The report always also shows the built-in MW-vs-LogP projection,
+    # so `--projection-ids none` (or a bare -p) disables the Ersilia projections and leaves only it.
+    if projection_ids is not None:
+      if str(projection_ids).strip().lower() in ("none", "null", "off", ""):
+        self.projection_ids = []
+      else:
+        self.projection_ids = ModelIdsFile.parse_ids(projection_ids, flag="--projection-ids")
     else:
       self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
     # Enforce the per-run model-count ceilings regardless of source (CLI flag, JSON file, default).

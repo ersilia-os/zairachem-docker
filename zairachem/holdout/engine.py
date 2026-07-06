@@ -69,9 +69,13 @@ def _score_fold(fold_path, train_idx, test_idx, fetcher, batch_size):
   yhat_test, _ = ReliabilityClassifierPooler._combine_verbose(
     P[te], _slice(R, te), _slice(A, te), pooler._params
   )
-  return fetcher.classification_performance_report(
-    y[tr], np.asarray(yhat_train), y[te], np.asarray(yhat_test)
+  yhat_test = np.asarray(yhat_test)
+  report = fetcher.classification_performance_report(
+    y[tr], np.asarray(yhat_train), y[te], yhat_test
   )
+  # Also hand back the held-out (truth, score) arrays so the caller can persist them for the
+  # report's per-strategy ROC/PR/calibration curves (only scalar metrics survive otherwise).
+  return report, y[te], yhat_test
 
 
 def run_one_fold(model_dir, fold_name, spec, model_ids, fetcher, batch_size=None, substep_cb=None):
@@ -84,13 +88,21 @@ def run_one_fold(model_dir, fold_name, spec, model_ids, fetcher, batch_size=None
   _fit_descriptors(fold_path, model_ids, spec["train_idx"], batch_size, substep_cb=substep_cb)
   if substep_cb:
     substep_cb("pooling + scoring")
-  metrics = _score_fold(fold_path, spec["train_idx"], spec["test_idx"], fetcher, batch_size)
+  metrics, y_true, y_score = _score_fold(
+    fold_path, spec["train_idx"], spec["test_idx"], fetcher, batch_size
+  )
   record = {
     "fold": fold_name,
     "strategy": spec["strategy"],
     "seed": spec.get("seed"),
     **{k: (float(v) if isinstance(v, (np.floating, float)) else v) for k, v in metrics.items()},
   }
+  # Per-compound held-out truth+score, kept off the scalar metrics.json (persisted separately by
+  # io.write_validation_outputs into report/validation_predictions.csv for the per-strategy curves).
+  record["_y_true"] = [int(v) for v in np.asarray(y_true).ravel()]
+  record["_y_score"] = [float(v) for v in np.asarray(y_score).ravel()]
   with open(os.path.join(fold_path, "metrics.json"), "w") as f:
-    json.dump(record, f, indent=2, default=float)
+    json.dump(
+      {k: v for k, v in record.items() if not k.startswith("_")}, f, indent=2, default=float
+    )
   return record

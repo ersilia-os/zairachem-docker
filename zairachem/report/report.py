@@ -6,8 +6,6 @@ from zairachem.report.plots import (
   ActivesInactivesPlot,
   ConfusionPlot,
   RocCurvePlot,
-  ScoreViolinPlot,
-  ScoreStripPlot,
   OofScoreProbaPlot,
   OofScoreLogitPlot,
   OofScoreRankPlot,
@@ -27,9 +25,7 @@ from zairachem.report.plots import (
   AdCoveragePlot,
   RankDistributionPlot,
   RegressionPlotRaw,
-  HistogramPlotRaw,
   RegressionPlotTransf,
-  HistogramPlotTransf,
   Transformation,
   IndividualEstimatorsR2Plot,
   CvAurocPlot,
@@ -44,13 +40,14 @@ from zairachem.report.plots import (
   CvPrPlot,
   PrCurvePlot,
   EnrichmentCurvePlot,
-  EnrichmentFactorPlot,
+  EnrichmentFactorCurvePlot,
   ThresholdSweepPlot,
   CalibrationCurvePlot,
   NormalizedConfusionPlot,
   ConfusionPrecisionPlot,
   ConfusionBreakdownPlot,
   DescriptorCorrelationPlot,
+  TopKOverlapCurvePlot,
   PropertyMwPlot,
   PropertyLogpPlot,
   PredictedPropertyMwPlot,
@@ -63,6 +60,12 @@ from zairachem.report.plots import (
   ProvenanceBarPlot,
   PerModelTimingPlot,
   HeldOutValidationPlot,
+  HeldoutRocByStrategyPlot,
+  HeldoutPrByStrategyPlot,
+  HeldoutCalibrationByStrategyPlot,
+  HeldoutEnrichmentFactorByStrategyPlot,
+  HeldoutMetricBarsPlot,
+  HeldoutConfusionByStrategyPlot,
 )
 from zairachem.report.fetcher import ResultsFetcher
 
@@ -78,8 +81,6 @@ _PLOT_SPECS = [
   ("class-waffle", ClassWafflePlot),
   ("confusion-matrix", ConfusionPlot),
   ("roc-curve", RocCurvePlot),
-  ("score-violin", ScoreViolinPlot),
-  ("score-strip", ScoreStripPlot),
   # Predict-only (truth-free): render only when there is no ground-truth column.
   ("predicted-score-hist", PredictedScoreHistogramPlot),
   ("predicted-rank-curve", ScoreRankCurvePlot),
@@ -97,9 +98,7 @@ _PLOT_SPECS = [
   ("oof-score-lift-pts", OofScoreLiftPointsPlot),
   ("oof-score-raw-pts", OofScoreRawPointsPlot),
   ("regression-trans", RegressionPlotTransf),
-  ("histogram-trans", HistogramPlotTransf),
   ("regression-raw", RegressionPlotRaw),
-  ("histogram-raw", HistogramPlotRaw),
   ("transformation", Transformation),
   ("r2-individual", IndividualEstimatorsR2Plot),
   ("cv-auroc", CvAurocPlot),
@@ -114,14 +113,21 @@ _PLOT_SPECS = [
   ("cv-pr", CvPrPlot),
   ("pr-curve", PrCurvePlot),
   ("enrichment-curve", EnrichmentCurvePlot),
-  ("enrichment-factor", EnrichmentFactorPlot),
+  ("enrichment-factor-curve", EnrichmentFactorCurvePlot),
   ("threshold-sweep", ThresholdSweepPlot),
   ("calibration-curve", CalibrationCurvePlot),
   ("confusion-normalized", NormalizedConfusionPlot),
   ("confusion-precision", ConfusionPrecisionPlot),
   ("confusion-breakdown", ConfusionBreakdownPlot),
   ("descriptor-correlation", DescriptorCorrelationPlot),
+  ("topk-overlap-curve", TopKOverlapCurvePlot),
   ("heldout-validation", HeldOutValidationPlot),
+  ("heldout-roc", HeldoutRocByStrategyPlot),
+  ("heldout-pr", HeldoutPrByStrategyPlot),
+  ("heldout-calibration", HeldoutCalibrationByStrategyPlot),
+  ("heldout-enrichment-factor", HeldoutEnrichmentFactorByStrategyPlot),
+  ("heldout-metric-bars", HeldoutMetricBarsPlot),
+  ("heldout-confusion", HeldoutConfusionByStrategyPlot),
   ("property-mw", PropertyMwPlot),
   ("property-logp", PropertyLogpPlot),
   ("predicted-property-mw", PredictedPropertyMwPlot),
@@ -148,7 +154,14 @@ _FIT_ONLY = {
   "cv-roc",
   "cv-pr",
   "descriptor-correlation",
+  "topk-overlap-curve",
   "heldout-validation",
+  "heldout-roc",
+  "heldout-pr",
+  "heldout-calibration",
+  "heldout-enrichment-factor",
+  "heldout-metric-bars",
+  "heldout-confusion",
 }
 
 
@@ -209,6 +222,20 @@ class Reporter(ZairaBase):
         ))
     return jobs
 
+  def _clean_figure_dirs(self):
+    """Delete previously-rendered figures before a fresh render, so plots dropped from the registry
+    (or renamed) don't linger as orphan PNGs and resurface in the report's 'More' catch-all. Every
+    current figure is re-rendered right after, so this only removes stale ones."""
+    import contextlib
+    import glob
+    from zairachem.base.vars import REPORT_SUBFOLDER
+
+    report_dir = os.path.join(self.path, REPORT_SUBFOLDER)
+    for sub, pattern in (("png", "*.png"), ("pdf", "*.pdf")):
+      for f in glob.glob(os.path.join(report_dir, sub, pattern)):
+        with contextlib.suppress(OSError):
+          os.remove(f)
+
   def _render_plots(self, jobs):
     """Render all figures, in process and one at a time, under a single compact progress bar.
     (Parallel rendering across processes was tried but matplotlib's global pyplot state plus stylia's
@@ -217,6 +244,7 @@ class Reporter(ZairaBase):
     report."""
     if not jobs:
       return
+    self._clean_figure_dirs()
     bar = LiveProgressBar(
       "Rendering plots",
       total=len(jobs),
@@ -225,6 +253,9 @@ class Reporter(ZairaBase):
       show_bar=False,
     )
     n_na, n_fail = 0, 0
+    # Record each rendered figure's declared grid footprint (rows, cols) — the source of truth the
+    # HTML uses for the card's size badge (can't be reliably recovered from the tight-cropped PNG).
+    cells_map = {}
     with bar.live():
       for label, cls, kwargs in jobs:
         bar.set_note(label)
@@ -232,6 +263,7 @@ class Reporter(ZairaBase):
           plot = cls(ax=None, path=self.path, **kwargs)
           if getattr(plot, "is_available", True):
             plot.save()
+            cells_map[plot.name] = list(getattr(plot, "cells", (2, 2)))
           else:
             n_na += 1  # figure not applicable to this run (e.g. regression plots for a clf model)
         except Exception as e:
@@ -245,6 +277,17 @@ class Reporter(ZairaBase):
       if n_fail:
         extras.append(f"{n_fail} failed")
       bar.set_note(" · ".join(extras))
+    self._write_figure_cells(cells_map)
+
+  def _write_figure_cells(self, cells_map):
+    """Persist ``{stem: [rows, cols]}`` for the HTML size badges (overwritten each render)."""
+    import json
+    from zairachem.base.vars import REPORT_SUBFOLDER
+
+    report_dir = os.path.join(self.path, REPORT_SUBFOLDER)
+    os.makedirs(report_dir, exist_ok=True)
+    with open(os.path.join(report_dir, "figure_cells.json"), "w") as f:
+      json.dump(cells_map, f, indent=2)
 
   def _output_table(self):
     OutputTable(path=self.path).run()

@@ -3,7 +3,9 @@ import random
 import pandas as pd
 from rdkit import DataStructs
 from rdkit import Chem
-from standardiser import standardise
+from zairachem.setup.tools.chembl_structure.standardizer import (
+  standardize_molblock_from_smiles,
+)
 from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
@@ -94,9 +96,13 @@ class SetupChecker(object):
         sim = DataStructs.FingerprintSimilarity(ofp, ufp)
         if sim < 0.6:
           try:
-            omol = standardise.run(omol)
+            std_smi = standardize_molblock_from_smiles(ismi[oidx], get_smiles=True)
+            omol = Chem.MolFromSmiles(std_smi) if std_smi else None
           except Exception as e:
             logger.debug(f"[check] standardization failed during similarity check: {e}")
+            progress.update(task, advance=1)
+            continue
+          if omol is None:
             progress.update(task, advance=1)
             continue
           ofp = Chem.RDKFingerprint(omol)

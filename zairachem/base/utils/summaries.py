@@ -164,6 +164,25 @@ def _pooled_metrics(output_dir):
 # --- One-line summaries (the ✓ result line per step) -------------------------------------------
 
 
+def _featurizers(output_dir):
+  """Descriptor ids to report for this run.
+
+  At predict only the selected (effective) descriptors are computed and scored, so the pre-screened-
+  out ones are omitted from every count/summary; at fit, all requested featurizers are returned."""
+  params = _load_params(output_dir)
+  all_desc = params.get("featurizer_ids", []) or []
+  if _is_predict():
+    try:
+      from zairachem.base.utils.descriptors import effective_descriptors
+
+      eff = effective_descriptors(output_dir)
+      if eff:
+        return list(eff)
+    except Exception:
+      pass
+  return all_desc
+
+
 def summarize_setup(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
@@ -174,7 +193,7 @@ def summarize_setup(output_dir=None):
   if n is not None:
     parts.append(f"{n:,} compounds")
   parts.append(params.get("task", "?"))
-  parts.append(_plurals(len(params.get("featurizer_ids", []) or []), "descriptor"))
+  parts.append(_plurals(len(_featurizers(d)), "descriptor"))
   return " · ".join(parts)
 
 
@@ -182,8 +201,7 @@ def summarize_describe(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
-  params = _load_params(d)
-  featurizers = params.get("featurizer_ids", []) or []
+  featurizers = _featurizers(d)
   n = _n_compounds(d)
   width = _descriptor_feature_width(d, featurizers)
   if n is not None and width is not None:
@@ -208,9 +226,8 @@ def summarize_treat(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
-  params = _load_params(d)
   n = _n_compounds(d)
-  width = _descriptor_feature_width(d, params.get("featurizer_ids", []) or [])
+  width = _descriptor_feature_width(d, _featurizers(d))
   return f"{n:,} × {width:,} matrix" if (n is not None and width is not None) else "matrix imputed"
 
 
@@ -247,7 +264,7 @@ def summarize_estimate(output_dir=None):
     return ""
   if _is_predict():
     # Predict applies the trained models — there are no freshly trained estimators or CV stats here.
-    n = len(_load_params(d).get("featurizer_ids", []) or [])
+    n = len(_featurizers(d))
     return _plurals(n, "descriptor") + " scored" if n else "models applied"
   algos = _estimator_algorithms(d)
   base = _plurals(len(algos), "algorithm") + " trained" if algos else "estimators trained"
@@ -499,7 +516,7 @@ def _detail_rows(key, output_dir=None):
       rows.append(("compounds", f"{n:,} [dim]·[/] {a:,} active [dim]·[/] {i:,} inactive"))
     elif n is not None:
       rows.append(("compounds", f"{n:,}"))
-    feats = params.get("featurizer_ids", []) or []
+    feats = _featurizers(d)
     if feats:
       rows.append(("featurizers", "  ".join(feats)))
     projs = params.get("projection_ids", []) or []
@@ -634,10 +651,28 @@ def final_summary_panel(output_dir=None):
   rows = [("Output", f"[dim]{_collapse(d)}[/]"), ("Task", f"[magenta]{task}[/]")]
   if n is not None:
     rows.append(("Compounds", f"[bold]{n:,}[/]"))
-  rows.append((
-    "Descriptors",
-    "  ".join(f"[green]{m}[/]" for m in params.get("featurizer_ids", [])),
-  ))
+  # List the requested featurizers, distinguishing the ones the pooled model actually uses (green)
+  # from those dropped by --max-descriptors pre-screening (dimmed). effective_descriptors reads
+  # metadata/selected_eos.json when screening ran, else falls back to all trained descriptors.
+  all_desc = params.get("featurizer_ids", [])
+  try:
+    from zairachem.base.utils.descriptors import effective_descriptors
+
+    effective = effective_descriptors(d)
+  except Exception:
+    effective = list(all_desc)
+  used = set(effective)
+  if _is_predict():
+    # Predict only ever uses the selected descriptors — the pre-screened-out ones are never computed
+    # for these molecules, so omit them entirely (in order) rather than listing them as unused.
+    desc_label = "  ".join(f"[green]{m}[/]" for m in (effective or all_desc))
+  elif used and 0 < len(used) < len(all_desc):
+    # Fit: keep the screened-out descriptors visible (dimmed) — seeing what was dropped is useful here.
+    cells = " ".join(f"[green]{m}[/]" if m in used else f"[dim strike]{m}[/]" for m in all_desc)
+    desc_label = f"{cells}   [dim]({len(used)}/{len(all_desc)} used · rest pre-screened)[/]"
+  else:
+    desc_label = "  ".join(f"[green]{m}[/]" for m in all_desc)
+  rows.append(("Descriptors", desc_label))
 
   m = _pooled_metrics(d)
   if m:

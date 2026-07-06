@@ -322,7 +322,11 @@ class SingleFileForPrediction(SingleFile):
         dfv = self.values_table(labeled)
         dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
       else:
+        # A ground-truth column was matched but every value is blank → nothing to validate against.
+        # Drop it from the persisted schema too, so ``values_column`` is None iff there are no tasks
+        # (the schema is the durable source of truth; values.csv is an intermediate removed by clean).
         self.has_tasks = False
+        self.values_column = None
     schema = self.input_schema()
     with open(os.path.join(path, INPUT_SCHEMA_FILENAME), "w") as f:
       json.dump(schema, f, indent=4)

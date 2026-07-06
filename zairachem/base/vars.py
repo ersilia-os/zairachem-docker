@@ -92,6 +92,9 @@ SPLITS_FILENAME = "splits.json"  # metadata/: the fold index definitions compute
 SELECTED_EOS_FILENAME = "selected_eos.json"
 PROXY_SCORES_FILENAME = "proxy_scores.json"  # metadata/: per-descriptor proxy AUROC from screening
 VALIDATION_TABLE_FILENAME = "validation_table.csv"  # report/: per-fold held-out metrics
+VALIDATION_PREDICTIONS_FILENAME = (
+  "validation_predictions.csv"  # report/: per-fold held-out y_true/y_score
+)
 REPORT_SUBFOLDER = "report"
 # Deliverables live under results/. OUTPUT_FILENAME is deliverable-only, so it carries the results/
 # prefix and cascades through is_done()/required-artifacts/finish. The two table filenames are bare

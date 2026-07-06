@@ -39,17 +39,13 @@ _CATEGORIES = [
   (
     "predictions",
     "Predictions",
-    "What the model says about these molecules: the spread of predicted probabilities and where the "
-    "decision cutoff falls, and the screening operating point (how many rank above the cutoff). "
-    "Shown for a prediction run without ground truth.",
+    "What the model predicts for these molecules and where the decision cutoff falls.",
     ["predicted-score-hist", "predicted-rank-curve"],
   ),
   (
     "confidence",
     "Confidence",
-    "How much to trust each prediction: agreement across the individual descriptor models, "
-    "applicability-domain coverage (how far the queries sit from the training chemistry), the "
-    "rank-reliability spread, and the physico-chemical make-up of the predicted classes.",
+    "How much to trust each prediction (descriptor agreement, applicability domain, rank reliability).",
     [
       "descriptor-consensus",
       "ad-coverage",
@@ -60,10 +56,8 @@ _CATEGORIES = [
   ),
   (
     "performance",
-    "Model performance",
-    "How the pooled model and individual estimators score against the ground-truth labels. At fit "
-    "these are honest out-of-fold predictions (each descriptor contributes its cross-validated "
-    "prediction, then pooled); when predicting a labelled set they are the held-out predictions.",
+    "Inner model performance",
+    "Cross-validated (out-of-fold) performance of the pooled model against the labels.",
     [
       "oof-score-proba",
       "oof-score-proba-pts",
@@ -85,31 +79,25 @@ _CATEGORIES = [
       "confusion-precision",
       "confusion-breakdown",
       "descriptor-correlation",
+      "topk-overlap-curve",
       "r2-individual",
       "regression-raw",
       "regression-trans",
     ],
   ),
   (
-    "ranking",
-    "Ranking & operating point",
-    "Imbalance-aware ranking quality and the trade-offs around the decision threshold — what "
-    "matters when triaging or screening a library.",
-    ["enrichment-factor"],
-  ),
-  (
     "validation",
     "Held-out validation",
-    "Out-of-sample pooled AUROC/AUPR under random, scaffold and Butina 80:20 splits, repeated "
-    "across seeds. Random is the optimism anchor; a large drop under scaffold/Butina indicates "
-    "limited generalization to novel chemistry.",
-    ["heldout-validation"],
-  ),
-  (
-    "scores",
-    "Score distributions",
-    "Predicted scores across the active and inactive classes.",
-    ["score-violin", "score-strip", "histogram-raw", "histogram-trans"],
+    "Out-of-sample performance under random, scaffold, deterministic and Butina 80:20 splits.",
+    [
+      "heldout-roc",
+      "heldout-pr",
+      "heldout-calibration",
+      "heldout-enrichment-factor",
+      "heldout-validation",
+      "heldout-metric-bars",
+      "heldout-confusion",
+    ],
   ),
   (
     "transform",
@@ -119,17 +107,27 @@ _CATEGORIES = [
   ),
 ]
 
+# Predict-aware overrides. The static _CATEGORIES / _GROUPS read from the fit perspective; at predict
+# the same figures describe the NEW molecules against the trained model, so a couple of headings shift
+# meaning. Applied where the section heading and the carousel title are emitted (never mutating the
+# static tables), keyed by section anchor / group key.
+_PREDICT_SECTION = {
+  "performance": (
+    "Test-set performance",
+    "How the trained model performs on your labelled test set (training reference overlaid).",
+  ),
+}
+_PREDICT_GROUP_TITLE = {
+  "oof-scores": "Predicted score by true class",
+}
+
 _TITLES = {
   "actives-inactives": "Class balance",
   "roc-curve": "ROC curve",
   "confusion-matrix": "Confusion matrix",
-  "score-violin": "Score distribution (violin)",
-  "score-strip": "Score distribution (strip)",
   "r2-individual": "R² by estimator",
   "regression-raw": "Predicted vs observed (raw)",
   "regression-trans": "Predicted vs observed (transformed)",
-  "histogram-raw": "Value histogram (raw)",
-  "histogram-trans": "Value histogram (transformed)",
   "transformation": "Value transformation",
   "cv-auroc": "Inner CV AUROC by descriptor",
   "cv-aupr": "Inner CV AUPR by descriptor",
@@ -148,14 +146,15 @@ _TITLES = {
   "projection-tmap": "TMAP projection",
   "projection-correctness": "Prediction correctness in chemical space",
   "pr-curve": "Precision-recall curve",
-  "enrichment-curve": "Enrichment curve",
-  "enrichment-factor": "Enrichment factor",
+  "enrichment-curve": "Enrichment curve (cumulative gain)",
+  "enrichment-factor-curve": "Enrichment factor curve",
   "threshold-sweep": "Threshold sweep",
   "calibration-curve": "Calibration curve",
   "confusion-normalized": "Confusion matrix (recall)",
   "confusion-precision": "Confusion matrix (precision)",
   "confusion-breakdown": "Outcome composition",
   "descriptor-correlation": "Descriptor prediction correlation",
+  "topk-overlap-curve": "Descriptor agreement (top-x% overlap)",
   "oof-score-proba": "Probability",
   "oof-score-logit": "Log-odds",
   "oof-score-rank": "Percentile rank",
@@ -167,6 +166,12 @@ _TITLES = {
   "oof-score-lift-pts": "Lift · points",
   "oof-score-raw-pts": "Raw · points",
   "heldout-validation": "Held-out AUROC by split",
+  "heldout-roc": "Held-out ROC by split",
+  "heldout-pr": "Held-out PR by split",
+  "heldout-calibration": "Held-out calibration by split",
+  "heldout-enrichment-factor": "Held-out enrichment by split",
+  "heldout-metric-bars": "Held-out metrics by split",
+  "heldout-confusion": "Held-out outcome composition by split",
   "class-donut": "Class balance (donut)",
   "class-waffle": "Class balance (waffle)",
   "property-mw": "Molecular weight",
@@ -221,6 +226,7 @@ _GROUPS = [
       "pr-curve",
       "calibration-curve",
       "enrichment-curve",
+      "enrichment-factor-curve",
       "threshold-sweep",
     ],
   },
@@ -242,16 +248,28 @@ _GROUPS = [
     "members": ["regression-trans", "regression-raw"],
   },
   {
-    "key": "scoredist",
-    "title": "Score distribution",
-    "home": "scores",
-    "members": ["score-violin", "score-strip"],
+    "key": "descriptor-agreement",
+    "title": "Descriptor agreement",
+    "home": "performance",
+    "members": ["descriptor-correlation", "topk-overlap-curve"],
   },
   {
-    "key": "histogram",
-    "title": "Value histogram",
-    "home": "scores",
-    "members": ["histogram-trans", "histogram-raw"],
+    "key": "heldout-curves",
+    "title": "Held-out curves by split strategy",
+    "home": "validation",
+    "members": [
+      "heldout-roc",
+      "heldout-pr",
+      "heldout-calibration",
+      "heldout-enrichment-factor",
+      "heldout-validation",
+    ],
+  },
+  {
+    "key": "heldout-summary",
+    "title": "Held-out summary by split strategy",
+    "home": "validation",
+    "members": ["heldout-metric-bars", "heldout-confusion"],
   },
 ]
 _STEM_TO_GROUP = {m: g for g in _GROUPS for m in g["members"]}
@@ -306,45 +324,51 @@ def _img_src(report_dir, stem):
 
 
 # --- Physical figure sizes & the composite reference grid ----------------------------------------
-# Figures are exported by stylia at 600 DPI (see report/__init__.py), so a saved PNG's real size is
-# pixels / 600 inches. The report documents a reference grid (it mirrors the old 6×10 matplotlib
-# poster grid) so users can tile the downloaded plots into a composite figure at the right scale.
-_FIGURE_DPI = 600
+# The report documents a reference grid (mirrors the old 6×10 matplotlib poster grid) so users can
+# tile the downloaded plots into a composite figure at the right scale. A card's footprint badge is
+# the plot's DECLARED cells (rows, cols) — persisted to report/figure_cells.json at render time — not
+# reverse-engineered from the (tight-cropped) PNG, which is unreliable.
 _CELL_IN = _CELL_CM / 2.54  # ≈ 1.181 in
+_FIGURE_CELLS_CACHE = {}
 
 
-def _png_px(path):
-  """(width_px, height_px) read from a PNG's IHDR header, or None on any failure."""
+def _load_figure_cells(report_dir):
+  """``{stem: (rows, cols)}`` declared footprints written by the report render; cached per report dir."""
+  cached = _FIGURE_CELLS_CACHE.get(report_dir)
+  if cached is not None:
+    return cached
+  import json
+
+  data = {}
   try:
-    with open(path, "rb") as f:
-      head = f.read(24)
-    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n":
-      return None
-    w = int.from_bytes(head[16:20], "big")
-    h = int.from_bytes(head[20:24], "big")
-    return (w, h) if w > 0 and h > 0 else None
+    with open(os.path.join(report_dir, "figure_cells.json")) as f:
+      raw = json.load(f)
+    data = {
+      k: (int(v[0]), int(v[1]))
+      for k, v in raw.items()
+      if isinstance(v, (list, tuple)) and len(v) == 2
+    }
   except Exception:
-    return None
+    data = {}
+  _FIGURE_CELLS_CACHE[report_dir] = data
+  return data
 
 
 def _figure_size(report_dir, stem):
-  """Physical size of a figure PNG and its footprint on the reference grid, or None.
-
-  Returns ``{w_cm, h_cm, w_in, h_in, cols, rows}`` where cols/rows are the size rounded to whole
-  3 cm cells (minimum 1).
-  """
-  px = _png_px(os.path.join(report_dir, "png", f"{stem}.png"))
-  if px is None:
+  """Physical size + grid footprint of a figure from its declared ``cells`` (rows, cols), recorded at
+  render time. Returns ``{w_cm, h_cm, w_in, h_in, cols, rows}``, or None if the footprint is unknown."""
+  cells = _load_figure_cells(report_dir).get(stem)
+  if cells is None:
     return None
-  w_in, h_in = px[0] / _FIGURE_DPI, px[1] / _FIGURE_DPI
-  w_cm, h_cm = w_in * 2.54, h_in * 2.54
+  rows, cols = cells
+  w_cm, h_cm = cols * _CELL_CM, rows * _CELL_CM
   return {
     "w_cm": w_cm,
     "h_cm": h_cm,
-    "w_in": w_in,
-    "h_in": h_in,
-    "cols": max(1, round(w_cm / _CELL_CM)),
-    "rows": max(1, round(h_cm / _CELL_CM)),
+    "w_in": w_cm / 2.54,
+    "h_in": h_cm / 2.54,
+    "cols": cols,
+    "rows": rows,
   }
 
 
@@ -539,11 +563,11 @@ def _hitlist_table_html(report_dir, top_n=25):
   )
 
 
-# Held-out validation schemas: (csv strategy key, display label). Random is styled as the anchor.
+# Held-out validation schemas: (csv strategy key, display label), in canonical (not ranked) order.
 _VALIDATION_SCHEMAS = [
   ("random", "Random"),
   ("scaffold", "Scaffold"),
-  ("scaffold_det", "Scaffold (DeepChem)"),
+  ("scaffold_det", "Deterministic"),
   ("butina", "Butina"),
 ]
 
@@ -582,18 +606,31 @@ def _validation_table_html(report_dir):
   ordered += [(k, k) for k in by_strategy if k not in {s for s, _ in _VALIDATION_SCHEMAS}]
   if not ordered:
     return ""
+
+  def _ratio(r):
+    """Test-set actives:inactives for one fold (num_test_1 / (num_test − num_test_1)), or None."""
+    n, a = _num(r, "num_test"), _num(r, "num_test_1")
+    if n is None or a is None or (n - a) <= 0:
+      return None
+    return a / (n - a)
+
   body = []
   for strat, label in ordered:
     srows = by_strategy[strat]
     au_m, au_s = _mean_std([_num(r, "auroc") for r in srows])
     ap_m, ap_s = _mean_std([_num(r, "aupr") for r in srows])
+    ratio_m, _ = _mean_std([_ratio(r) for r in srows])
     au = f"{au_m:.3f} ± {au_s:.3f}" if au_m is not None else "—"
     ap = f"{ap_m:.3f} ± {ap_s:.3f}" if ap_m is not None else "—"
-    cls = " class='pooled'" if strat == "random" else ""
+    ratio = f"{ratio_m:.2f}" if ratio_m is not None else "—"
     body.append(
-      f"<tr{cls}><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{au}</td><td>{ap}</td></tr>"
+      f"<tr><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{ratio}</td>"
+      f"<td>{au}</td><td>{ap}</td></tr>"
     )
-  head = "<th>Split schema</th><th>Folds</th><th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
+  head = (
+    "<th>Split schema</th><th>Folds</th><th>Active:inactive (test)</th>"
+    "<th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
+  )
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -1536,12 +1573,13 @@ def _carousel(report_dir, group, members):
   )
 
 
-def _render_items(report_dir, anchor, items, present, rendered_groups, assigned):
+def _render_items(report_dir, anchor, items, present, rendered_groups, assigned, kind=None):
   """Render a section's items, collapsing grouped figures into one carousel at their home section.
 
   Grouped stems seen outside their home section (or after their group already rendered) are skipped;
   they surface in the carousel emitted at the home section instead. ``assigned`` tracks everything
-  rendered so the trailing "More" section can pick up genuine leftovers.
+  rendered so the trailing "More" section can pick up genuine leftovers. ``kind`` ("Predict"/"Fit")
+  selects the predict-aware carousel title overrides.
   """
   cards = []
   for stem in items:
@@ -1558,6 +1596,8 @@ def _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
     if len(group_members) == 1:
       cards.append(_card(report_dir, group_members[0]))
     else:
+      if kind == "Predict" and group["key"] in _PREDICT_GROUP_TITLE:
+        group = {**group, "title": _PREDICT_GROUP_TITLE[group["key"]]}
       cards.append(_carousel(report_dir, group, group_members))
   return cards
 
@@ -1609,6 +1649,7 @@ document.addEventListener('DOMContentLoaded', function () {
       if (e.key === 'ArrowLeft') { show(i - 1); e.preventDefault(); }
       else if (e.key === 'ArrowRight') { show(i + 1); e.preventDefault(); }
     });
+    show(0);  // sync badge/label/links to the first slide from the JS (single source of truth)
   });
 });
 """
@@ -1656,9 +1697,7 @@ def write_html_report(output_dir):
       sections.append((
         "hitlist",
         "Hitlist",
-        "The highest-scoring molecules in this set — ranked by the pooled predicted probability, with "
-        "the binary call, the agreement across descriptor models, and the applicability-domain "
-        "coverage where available.",
+        "The highest-scoring molecules, ranked by predicted probability.",
         hitlist,
       ))
   perf_section = _computational_performance_html(output_dir, report_dir, present, assigned, params)
@@ -1666,8 +1705,7 @@ def write_html_report(output_dir):
     sections.append((
       "compute",
       "Computational performance",
-      "How long the run took, how much memory and CPU it used, and where the molecular descriptors "
-      "came from — reused from the isaura store or freshly computed.",
+      "Run time, memory/CPU usage, and where the descriptors came from.",
       perf_section,
     ))
   dataset_section = _dataset_html(output_dir, report_dir, present, assigned)
@@ -1675,8 +1713,7 @@ def write_html_report(output_dir):
     sections.append((
       "dataset",
       "Dataset",
-      "Composition of the labelled set (training compounds at fit; the labelled inputs when "
-      "predicting) — class balance and molecular property distributions.",
+      "Class balance and molecular property distributions of the labelled set.",
       dataset_section,
     ))
   space_section = _chemical_space_html(output_dir, report_dir, present, assigned)
@@ -1684,29 +1721,29 @@ def write_html_report(output_dir):
     sections.append((
       "space",
       "Chemical space",
-      "Low-dimensional embeddings of the molecules — the built-in molecular-weight-vs-LogP map and "
-      "each computed projection (UMAP, t-SNE, …).",
+      "Low-dimensional embeddings of the molecules (MW-vs-LogP and each projection).",
       space_section,
     ))
   elif kind == "Predict":
     # No truth-keyed (projection-merged-*) maps in a prediction run — gather the projections coloured
     # by predicted probability instead, so they form a proper Chemical space section (not "More").
     proba = sorted(s for s in present if s.startswith("projection-") and s.endswith("-proba"))
-    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned)
+    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned, kind)
     if cards:
       sections.append((
         "space",
         "Chemical space",
-        "Each 2-D projection coloured by the predicted probability — where the high- and low-scoring "
-        "molecules sit relative to one another in chemical space.",
+        "Each 2-D projection coloured by the predicted probability.",
         "<div class='grid'>" + "".join(cards) + "</div>",
       ))
   for anchor, heading, desc, members in _CATEGORIES:
+    if kind == "Predict" and anchor in _PREDICT_SECTION:
+      heading, desc = _PREDICT_SECTION[anchor]
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))
     else:
       items = [s for s in members if s in present]
-    cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
+    cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned, kind)
     grid = "<div class='grid'>" + "".join(cards) + "</div>" if cards else ""
     if anchor == "validation":
       inner = _validation_table_html(report_dir) + grid
@@ -1720,9 +1757,7 @@ def write_html_report(output_dir):
     entry = (
       "diagnostics",
       "Per descriptor inner diagnostics",
-      "How each molecular descriptor performed under lazy-qsar's internal cross-validation — the "
-      "out-of-fold AUROC, the train-vs-CV overfit gap, and the algorithm portfolio chosen per "
-      "descriptor.",
+      "Per-descriptor lazy-qsar cross-validation (out-of-fold AUROC and overfit gap).",
       diag_section,
     )
     idx = next((i + 1 for i, s in enumerate(sections) if s[0] == "space"), len(sections))

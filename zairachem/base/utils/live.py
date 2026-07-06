@@ -233,6 +233,10 @@ class LiveTableMonitor:
   #: Fixed width of the Status column. Status text varies as work progresses (substep, spinner); a
   #: fixed width stops it pushing later columns around. Truncated with an ellipsis if longer.
   status_width = 28
+  #: Shared minimum width for the first (item) column. A floor common to every step's table so their
+  #: later columns line up vertically across steps (ids are ~7 chars, labels ≤ ~10, so 12 fits all
+  #: without truncation); a longer id still widens just that table.
+  item_col_min = 12
   #: Opt in (subclass) to a trailing dim "Activity" column that streams the latest background line
   #: (set via :meth:`set_activity`) for the running row — e.g. lazy-qsar's raw loguru output.
   show_activity = False
@@ -403,7 +407,12 @@ class LiveTableMonitor:
     # Fixed widths + no_wrap throughout so columns never reflow as cell contents change length.
     # Item text is constant per row, so a min_width floor keeps the column stable without ever
     # truncating an id (a fixed width would ellipsize ids exactly as long as the width).
-    table.add_column(self.item_label, style="bold", min_width=self._item_width, no_wrap=True)
+    table.add_column(
+      self.item_label,
+      style="bold",
+      min_width=max(self._item_width, self.item_col_min),
+      no_wrap=True,
+    )
     table.add_column("Status", width=self.status_width, no_wrap=True, overflow="ellipsis")
     self._columns(table)
     activity_w = self._activity_width()
@@ -440,10 +449,13 @@ class LiveTableMonitor:
   def live(self):
     """Animate this table in place (TTY) or degrade to terse start/finish lines (off-TTY).
 
-    The animated region is **transient** — it redraws cleanly while the table's height changes (the
-    CPU/RAM caption and spinner come and go) with no stale-line artifacts. On exit, the final table is
-    printed once as a static block, so it persists on screen as the step's record (not cleared, not
-    replaced by a separate summary). Only one ``Live`` region may be active at a time — don't nest.
+    The table renders in a single **non-transient** Live region: the finished state is drawn as the
+    last frame and left on screen as the step's permanent record. We deliberately do NOT use a
+    transient region plus a separate ``console.print(self)`` — those are two independent render
+    surfaces, and on fast steps the transient clear could miscount lines and leave a duplicated
+    title/header behind before the reprint. One surface, one copy. The table height is kept constant
+    across refreshes (no caption; fixed column widths in :meth:`__rich__`) so in-place redraws stay
+    clean. Only one ``Live`` region may be active at a time — don't nest.
     """
     self._on_enter()
     # Prime the rolling CPU sampler so the first rendered caption shows a real value, not 0%.
@@ -465,13 +477,14 @@ class LiveTableMonitor:
 
     try:
       with Live(
-        self, console=console, transient=True, refresh_per_second=8, auto_refresh=True
+        self, console=console, transient=False, refresh_per_second=8, auto_refresh=True
       ) as live:
         self._live = live
         yield self
+        # Draw the finished state as the last frame while Live is still active; with transient=False
+        # that frame stays on screen as the step's record — no separate reprint (which would double
+        # the title/header on fast steps).
+        live.update(self, refresh=True)
     finally:
       self._live = None
       self._on_exit()
-      # Leave the final table on screen as the permanent record (the live region itself was transient
-      # to avoid height-change redraw artifacts while animating).
-      console.print(self)

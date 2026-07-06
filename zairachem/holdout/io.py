@@ -8,7 +8,11 @@ import csv, json, os
 import numpy as np
 
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import REPORT_SUBFOLDER, VALIDATION_TABLE_FILENAME
+from zairachem.base.vars import (
+  REPORT_SUBFOLDER,
+  VALIDATION_PREDICTIONS_FILENAME,
+  VALIDATION_TABLE_FILENAME,
+)
 
 HOLDOUT_SUMMARY_FILENAME = "holdout_summary.json"
 
@@ -49,6 +53,19 @@ def write_validation_outputs(model_dir, folds, records):
     writer.writeheader()
     for r in records:
       writer.writerow(r)
+
+  # Per-compound held-out (truth, score), long form — feeds the report's per-strategy ROC/PR/
+  # calibration/enrichment curves (the scalar table above can't reconstruct curves).
+  with open(os.path.join(report_dir, VALIDATION_PREDICTIONS_FILENAME), "w", newline="") as f:
+    pw = csv.writer(f)
+    pw.writerow(["strategy", "fold", "y_true", "y_score"])
+    for r in records:
+      yt, ys = r.get("_y_true") or [], r.get("_y_score") or []
+      for t, s in zip(yt, ys):
+        pw.writerow([r["strategy"], r["fold"], t, s])
+
+  # Keep the big per-compound arrays out of the JSON summary (they live in the predictions CSV).
+  records = [{k: v for k, v in r.items() if not k.startswith("_")} for r in records]
 
   by_strategy = {}
   for r in records:
