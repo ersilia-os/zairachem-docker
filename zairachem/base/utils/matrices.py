@@ -1,6 +1,5 @@
-import collections, h5py, json, joblib, gc, os
+import h5py, json, joblib, gc, os
 import numpy as np
-import pandas as pd
 from typing import Iterator, Tuple, List
 from contextlib import contextmanager
 from zairachem.base.utils.logging import logger
@@ -211,35 +210,6 @@ class Hdf5(object):
   def update_slice(self, start, end, values):
     with self._open("a") as f:
       f["Values"][start:end] = values
-
-  def save_summary_as_csv(self):
-    file_name = self.file_name.split(".h5")[0] + "_summary.csv"
-    n_rows = self.n_rows()
-    features = self.features()
-    n_features = len(features)
-    first_row = self.values_slice(0, 1)[0]
-    last_row = self.values_slice(n_rows - 1, n_rows)[0]
-    means = np.zeros(n_features)
-    stds = np.zeros(n_features)
-    counts = np.zeros(n_features)
-    for chunk in self.iter_values():
-      valid_mask = ~np.isnan(chunk)
-      chunk_filled = np.where(valid_mask, chunk, 0)
-      means += np.sum(chunk_filled, axis=0)
-      counts += np.sum(valid_mask, axis=0)
-    means = np.divide(means, counts, out=np.zeros_like(means), where=counts > 0)
-    for chunk in self.iter_values():
-      valid_mask = ~np.isnan(chunk)
-      diff_sq = np.where(valid_mask, (chunk - means) ** 2, 0)
-      stds += np.sum(diff_sq, axis=0)
-    stds = np.sqrt(np.divide(stds, counts, out=np.zeros_like(stds), where=counts > 0))
-    columns = ["keys"] + features
-    data = collections.defaultdict(list)
-    data["keys"] = ["first", "last", "mean", "std"]
-    for i, feat in enumerate(features):
-      data[feat] += [float(first_row[i]), float(last_row[i]), means[i], stds[i]]
-    df = pd.DataFrame(data, columns=columns)
-    df.to_csv(file_name, index=False)
 
 
 class ChunkedH5Processor:

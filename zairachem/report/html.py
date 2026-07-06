@@ -141,8 +141,6 @@ _TITLES = {
   "cv-cutoff": "Ideal decision cutoff",
   "cv-roc": "Cross-validation ROC",
   "cv-pr": "Cross-validation precision-recall",
-  "cv-calibration": "Calibration (cross-validated)",
-  "cv-score-distribution": "Out-of-fold score distribution",
   "projection-mwlogp": "Molecular weight vs LogP",
   "projection-umap": "UMAP projection",
   "projection-tsne": "t-SNE projection",
@@ -168,9 +166,6 @@ _TITLES = {
   "oof-score-rank-pts": "Percentile rank · points",
   "oof-score-lift-pts": "Lift · points",
   "oof-score-raw-pts": "Raw · points",
-  "descriptor-metric-heatmap": "Descriptor metric heatmap",
-  "oof-overfit-scatter": "Generalization vs overfitting",
-  "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
   "heldout-validation": "Held-out AUROC by split",
   "class-donut": "Class balance (donut)",
   "class-waffle": "Class balance (waffle)",
@@ -271,22 +266,6 @@ _ACRONYMS = {
 }
 
 # Curated metric columns for the performance table (only those present are shown).
-_METRIC_COLS = [
-  ("model", "Model"),
-  ("auroc", "AUROC"),
-  ("aupr", "AUPR"),
-  ("accuracy", "Accuracy"),
-  ("balanced_accuracy", "Bal. acc."),
-  ("precision", "Precision"),
-  ("recall", "Recall"),
-  ("f1_score", "F1"),
-  ("mcc", "MCC"),
-  ("r2", "R²"),
-  ("mae", "MAE"),
-  ("rmse", "RMSE"),
-  ("pearson", "Pearson"),
-  ("spearman", "Spearman"),
-]
 
 
 def _projection_label(stem):
@@ -499,47 +478,12 @@ def _n_compounds(output_dir):
     return None
 
 
-def _read_performance(report_dir):
-  """Return (header, rows) of performance_table.csv (same dir as the page), or (None, None)."""
-  try:
-    with open(os.path.join(report_dir, "performance_table.csv")) as f:
-      reader = csv.DictReader(f)
-      rows = list(reader)
-      return reader.fieldnames, rows
-  except Exception:
-    return None, None
-
-
 def _fmt_num(v):
   try:
     f = float(v)
     return f"{f:.3f}" if abs(f) < 1000 else f"{int(f):,}"
   except Exception:
     return html.escape(str(v))
-
-
-def _performance_table_html(report_dir):
-  fields, rows = _read_performance(report_dir)
-  if not rows:
-    return ""
-  cols = [(k, label) for k, label in _METRIC_COLS if fields and k in fields]
-  if len(cols) <= 1:
-    return ""
-  head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
-  body = []
-  for r in rows:
-    is_pooled = r.get("model") == "pooled"
-    cells = []
-    for k, _ in cols:
-      val = r.get(k, "")
-      val = html.escape(str(val)) if k == "model" else _fmt_num(val)
-      cells.append(f"<td>{val}</td>")
-    cls = " class='pooled'" if is_pooled else ""
-    body.append(f"<tr{cls}>{''.join(cells)}</tr>")
-  return (
-    "<div class='table-wrap'><table class='metrics'>"
-    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
-  )
 
 
 def _hitlist_table_html(report_dir, top_n=25):
@@ -650,45 +594,6 @@ def _validation_table_html(report_dir):
       f"<tr{cls}><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{au}</td><td>{ap}</td></tr>"
     )
   head = "<th>Split schema</th><th>Folds</th><th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
-  return (
-    "<div class='table-wrap'><table class='metrics'>"
-    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
-  )
-
-
-def _screening_table_html(output_dir):
-  """Per-descriptor pre-screening table (proxy AUROC + Selected/Not-selected badge), or ''.
-
-  Reads ``metadata/proxy_scores.json`` (all candidates) + ``metadata/selected_eos.json`` (the kept
-  subset), written by the --max-descriptors screening step. Rendered only when screening actually
-  pruned; a run that trained every descriptor has no proxy scores and the section is omitted.
-  """
-  meta = os.path.join(output_dir, "metadata")
-  try:
-    with open(os.path.join(meta, "proxy_scores.json")) as f:
-      scores = json.load(f)
-    with open(os.path.join(meta, "selected_eos.json")) as f:
-      selected = set(json.load(f))
-  except Exception:
-    return ""
-  if not scores:
-    return ""
-  body = []
-  for eos_id in sorted(scores, key=lambda e: scores[e], reverse=True):
-    keep = eos_id in selected
-    badge = (
-      "<span style='background:#3fb95022;color:#2ea043;padding:2px 9px;border-radius:10px;"
-      "font-weight:600;font-size:12px'>Selected</span>"
-      if keep
-      else "<span style='background:#f8514922;color:#cf222e;padding:2px 9px;border-radius:10px;"
-      "font-weight:600;font-size:12px'>Not selected</span>"
-    )
-    cls = "" if keep else " style='opacity:.6'"
-    body.append(
-      f"<tr{cls}><td>{html.escape(eos_id)}</td>"
-      f"<td>{_fmt_num(scores[eos_id])}</td><td>{badge}</td></tr>"
-    )
-  head = "<th>Descriptor</th><th>Held-out AUROC (screening)</th><th>Status</th>"
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -1551,35 +1456,6 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
 # Overview poster layout: rows of (figure stem, relative width). Mirrors the old 6×10 matplotlib
 # grid, but assembled in HTML from the individual figure PNGs. Cells whose PNG is missing are
 # dropped; an all-missing row is skipped. Row widths are proportional (flex-grow).
-_POSTER_ROWS = [
-  [("pr-curve", 2), ("enrichment-curve", 3), ("threshold-sweep", 3), ("enrichment-factor", 2)],
-  [
-    ("confusion-normalized", 2),
-    ("oof-overfit-scatter", 2),
-    ("pooled-vs-best-auroc", 2),
-    ("descriptor-metric-heatmap", 2),
-    ("projection-correctness", 2),
-  ],
-  [("property-mw", 5), ("property-logp", 5)],
-]
-
-
-def _overview_poster_html(report_dir, present):
-  """Assemble the overview poster: a flex grid of the individual figure PNGs. ``""`` if none."""
-  rows_html = []
-  for row in _POSTER_ROWS:
-    cells = [(s, w) for s, w in row if s in present]
-    if not cells:
-      continue
-    cell_html = "".join(
-      f"<a class='pcell' style='flex-grow:{w}' href='png/{s}.png' target='_blank'>"
-      f"<img src='{_img_src(report_dir, s)}' alt='{html.escape(_humanize(s))}' loading='lazy'></a>"
-      for s, w in cells
-    )
-    rows_html.append(f"<div class='prow'>{cell_html}</div>")
-  if not rows_html:
-    return ""
-  return "<div class='poster'>" + "".join(rows_html) + "</div>"
 
 
 def _download_name(report_dir, stem, ext):
