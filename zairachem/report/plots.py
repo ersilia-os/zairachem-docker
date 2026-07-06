@@ -17,7 +17,6 @@ from sklearn.metrics import (
   balanced_accuracy_score,
 )
 
-import matplotlib as plt
 import seaborn as sns
 import pandas as pd
 
@@ -41,6 +40,18 @@ from zairachem.report.colors import (  # noqa: E402
   rgb as _color,
 )
 from zairachem.base.vars import REPORT_SUBFOLDER, VALIDATION_TABLE_FILENAME  # noqa: E402
+
+
+def _npg(n):
+  """``n`` colours from stylia's NPG categorical palette (crimson, turquoise, amber, …)."""
+  return category_palette.get(n)
+
+
+def _npg_cmap(hex_hi, hex_lo="#ffffff"):
+  """A white→NPG-colour sequential matplotlib colormap for heatmaps."""
+  from matplotlib.colors import LinearSegmentedColormap
+
+  return LinearSegmentedColormap.from_list("npg_seq", [hex_lo, hex_hi])
 
 
 class ActivesInactivesPlot(BasePlot):
@@ -94,7 +105,7 @@ class ConfusionPlot(BasePlot):
         disp = metrics.ConfusionMatrixDisplay(
           metrics.confusion_matrix(bt, bp), display_labels=class_names
         )
-        disp.plot(ax=ax, cmap=plt.cm.Greens, colorbar=False)
+        disp.plot(ax=ax, cmap=_npg_cmap("#6BBF59"), colorbar=False)
         # for labels in disp.text_.ravel():
         # labels.set_fontsize(22)
         ax.grid(False)
@@ -117,7 +128,7 @@ class RocCurvePlot(BasePlot):
       bt, yp = ResultsFetcher(path=path).clf_truth_proba()
       fpr, tpr, _ = roc_curve(bt, yp)
       auroc = auc(fpr, tpr)
-      color = named_colors.blue
+      color = _npg(1)[0]
       ax.plot(fpr, tpr, color=color, zorder=10000, lw=1.6)
       ax.fill_between(fpr, tpr, color=color, alpha=0.16, lw=0, zorder=1000)
       ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--")
@@ -429,85 +440,6 @@ class OofScoreRawPointsPlot(OofScoreRawPlot):
   show_points = True
 
 
-class IndividualEstimatorsAurocPlot(BasePlot):
-  """Per-descriptor AUROC, one horizontal bar per descriptor model (classification only)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    if self.has_clf_data():
-      self.name = "roc-individual"
-      ax = self.ax
-      self.fetcher = ResultsFetcher(path=path)
-      tasks = self.fetcher.get_clf_tasks()
-      task = tasks[0]
-      mask = self.fetcher.clf_labeled_mask()  # labelled (NaN-free) rows only
-      bt = np.asarray(self.fetcher.get_actives_inactives(), dtype=float)[mask].astype(int)
-      df_ys = self.fetcher._read_individual_estimator_results(task)
-      aucs = []
-      labels = []
-      for yp in sorted(df_ys.columns):
-        fpr, tpr, _ = roc_curve(bt, np.asarray(df_ys[yp], dtype=float)[mask])
-        aucs += [auc(fpr, tpr)]
-        labels += [yp]
-      y = list(range(len(labels)))
-      x = aucs
-      colors = category_palette.get(len(labels))  # one NPG categorical color per estimator
-
-      def _format_label(l):
-        l = l.replace("_", " ").replace("-", " ")
-        return l.title()
-
-      for i in y:
-        ax.text(
-          0.75,
-          i,
-          "{0} / {1}".format(_format_label(labels[i]), np.round(x[i], 3)),
-          va="center",
-          ha="center",
-        )
-      for i in y:
-        r = Rectangle((0, i - 0.3), x[i], 0.6, color=colors[i], alpha=0.85)
-        ax.add_patch(r)
-      ax.set_xticks([0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
-      ax.set_ylabel("Estimators")
-      ax.set_yticklabels("")
-      ax.set_xlim(0.45, 1.05)
-      ax.set_ylim(-0.6, len(labels) - 0.4)
-      ax.set_yticks(y)
-      ax.set_xlabel("AUROC")
-      ax.set_title("Individual performances")
-      self.is_available = True
-    else:
-      self.is_available = False
-
-
-class IndividualEstimatorsClassificationScorePlot(BasePlot):
-  """Per-descriptor classifier score distributions as boxplots (classification only)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    if self.has_clf_data():
-      self.name = "raw-classification-scores"
-      ax = self.ax
-      self.fetcher = ResultsFetcher(path=path)
-      tasks = self.fetcher.get_clf_tasks()
-      task = tasks[0]
-      df_ys = self.fetcher._read_individual_estimator_results(task)
-      vals = []
-      labels = []
-      for yp in list(df_ys.columns):
-        vals += list(df_ys[yp])
-        labels += [yp] * len(df_ys[yp])
-      data = pd.DataFrame({"label": labels, "values": vals})
-      sns.boxplot(x="label", y="values", data=data, ax=ax)
-      ax.set_ylabel("Classification score (probability)")
-      ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-      ax.set_xlabel("")
-      self.is_available = True
-    else:
-      self.is_available = False
-
-
 class IndividualEstimatorsR2Plot(BasePlot):
   """Per-descriptor R² against the transformed target (regression only)."""
 
@@ -586,6 +518,8 @@ class ProjectionMergedPlot(BasePlot):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "projection-merged-" + projection["name"]
     self.is_available = False
+    if not self.has_clf_data():
+      return  # coloured by true class — needs ground truth (predict-no-truth uses ProjectionProbaPlot)
     x, y, bt = _projection_xy_by_class(path, projection)
     if len(bt) == 0:
       return
@@ -606,6 +540,8 @@ class ProjectionClassPlot(BasePlot):
     noun = "active" if cls == 1 else "inactive"
     self.name = f"projection-{projection['name']}-{noun}"
     self.is_available = False
+    if not self.has_clf_data():
+      return  # coloured by true class — needs ground truth
     x, y, bt = _projection_xy_by_class(path, projection)
     mask = bt == cls
     if not mask.any():
@@ -615,6 +551,247 @@ class ProjectionClassPlot(BasePlot):
     ax.set_xlabel(projection["x_label"])
     ax.set_ylabel(projection["y_label"])
     ax.set_title(f"{projection['title']} · {noun}s")
+    self.is_available = True
+
+
+# --- Predict-only (truth-free) plots -------------------------------------------------------------
+# These describe the PREDICTED set from the pooled probability alone — no ground truth needed — so
+# they are the core of the predict report. Each renders only when there is NO truth column
+# (``has_clf_data()`` is False). Since a fit run is always labelled, that condition holds *only* for a
+# predict-without-ground-truth run, so these never fire at fit (fit report unchanged by construction).
+
+_CUTOFF = 0.5  # pooled binarization threshold (pool.py: ``b_hat = y_hat > 0.5``)
+
+
+def _predicted_proba(path):
+  """Pooled predicted probabilities for the current run as a finite float array (or empty)."""
+  yp = ResultsFetcher(path=path).get_pred_proba_clf()
+  if yp is None:
+    return np.array([])
+  yp = np.asarray(yp, dtype=float)
+  return yp[np.isfinite(yp)]
+
+
+def _predict_hist(ax, values, *, xlabel, title, xlim=None, cutoff=None, color=None, bins=(6, 20)):
+  """Shared histogram styling for the predict-report distribution plots (score / AD / rank).
+
+  ``bins`` is a ``(floor, cap)`` pair; the bin count scales with sample size between them."""
+  floor, cap = bins
+  kw = {"range": xlim} if xlim is not None else {}
+  ax.hist(
+    values,
+    bins=min(cap, max(floor, values.size // 5)),
+    color=color or _npg(1)[0],
+    alpha=0.85,
+    edgecolor="white",
+    lw=0.4,
+    **kw,
+  )
+  if cutoff is not None:
+    ax.axvline(cutoff, color=named_colors.gray, lw=1, ls="--")
+  ax.set_title(title)
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel("Compounds")
+  if xlim is not None:
+    ax.set_xlim(*xlim)
+
+
+class PredictedScoreHistogramPlot(BasePlot):
+  """Distribution of the pooled predicted probability across the scored set (no ground truth)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "predicted-score-hist"
+    self.is_available = False
+    if self.has_clf_data():
+      return
+    yp = _predicted_proba(path)
+    if yp.size == 0:
+      return
+    n_pos = int((yp >= _CUTOFF).sum())
+    _predict_hist(
+      self.ax,
+      yp,
+      xlabel="Predicted probability",
+      title=f"Predicted scores · {n_pos}/{yp.size} ≥ {_CUTOFF:g}",
+      xlim=(0, 1),
+      cutoff=_CUTOFF,
+      bins=(8, 30),
+    )
+    self.is_available = True
+
+
+class ScoreRankCurvePlot(BasePlot):
+  """Compounds ranked best-first by predicted probability — the screening operating-point view."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "predicted-rank-curve"
+    self.is_available = False
+    if self.has_clf_data():
+      return
+    yp = _predicted_proba(path)
+    if yp.size == 0:
+      return
+    ys = np.sort(yp)[::-1]
+    xs = np.arange(1, ys.size + 1) / ys.size * 100.0  # % of library screened, best-first
+    ax = self.ax
+    ax.plot(xs, ys, color=_npg(1)[0], lw=1.8, zorder=10)
+    ax.fill_between(xs, ys, color=_npg(1)[0], alpha=0.16, lw=0)
+    ax.axhline(_CUTOFF, color=named_colors.gray, lw=1, ls="--")
+    frac = float((yp >= _CUTOFF).mean() * 100.0)
+    ax.set_title(f"{frac:.0f}% of the set scores ≥ {_CUTOFF:g}")
+    ax.set_xlabel("Top % of library (ranked by score)")
+    ax.set_ylabel("Predicted probability")
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, 1)
+    self.is_available = True
+
+
+def _projection_xy_by_proba(path, projection):
+  """``(x, y, proba)`` for a projection keeping finite-coordinate rows, aligned with pooled proba."""
+  yp = np.asarray(ResultsFetcher(path=path).get_pred_proba_clf() or [], dtype=float)
+  xs = np.asarray(projection["xs"], dtype=float)
+  ys = np.asarray(projection["ys"], dtype=float)
+  if yp.size != xs.size:  # alignment guard: proba and coords must be the same dedup rows
+    return np.array([]), np.array([]), np.array([])
+  keep = np.isfinite(xs) & np.isfinite(ys) & np.isfinite(yp)
+  return xs[keep], ys[keep], yp[keep]
+
+
+class ProjectionProbaPlot(BasePlot):
+  """A 2-D projection with each compound coloured by its predicted probability (no ground truth)."""
+
+  def __init__(self, ax, path, projection):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = f"projection-{projection['name']}-proba"
+    self.is_available = False
+    if self.has_clf_data():
+      return
+    x, y, p = _projection_xy_by_proba(path, projection)
+    if x.size == 0:
+      return
+    ax = self.ax
+    idx, alpha = _subsample(x.size)
+    sc = ax.scatter(
+      x[idx],
+      y[idx],
+      c=p[idx],
+      cmap=_npg_cmap(_color("active")),
+      vmin=0,
+      vmax=1,
+      s=10,
+      alpha=alpha,
+      edgecolors="none",
+    )
+    cb = ax.figure.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+    cb.set_label("Predicted probability")
+    ax.set_xlabel(projection["x_label"])
+    ax.set_ylabel(projection["y_label"])
+    ax.set_title(f"{projection['title']} · by score")
+    self.is_available = True
+
+
+class DescriptorConsensusPlot(BasePlot):
+  """Per-descriptor agreement: pooled score vs the spread of the individual descriptor probabilities.
+
+  A high pooled score with LOW descriptor spread is a confident, consensus call; high spread flags a
+  prediction the descriptors disagree on. Truth-free (predict report)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "descriptor-consensus"
+    self.is_available = False
+    if self.has_clf_data():
+      return
+    rf = ResultsFetcher(path=path)
+    tasks = rf.get_clf_tasks()
+    if not tasks:
+      return
+    try:
+      D = rf._read_individual_estimator_results(tasks[0])
+    except Exception:
+      return
+    if D is None or D.shape[1] < 2:
+      return
+    vals = D.values.astype(float)
+    spread = np.nanstd(vals, axis=1)
+    pooled = _predicted_proba(path)
+    # Fall back to the per-descriptor mean if the pooled column length doesn't line up.
+    if pooled.size != vals.shape[0]:
+      pooled = np.nanmean(vals, axis=1)
+    ax = self.ax
+    ax.scatter(
+      pooled,
+      spread,
+      c=pooled,
+      cmap=_npg_cmap(_color("active")),
+      vmin=0,
+      vmax=1,
+      s=12,
+      alpha=0.6,
+      edgecolors="none",
+    )
+    ax.set_xlabel("Pooled predicted probability")
+    ax.set_ylabel("Descriptor disagreement (std)")
+    ax.set_title(f"Consensus across {D.shape[1]} descriptors")
+    ax.set_xlim(0, 1)
+    self.is_available = True
+
+
+class AdCoveragePlot(BasePlot):
+  """Applicability-domain coverage: per-compound in-domain fraction across descriptors (predict).
+
+  A spike at 1.0 means most queries are well inside the training domain; a left tail flags
+  low-confidence, extrapolated predictions. Truth-free; needs the pooler's ``clf_ad`` column."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "ad-coverage"
+    self.is_available = False
+    if self.has_clf_data():
+      return
+    ad = ResultsFetcher(path=path).get_pred_ad_clf()
+    if ad is None:
+      return
+    ad = np.asarray(ad, dtype=float)
+    ad = ad[np.isfinite(ad)]
+    if ad.size == 0:
+      return
+    n_out = int((ad <= 0.0).sum())
+    _predict_hist(
+      self.ax,
+      ad,
+      xlabel="In-domain fraction (across descriptors)",
+      title=f"Applicability domain · {n_out}/{ad.size} fully out-of-domain",
+      xlim=(0, 1),
+    )
+    self.is_available = True
+
+
+class RankDistributionPlot(BasePlot):
+  """Distribution of the pooler's per-compound rank-reliability quantile (predict, truth-free)."""
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "rank-distribution"
+    self.is_available = False
+    if self.has_clf_data():
+      return
+    rk = ResultsFetcher(path=path).get_pred_rank_clf()
+    if rk is None:
+      return
+    rk = np.asarray(rk, dtype=float)
+    rk = rk[np.isfinite(rk)]
+    if rk.size == 0:
+      return
+    _predict_hist(
+      self.ax,
+      rk,
+      xlabel="Weighted rank quantile",
+      title="Rank reliability",
+      color=_npg(2)[1],
+    )
     self.is_available = True
 
 
@@ -990,66 +1167,6 @@ class CvPrPlot(BasePlot):
     self.is_available = True
 
 
-class CvCalibrationPlot(BasePlot):
-  """Reliability curve on the out-of-fold predictions of the best descriptor."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.name = "cv-calibration"
-    ax = self.ax
-    rf = ResultsFetcher(path=path)
-    stats = rf.get_cv_stats()
-    oof = rf.get_cv_oof(stats[0]["descriptor"]) if stats else None
-    if oof is None:
-      self.is_available = False
-      return
-    proba = np.asarray(oof[0], dtype=float)
-    yv = np.asarray(oof[1], dtype=float)
-    bins = np.linspace(0, 1, 11)
-    idx = np.clip(np.digitize(proba, bins) - 1, 0, 9)
-    xs, ys = [], []
-    for b in range(10):
-      m = idx == b
-      if m.sum() > 0:
-        xs.append(float(proba[m].mean()))
-        ys.append(float(yv[m].mean()))
-    ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", label="Perfect")
-    ax.plot(xs, ys, marker="o", ms=4, lw=1.4, color=named_colors.blue, label=stats[0]["descriptor"])
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_xlabel("Predicted probability (OOF)")
-    ax.set_ylabel("Observed frequency")
-    ax.set_title("Calibration (cross-validated)")
-    ax.legend(fontsize=7)
-    self.is_available = True
-
-
-class CvScoreDistributionPlot(BasePlot):
-  """Out-of-fold score distribution (actives vs inactives) for the best descriptor."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
-    self.name = "cv-score-distribution"
-    ax = self.ax
-    rf = ResultsFetcher(path=path)
-    stats = rf.get_cv_stats()
-    oof = rf.get_cv_oof(stats[0]["descriptor"]) if stats else None
-    if oof is None:
-      self.is_available = False
-      return
-    data = pd.DataFrame({"yp": oof[0], "bt": oof[1]})
-    if data["bt"].nunique() < 2:
-      self.is_available = False
-      return
-    sns.violinplot(x="bt", y="yp", data=data, ax=ax, palette=[named_colors.blue, named_colors.red])
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(["Inactive", "Active"])
-    ax.set_xlabel("")
-    ax.set_ylabel("Out-of-fold score (probability)")
-    ax.set_title(f"OOF scores · {stats[0]['descriptor']}")
-    self.is_available = True
-
-
 # --- Additional classification plots (ranking, operating point, per-descriptor diagnostics) -------
 #
 # Each draws on ``self.ax`` (so it works standalone AND when handed an axis from the composed grid),
@@ -1086,8 +1203,9 @@ class PrCurvePlot(BasePlot):
     precision, recall, _ = precision_recall_curve(yt, yp)
     ap = average_precision_score(yt, yp)
     prevalence = float(np.mean(yt))
-    ax.plot(recall, precision, color=named_colors.blue, lw=1.6, zorder=1000)
-    ax.fill_between(recall, precision, color=named_colors.blue, alpha=0.16, lw=0)
+    c = _npg(1)[0]
+    ax.plot(recall, precision, color=c, lw=1.6, zorder=1000)
+    ax.fill_between(recall, precision, color=c, alpha=0.16, lw=0)
     ax.axhline(prevalence, color=named_colors.gray, lw=1, ls="--")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.03)
@@ -1118,8 +1236,8 @@ class EnrichmentCurvePlot(BasePlot):
     frac_found = np.cumsum(yt_sorted) / n_act
     ideal = np.minimum(frac_screened * n / n_act, 1.0)
     ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", label="Random")
-    ax.plot(frac_screened, ideal, color=named_colors.green, lw=1, ls=":", label="Ideal")
-    ax.plot(frac_screened, frac_found, color=named_colors.blue, lw=1.6, label="Model")
+    ax.plot(frac_screened, ideal, color=_npg(3)[2], lw=1, ls=":", label="Ideal")
+    ax.plot(frac_screened, frac_found, color=_npg(1)[0], lw=1.6, label="Model")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1.03)
     ax.set_xlabel("Fraction of library screened")
@@ -1184,10 +1302,11 @@ class ThresholdSweepPlot(BasePlot):
       rec.append(recall_score(yt, pred, zero_division=0))
       f1s.append(f1_score(yt, pred, zero_division=0))
       mccs.append(matthews_corrcoef(yt, pred) if len(np.unique(pred)) > 1 else 0.0)
-    ax.plot(ts, prec, color=named_colors.blue, lw=1.4, label="Precision")
-    ax.plot(ts, rec, color=named_colors.red, lw=1.4, label="Recall")
-    ax.plot(ts, f1s, color=named_colors.green, lw=1.4, label="F1")
-    ax.plot(ts, mccs, color=named_colors.purple, lw=1.4, label="MCC")
+    pal = _npg(4)
+    ax.plot(ts, prec, color=pal[0], lw=1.4, label="Precision")
+    ax.plot(ts, rec, color=pal[1], lw=1.4, label="Recall")
+    ax.plot(ts, f1s, color=pal[2], lw=1.4, label="F1")
+    ax.plot(ts, mccs, color=pal[3], lw=1.4, label="MCC")
     # Mark the operating threshold implied by the pooled binary calls, if recoverable. Use the
     # labelled-subset binary calls so it stays aligned with `yp` (which dropped unlabelled rows).
     _, bp = ResultsFetcher(path=path).clf_truth_binary()
@@ -1233,121 +1352,12 @@ class CalibrationCurvePlot(BasePlot):
         ys.append(float(y[m].mean()))
     brier = float(np.mean((p - y) ** 2))
     ax.plot([0, 1], [0, 1], color=named_colors.gray, lw=1, ls="--", zorder=1)
-    ax.plot(xs, ys, color=named_colors.blue, lw=1.6, marker="o", ms=4, zorder=10)
+    ax.plot(xs, ys, color=_npg(1)[0], lw=1.6, marker="o", ms=4, zorder=10)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.set_xlabel("Mean predicted probability")
     ax.set_ylabel("Observed frequency of actives")
     ax.set_title(f"Calibration · Brier = {brier:.3f}")
-    self.is_available = True
-
-
-class DescriptorMetricHeatmapPlot(BasePlot):
-  """Per-descriptor CV metrics heatmap: OOF AUROC, train AUROC, overfit gap (column-normalized)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.name = "descriptor-metric-heatmap"
-    self.is_available = False
-    stats = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
-    if not stats:
-      return
-    ax = self.ax
-    cols = ["OOF AUROC", "train AUROC", "overfit gap"]
-
-    def _gap(s):
-      g = s.get("overfit_gap")
-      if g is None and s.get("train_auc") is not None:
-        g = s["train_auc"] - s["oof_auc"]
-      return g
-
-    raw = np.array([[s.get("oof_auc"), s.get("train_auc"), _gap(s)] for s in stats], dtype=float)
-    labels = [s["descriptor"] for s in stats]
-    # Colour each column on its own min-max scale (metrics live on different ranges).
-    norm = np.zeros_like(raw)
-    for j in range(raw.shape[1]):
-      col = raw[:, j]
-      finite = col[np.isfinite(col)]
-      lo, hi = (finite.min(), finite.max()) if finite.size else (0.0, 1.0)
-      norm[:, j] = 0.5 if hi == lo else (col - lo) / (hi - lo)
-    ax.imshow(norm, cmap="viridis", aspect="auto")
-    ax.set_xticks(range(len(cols)))
-    ax.set_xticklabels(cols, fontsize=6, rotation=20, ha="right")
-    ax.set_yticks(range(len(labels)))
-    ax.set_yticklabels(labels, fontsize=6)
-    for i in range(raw.shape[0]):
-      for j in range(raw.shape[1]):
-        v = raw[i, j]
-        if np.isfinite(v):
-          ax.text(j, i, f"{v:.2f}", va="center", ha="center", fontsize=6, color="white")
-    ax.set_title("Per-descriptor CV metrics")
-    self.is_available = True
-
-
-class OofOverfitScatterPlot(BasePlot):
-  """Per-descriptor generalization map: out-of-fold AUROC vs overfit gap (train − OOF)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.name = "oof-overfit-scatter"
-    self.is_available = False
-    stats = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
-    if not stats:
-      return
-    ax = self.ax
-    colors = category_palette.get(len(stats))
-    for s, c in zip(stats, colors):
-      gap = s.get("overfit_gap")
-      if gap is None and s.get("train_auc") is not None:
-        gap = s["train_auc"] - s["oof_auc"]
-      if gap is None:
-        continue
-      ax.scatter(s["oof_auc"], gap, color=c, s=30, zorder=10)
-      ax.annotate(
-        s["descriptor"],
-        (s["oof_auc"], gap),
-        fontsize=5,
-        xytext=(3, 3),
-        textcoords="offset points",
-      )
-    ax.axhline(0, color=named_colors.gray, lw=1, ls="--")
-    ax.set_xlabel("Out-of-fold AUROC")
-    ax.set_ylabel("Overfit gap (train − OOF)")
-    ax.set_title("Generalization by descriptor")
-    self.is_available = True
-
-
-class PooledVsBestAurocPlot(BasePlot):
-  """Per-descriptor OOF AUROC bars with the pooled-model AUROC drawn as a reference line."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    self.name = "pooled-vs-best-auroc"
-    self.is_available = False
-    if not self.has_clf_data():
-      return
-    rf = ResultsFetcher(path=path)
-    stats = [s for s in rf.get_cv_stats() if s.get("oof_auc") is not None]
-    if not stats:
-      return
-    ax = self.ax
-    stats = sorted(stats, key=lambda s: s["oof_auc"])
-    labels = [s["descriptor"] for s in stats]
-    vals = [s["oof_auc"] for s in stats]
-    y = list(range(len(labels)))
-    ax.barh(y, vals, color=named_colors.gray, alpha=0.8, height=0.6)
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=6)
-    yt, yp = _clf_truth_proba(path)
-    if yt is not None and len(np.unique(yt)) > 1:
-      fpr, tpr, _ = roc_curve(yt, yp)
-      pooled = auc(fpr, tpr)
-      ax.axvline(pooled, color=named_colors.red, lw=1.4, label=f"Pooled {pooled:.2f}")
-      ax.legend(fontsize=6, loc="lower right")
-    ax.axvline(0.5, color=named_colors.gray, lw=1, ls="--", zorder=0)
-    ax.set_xlim(0.4, 1.03)
-    ax.set_xlabel("AUROC (OOF per descriptor)")
-    ax.set_title("Pooled vs individual")
     self.is_available = True
 
 
@@ -1368,7 +1378,7 @@ class NormalizedConfusionPlot(BasePlot):
     cm = metrics.confusion_matrix(bt, bp).astype(float)
     row_sums = cm.sum(axis=1, keepdims=True)
     norm = np.divide(cm, row_sums, out=np.zeros_like(cm), where=row_sums != 0)
-    ax.imshow(norm, cmap=plt.cm.Greens, vmin=0, vmax=1)
+    ax.imshow(norm, cmap=_npg_cmap("#6BBF59"), vmin=0, vmax=1)
     labels = ["I (0)", "A (1)"]
     ax.set_xticks([0, 1])
     ax.set_yticks([0, 1])
@@ -1410,7 +1420,7 @@ class ConfusionPrecisionPlot(BasePlot):
     cm = metrics.confusion_matrix(bt, bp).astype(float)
     col_sums = cm.sum(axis=0, keepdims=True)
     norm = np.divide(cm, col_sums, out=np.zeros_like(cm), where=col_sums != 0)
-    ax.imshow(norm, cmap=plt.cm.Greens, vmin=0, vmax=1)
+    ax.imshow(norm, cmap=_npg_cmap("#6BBF59"), vmin=0, vmax=1)
     labels = ["I (0)", "A (1)"]
     ax.set_xticks([0, 1])
     ax.set_yticks([0, 1])
@@ -1522,8 +1532,19 @@ class DescriptorCorrelationPlot(BasePlot):
     self.is_available = True
 
 
+_RDKIT_PROP_CACHE = {}
+
+
 def _rdkit_properties(smiles):
-  """(MW, LogP, TPSA) arrays for valid molecules; NaN where SMILES can't be parsed."""
+  """(MW, LogP, TPSA) arrays for valid molecules; NaN where SMILES can't be parsed.
+
+  Memoised per distinct SMILES sequence: the MW and LogP property plots — and their predicted-class
+  variants — each request these, so without the cache every molecule would be re-parsed with RDKit
+  several times per report run."""
+  key = tuple(smiles)
+  cached = _RDKIT_PROP_CACHE.get(key)
+  if cached is not None:
+    return cached
   from rdkit import Chem
   from rdkit.Chem import Descriptors
 
@@ -1538,7 +1559,9 @@ def _rdkit_properties(smiles):
       mw.append(Descriptors.MolWt(mol))
       logp.append(Descriptors.MolLogP(mol))
       tpsa.append(Descriptors.TPSA(mol))
-  return np.array(mw), np.array(logp), np.array(tpsa)
+  result = (np.array(mw), np.array(logp), np.array(tpsa))
+  _RDKIT_PROP_CACHE[key] = result
+  return result
 
 
 def _draw_one_property(ax, values, bt, label):
@@ -1622,6 +1645,54 @@ class PropertyLogpPlot(_PropertyDistributionPlot):
   """LogP distribution by class."""
 
   stem = "property-logp"
+  label = "LogP"
+  prop_index = 1
+
+
+class _PredictedPropertyDistributionPlot(BasePlot):
+  """Base for a property distribution split by PREDICTED class (predict report, no ground truth).
+
+  Same drawing as :class:`_PropertyDistributionPlot` but the split is the model's binary call
+  (``clf_bin``) rather than the true label — a quick read on whether predicted actives differ
+  physico-chemically from predicted inactives. Renders only without ground truth."""
+
+  stem = "property"
+  label = ""
+  prop_index = 0
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
+    self.name = self.stem
+    self.is_available = False
+    if self.has_clf_data():
+      return  # truth present → the class-split PropertyMw/LogpPlot cover this
+    rf = ResultsFetcher(path=path)
+    smiles = rf.get_smiles()
+    bp = rf.get_pred_binary_clf()
+    if not smiles or bp is None or len(smiles) != len(bp):
+      return
+    bp = np.asarray(bp, dtype=float)
+    keep = np.isfinite(bp)
+    smiles = [s for s, k in zip(smiles, keep) if k]
+    bp = bp[keep].astype(int)
+    if len(bp) == 0:
+      return
+    values = _rdkit_properties(smiles)[self.prop_index]
+    self.is_available = _draw_one_property(self.ax, values, bp, self.label)
+
+
+class PredictedPropertyMwPlot(_PredictedPropertyDistributionPlot):
+  """Molecular-weight distribution split by predicted class (predict report)."""
+
+  stem = "predicted-property-mw"
+  label = "Molecular weight"
+  prop_index = 0
+
+
+class PredictedPropertyLogpPlot(_PredictedPropertyDistributionPlot):
+  """LogP distribution split by predicted class (predict report)."""
+
+  stem = "predicted-property-logp"
   label = "LogP"
   prop_index = 1
 

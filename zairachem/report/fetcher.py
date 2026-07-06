@@ -36,6 +36,10 @@ from zairachem.base.vars import (
 
 RAW_INPUT_FILENAME += ".csv"
 
+#: Process-level CSV read cache shared by every ResultsFetcher, keyed by (abspath, mtime) so a
+#: rewritten file is re-read. Lets the report's per-plot fetchers avoid re-reading the same artifacts.
+_CSV_CACHE = {}
+
 
 class ResultsFetcher(ZairaBase):
   def __init__(self, path):
@@ -49,18 +53,23 @@ class ResultsFetcher(ZairaBase):
     self.clf_task = "bin"
     self.reg_task = "val"
     self.params = self.get_parameters()
-    # Per-instance read caches. The report builds one fetcher and then queries it dozens of times
-    # (every plot guard, every output-table column), each of which previously re-read the same CSVs
-    # from disk. Frames returned from here are treated as READ-ONLY by callers (they slice columns or
-    # build new frames; none mutate in place), so a shared cached object is safe.
-    self._csv_cache = {}
+    # Per-instance map cache (dedupe→original index). CSV reads use the process-level cache below.
     self._map_cache = {}
 
   def _read_csv_cached(self, path):
-    df = self._csv_cache.get(path)
+    # Process-level cache shared across ALL fetcher instances: the report renders dozens of plots, and
+    # each plot builds its own ResultsFetcher, so a per-instance cache would still re-read the same
+    # data.csv / pooled results / projections from disk once per plot. Keyed by (abspath, mtime) so a
+    # rewritten file is never served stale. Frames are treated as READ-ONLY by callers (they slice
+    # columns or build new frames; none mutate in place), so sharing one object is safe.
+    try:
+      key = (os.path.abspath(path), os.path.getmtime(path))
+    except OSError:
+      return pd.read_csv(path)  # missing/unreadable — let read_csv raise the real error
+    df = _CSV_CACHE.get(key)
     if df is None:
       df = pd.read_csv(path)
-      self._csv_cache[path] = df
+      _CSV_CACHE[key] = df
     return df
 
   def _read_data(self):
@@ -185,8 +194,12 @@ class ResultsFetcher(ZairaBase):
       df = data
     tasks = [c for c in list(df.columns) if "clf" in c]
     if len(tasks) == 0:
+      # No truth column in data.csv (predict-without-ground-truth): fall back to the pooled results,
+      # but keep only the base "clf" prediction — not the derived columns (clf_bin/clf_ad/clf_rank/
+      # clf_raw), which are not tasks and would break per-descriptor task lookups.
       df = self._read_pooled_results()
-      return self.get_clf_tasks(data=df)
+      derived = ("_bin", "_ad", "_rank", "_raw")
+      return [c for c in df.columns if "clf" in c and not c.endswith(derived)]
     return tasks
 
   def get_actives_inactives(self):
@@ -238,6 +251,19 @@ class ResultsFetcher(ZairaBase):
     """Pooled UNCALIBRATED score column (``clf_raw``) if the model was fit with lazy-qsar ≥ 3.4.2, else None."""
     df = self._read_pooled_results()
     return list(df["clf_raw"]) if "clf_raw" in df.columns else None
+
+  def get_pred_ad_clf(self):
+    """Per-compound applicability-domain in-domain fraction (``clf_ad``, 0..1) if present, else None.
+
+    Written by the reliability pooler at predict time (1 = every descriptor in domain, 0 = fully
+    out-of-domain). Read by exact column name so it is never confused with the base ``clf`` score."""
+    df = self._read_pooled_results()
+    return list(df["clf_ad"]) if "clf_ad" in df.columns else None
+
+  def get_pred_rank_clf(self):
+    """Per-compound weighted rank-reliability quantile (``clf_rank``) if present, else None."""
+    df = self._read_pooled_results()
+    return list(df["clf_rank"]) if "clf_rank" in df.columns else None
 
   def get_pred_reg_trans(self):  # TODO ADAPT FOR REG
     df = self._read_pooled_results()

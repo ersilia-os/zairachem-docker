@@ -167,6 +167,21 @@ class OutputTable(BaseTable, ResultsFetcher):
     data["smiles"] = self._get_smiles_column()
     data["true-value"] = self._get_true_value_column()
     data["pred-value"] = self._get_pred_value_column()
+    if self.is_predict():
+      # Predict-only enrichments (feed the hitlist): the binary call and, when the pooler emitted
+      # them, the per-compound applicability-domain fraction + rank-reliability quantile. Gated on
+      # is_predict() so a fit run's output_table.csv is unchanged.
+      for key, getter in (
+        ("clf_bin", self.get_pred_binary_clf),
+        ("ad", self.get_pred_ad_clf),
+        ("rank", self.get_pred_rank_clf),
+      ):
+        try:
+          vals = getter()
+        except Exception:
+          vals = None
+        if vals is not None:
+          data[key] = self.map_to_original(list(vals))
     for k, v in self._get_ensemble_predictions_columns():
       data[k] = v
     for k, v in self._get_manifolds_columns():

@@ -15,6 +15,12 @@ INDIVIDUAL_FIGSIZE = (TWO_COLUMNS_WIDTH / 2, TWO_COLUMNS_WIDTH / 2)
 # matching the previous (0.0.2) report output; other figsizes scale proportionally.
 FIGSIZE_SCALE = 0.43 / (TWO_COLUMNS_WIDTH / 2)
 
+# Raster DPI for the report PNGs. stylia.save_figure hardcodes dpi=600 (print quality), but these PNGs
+# are only shown in the HTML grid at small sizes, so 600 dpi produced ~5x larger files for no on-screen
+# benefit (a ~12 MB → ~2.4 MB report footprint drop). 200 dpi is retina-crisp at the display size; the
+# accompanying per-figure vector PDF remains the publication-quality download.
+REPORT_DPI = 200
+
 # Reference grid for figure footprints. Every figure declares an (rows, cols) footprint in 3 cm cells.
 # Two distinct quantities (kept separate on purpose):
 #   * CELLS_PER_WIDTH — how many 3 cm cells span stylia's "print" full width (≈ 18 cm ÷ 3 cm = 6).
@@ -104,8 +110,14 @@ class BasePlot(BaseResults):
     pdf_dir = os.path.join(report_dir, "pdf")
     os.makedirs(png_dir, exist_ok=True)
     os.makedirs(pdf_dir, exist_ok=True)
-    stylia.save_figure(os.path.join(png_dir, self.name + ".png"))
-    stylia.save_figure(os.path.join(pdf_dir, self.name + ".pdf"))
+    # Match stylia.save_figure's layout (tight_layout + bbox_inches="tight") but write the PNG at the
+    # report DPI instead of stylia's hardcoded 600 — far faster to encode and smaller on disk, with no
+    # visible difference at the HTML display size. The PDF stays vector (publication-quality download).
+    plt.tight_layout()
+    plt.savefig(
+      os.path.join(png_dir, self.name + ".png"), dpi=REPORT_DPI, transparent=False, bbox_inches="tight"
+    )
+    plt.savefig(os.path.join(pdf_dir, self.name + ".pdf"), transparent=False, bbox_inches="tight")
     plt.close()
 
   def load(self):

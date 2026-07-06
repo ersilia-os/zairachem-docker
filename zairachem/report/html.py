@@ -23,6 +23,7 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   GITHUB_ORG,
   INPUT_SCHEMA_FILENAME,
+  OUTPUT_TABLE_FILENAME,
   REPORT_SUBFOLDER,
   SESSION_FILE,
 )
@@ -35,6 +36,28 @@ from zairachem.report import perf
 
 # Plots grouped into sections (anchor, heading, description, member stems). Unlisted → "More".
 _CATEGORIES = [
+  (
+    "predictions",
+    "Predictions",
+    "What the model says about these molecules: the spread of predicted probabilities and where the "
+    "decision cutoff falls, and the screening operating point (how many rank above the cutoff). "
+    "Shown for a prediction run without ground truth.",
+    ["predicted-score-hist", "predicted-rank-curve"],
+  ),
+  (
+    "confidence",
+    "Confidence",
+    "How much to trust each prediction: agreement across the individual descriptor models, "
+    "applicability-domain coverage (how far the queries sit from the training chemistry), the "
+    "rank-reliability spread, and the physico-chemical make-up of the predicted classes.",
+    [
+      "descriptor-consensus",
+      "ad-coverage",
+      "rank-distribution",
+      "predicted-property-mw",
+      "predicted-property-logp",
+    ],
+  ),
   (
     "performance",
     "Model performance",
@@ -118,8 +141,6 @@ _TITLES = {
   "cv-cutoff": "Ideal decision cutoff",
   "cv-roc": "Cross-validation ROC",
   "cv-pr": "Cross-validation precision-recall",
-  "cv-calibration": "Calibration (cross-validated)",
-  "cv-score-distribution": "Out-of-fold score distribution",
   "projection-mwlogp": "Molecular weight vs LogP",
   "projection-umap": "UMAP projection",
   "projection-tsne": "t-SNE projection",
@@ -145,14 +166,23 @@ _TITLES = {
   "oof-score-rank-pts": "Percentile rank · points",
   "oof-score-lift-pts": "Lift · points",
   "oof-score-raw-pts": "Raw · points",
-  "descriptor-metric-heatmap": "Descriptor metric heatmap",
-  "oof-overfit-scatter": "Generalization vs overfitting",
-  "pooled-vs-best-auroc": "Pooled vs per-descriptor AUROC",
   "heldout-validation": "Held-out AUROC by split",
   "class-donut": "Class balance (donut)",
   "class-waffle": "Class balance (waffle)",
   "property-mw": "Molecular weight",
   "property-logp": "LogP",
+  "predicted-score-hist": "Predicted score distribution",
+  "predicted-rank-curve": "Ranked scores (operating point)",
+  "descriptor-consensus": "Descriptor consensus",
+  "ad-coverage": "Applicability-domain coverage",
+  "rank-distribution": "Rank reliability",
+  "predicted-property-mw": "Molecular weight (by predicted class)",
+  "predicted-property-logp": "LogP (by predicted class)",
+  "projection-mwlogp-proba": "MW vs LogP · by score",
+  "projection-pca-proba": "PCA · by score",
+  "projection-umap-proba": "UMAP · by score",
+  "projection-tsne-proba": "t-SNE · by score",
+  "projection-tmap-proba": "TMAP · by score",
   "overview": "Report overview",
   "step-timing": "Step timing",
   "phase-time": "Time by phase",
@@ -236,22 +266,6 @@ _ACRONYMS = {
 }
 
 # Curated metric columns for the performance table (only those present are shown).
-_METRIC_COLS = [
-  ("model", "Model"),
-  ("auroc", "AUROC"),
-  ("aupr", "AUPR"),
-  ("accuracy", "Accuracy"),
-  ("balanced_accuracy", "Bal. acc."),
-  ("precision", "Precision"),
-  ("recall", "Recall"),
-  ("f1_score", "F1"),
-  ("mcc", "MCC"),
-  ("r2", "R²"),
-  ("mae", "MAE"),
-  ("rmse", "RMSE"),
-  ("pearson", "Pearson"),
-  ("spearman", "Spearman"),
-]
 
 
 def _projection_label(stem):
@@ -464,17 +478,6 @@ def _n_compounds(output_dir):
     return None
 
 
-def _read_performance(report_dir):
-  """Return (header, rows) of performance_table.csv (same dir as the page), or (None, None)."""
-  try:
-    with open(os.path.join(report_dir, "performance_table.csv")) as f:
-      reader = csv.DictReader(f)
-      rows = list(reader)
-      return reader.fieldnames, rows
-  except Exception:
-    return None, None
-
-
 def _fmt_num(v):
   try:
     f = float(v)
@@ -483,26 +486,55 @@ def _fmt_num(v):
     return html.escape(str(v))
 
 
-def _performance_table_html(report_dir):
-  fields, rows = _read_performance(report_dir)
-  if not rows:
+def _hitlist_table_html(report_dir, top_n=25):
+  """Top predictions by score — the actionable deliverable of a predict report (SMILES + scores).
+
+  Reads the already-written ``output_table.csv``, ranks by pooled probability and shows the top N with
+  the binary call, per-descriptor consensus (std of the individual descriptor probabilities) and, when
+  present, the applicability-domain in-domain fraction. No structure depictions."""
+  import numpy as _np
+  import pandas as _pd
+
+  path = os.path.join(report_dir, OUTPUT_TABLE_FILENAME)
+  if not os.path.exists(path):
     return ""
-  cols = [(k, label) for k, label in _METRIC_COLS if fields and k in fields]
-  if len(cols) <= 1:
+  try:
+    df = _pd.read_csv(path)
+  except Exception:
     return ""
-  head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
+  if "pred-value" not in df.columns or len(df) == 0:
+    return ""
+  total = len(df)
+  desc_cols = [c for c in df.columns if c.startswith("lq_estimators-")]
+  has_ad = "ad" in df.columns
+  top = df.sort_values("pred-value", ascending=False).head(top_n)
+  headers = ["#", "SMILES", "Score", "Call"]
+  if desc_cols:
+    headers.append("Consensus")
+  if has_ad:
+    headers.append("In-domain")
+  head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
   body = []
-  for r in rows:
-    is_pooled = r.get("model") == "pooled"
-    cells = []
-    for k, _ in cols:
-      val = r.get(k, "")
-      val = html.escape(str(val)) if k == "model" else _fmt_num(val)
-      cells.append(f"<td>{val}</td>")
-    cls = " class='pooled'" if is_pooled else ""
-    body.append(f"<tr{cls}>{''.join(cells)}</tr>")
+  for i, (_, r) in enumerate(top.iterrows(), start=1):
+    try:
+      call = int(r["clf_bin"]) if "clf_bin" in top.columns else int(float(r["pred-value"]) >= 0.5)
+    except Exception:
+      call = int(float(r.get("pred-value", 0) or 0) >= 0.5)
+    cells = [
+      f"<td>{i}</td>",
+      f"<td class='smiles'>{html.escape(str(r.get('input-smiles', '')))}</td>",
+      f"<td>{_fmt_num(r['pred-value'])}</td>",
+      f"<td>{'active' if call == 1 else 'inactive'}</td>",
+    ]
+    if desc_cols:
+      spread = float(_np.nanstd(_np.asarray([r[c] for c in desc_cols], dtype=float)))
+      cells.append(f"<td>{_fmt_num(spread)}</td>")
+    if has_ad:
+      cells.append(f"<td>{_fmt_num(r['ad'])}</td>")
+    body.append(f"<tr>{''.join(cells)}</tr>")
+  note = f"<p class='muted'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
   return (
-    "<div class='table-wrap'><table class='metrics'>"
+    note + "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
   )
 
@@ -562,45 +594,6 @@ def _validation_table_html(report_dir):
       f"<tr{cls}><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{au}</td><td>{ap}</td></tr>"
     )
   head = "<th>Split schema</th><th>Folds</th><th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
-  return (
-    "<div class='table-wrap'><table class='metrics'>"
-    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
-  )
-
-
-def _screening_table_html(output_dir):
-  """Per-descriptor pre-screening table (proxy AUROC + Selected/Not-selected badge), or ''.
-
-  Reads ``metadata/proxy_scores.json`` (all candidates) + ``metadata/selected_eos.json`` (the kept
-  subset), written by the --max-descriptors screening step. Rendered only when screening actually
-  pruned; a run that trained every descriptor has no proxy scores and the section is omitted.
-  """
-  meta = os.path.join(output_dir, "metadata")
-  try:
-    with open(os.path.join(meta, "proxy_scores.json")) as f:
-      scores = json.load(f)
-    with open(os.path.join(meta, "selected_eos.json")) as f:
-      selected = set(json.load(f))
-  except Exception:
-    return ""
-  if not scores:
-    return ""
-  body = []
-  for eos_id in sorted(scores, key=lambda e: scores[e], reverse=True):
-    keep = eos_id in selected
-    badge = (
-      "<span style='background:#3fb95022;color:#2ea043;padding:2px 9px;border-radius:10px;"
-      "font-weight:600;font-size:12px'>Selected</span>"
-      if keep
-      else "<span style='background:#f8514922;color:#cf222e;padding:2px 9px;border-radius:10px;"
-      "font-weight:600;font-size:12px'>Not selected</span>"
-    )
-    cls = "" if keep else " style='opacity:.6'"
-    body.append(
-      f"<tr{cls}><td>{html.escape(eos_id)}</td>"
-      f"<td>{_fmt_num(scores[eos_id])}</td><td>{badge}</td></tr>"
-    )
-  head = "<th>Descriptor</th><th>Held-out AUROC (screening)</th><th>Status</th>"
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -1463,35 +1456,6 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
 # Overview poster layout: rows of (figure stem, relative width). Mirrors the old 6×10 matplotlib
 # grid, but assembled in HTML from the individual figure PNGs. Cells whose PNG is missing are
 # dropped; an all-missing row is skipped. Row widths are proportional (flex-grow).
-_POSTER_ROWS = [
-  [("pr-curve", 2), ("enrichment-curve", 3), ("threshold-sweep", 3), ("enrichment-factor", 2)],
-  [
-    ("confusion-normalized", 2),
-    ("oof-overfit-scatter", 2),
-    ("pooled-vs-best-auroc", 2),
-    ("descriptor-metric-heatmap", 2),
-    ("projection-correctness", 2),
-  ],
-  [("property-mw", 5), ("property-logp", 5)],
-]
-
-
-def _overview_poster_html(report_dir, present):
-  """Assemble the overview poster: a flex grid of the individual figure PNGs. ``""`` if none."""
-  rows_html = []
-  for row in _POSTER_ROWS:
-    cells = [(s, w) for s, w in row if s in present]
-    if not cells:
-      continue
-    cell_html = "".join(
-      f"<a class='pcell' style='flex-grow:{w}' href='png/{s}.png' target='_blank'>"
-      f"<img src='{_img_src(report_dir, s)}' alt='{html.escape(_humanize(s))}' loading='lazy'></a>"
-      for s, w in cells
-    )
-    rows_html.append(f"<div class='prow'>{cell_html}</div>")
-  if not rows_html:
-    return ""
-  return "<div class='poster'>" + "".join(rows_html) + "</div>"
 
 
 def _download_name(report_dir, stem, ext):
@@ -1685,6 +1649,18 @@ def write_html_report(output_dir):
   rendered_groups = set()
   # (The Overview poster is intentionally omitted for now.)
   sections.append(("config", "Configuration", "Run settings and model identifiers.", config_table))
+  # Predict deliverable: the top-scoring molecules, up front (right after Configuration).
+  if kind == "Predict":
+    hitlist = _hitlist_table_html(report_dir)
+    if hitlist:
+      sections.append((
+        "hitlist",
+        "Hitlist",
+        "The highest-scoring molecules in this set — ranked by the pooled predicted probability, with "
+        "the binary call, the agreement across descriptor models, and the applicability-domain "
+        "coverage where available.",
+        hitlist,
+      ))
   perf_section = _computational_performance_html(output_dir, report_dir, present, assigned, params)
   if perf_section:
     sections.append((
@@ -1712,6 +1688,19 @@ def write_html_report(output_dir):
       "each computed projection (UMAP, t-SNE, …).",
       space_section,
     ))
+  elif kind == "Predict":
+    # No truth-keyed (projection-merged-*) maps in a prediction run — gather the projections coloured
+    # by predicted probability instead, so they form a proper Chemical space section (not "More").
+    proba = sorted(s for s in present if s.startswith("projection-") and s.endswith("-proba"))
+    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned)
+    if cards:
+      sections.append((
+        "space",
+        "Chemical space",
+        "Each 2-D projection coloured by the predicted probability — where the high- and low-scoring "
+        "molecules sit relative to one another in chemical space.",
+        "<div class='grid'>" + "".join(cards) + "</div>",
+      ))
   for anchor, heading, desc, members in _CATEGORIES:
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))

@@ -31,16 +31,23 @@ class SimpleEvaluator(ZairaBase):
 
   @staticmethod
   def _evaluate(df_true, df_pred):
-    """Per-task scores (clf -> ROC-AUC, reg -> R2) from row-aligned truth/prediction frames."""
+    """Per-task scores (clf -> ROC-AUC, reg -> R2) from row-aligned truth/prediction frames.
+
+    Rows whose truth value is missing are dropped first: a predict run with *partial* ground truth
+    leaves NaN truth for the unlabelled compounds, which sklearn rejects. At fit (and a fully-labelled
+    predict) the truth is complete, so the mask keeps every row and the result is unchanged.
+    """
     data = collections.OrderedDict()
-    for c in list(df_pred.columns):
+    for c, truth_col in (("clf", "bin"), ("reg", "val")):
+      if c not in df_pred.columns or truth_col not in df_true.columns:
+        continue
+      mask = df_true[truth_col].notnull().to_numpy()
+      yt = df_true[truth_col].to_numpy()[mask]
+      yp = df_pred[c].to_numpy()[mask]
       if c == "clf":
-        if len(set(df_true["bin"])) > 1:
-          data[c] = {"roc_auc_score": roc_auc_score(df_true["bin"], df_pred[c])}
-        else:
-          data[c] = 0.0
-      elif c == "reg":
-        data[c] = {"r2_score": r2_score(df_true["val"], df_pred[c])}
+        data[c] = {"roc_auc_score": roc_auc_score(yt, yp)} if len(set(yt)) > 1 else 0.0
+      else:
+        data[c] = {"r2_score": r2_score(yt, yp)} if len(yt) else 0.0
     return data
 
   def run(self):

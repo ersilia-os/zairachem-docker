@@ -60,6 +60,24 @@ def _veto_stats(A, ad_hard_cutoffs):
   return per, n_fully
 
 
+def _per_compound_ad(A, ad_hard_cutoffs):
+  """Per-compound in-domain fraction in [0, 1] (1 = every cutoff-bearing descriptor in domain).
+
+  Uses the same veto rule as :func:`_veto_stats` (AD score below the descriptor's hard cutoff = out),
+  but aggregated per compound rather than per descriptor. Returns None when AD isn't available."""
+  if A is None or ad_hard_cutoffs is None:
+    return None
+  A = np.asarray(A, dtype=np.float64)
+  cut = np.asarray(ad_hard_cutoffs, dtype=np.float64)
+  has_cut = np.isfinite(cut)
+  if not has_cut.any():
+    return None
+  Ac = A[:, has_cut]
+  cutc = cut[has_cut]
+  vetoed = np.isfinite(Ac) & (Ac < cutc)
+  return 1.0 - vetoed.mean(axis=1)
+
+
 def _write_summary(out_path, mode, pred_cols, params, P, R, A, W):
   """Persist a compact, human-readable summary of how the pooler combined the descriptors.
 
@@ -209,6 +227,17 @@ class Predictor(BasePooler):
     b_hat = (np.asarray(y_hat) > 0.5).astype(int)
 
     results = pd.DataFrame({"clf": y_hat, "clf_bin": b_hat})
+    # Per-compound confidence signals for the predict report, appended AFTER clf/clf_bin so the
+    # first-match "clf" column scanners still resolve to the base prediction.
+    ad = _per_compound_ad(A, reduced.get("ad_hard_cutoffs")) if reduced.get("has_ad") else None
+    if ad is not None:
+      results["clf_ad"] = (
+        ad  # in-domain fraction: 1 = every descriptor in domain, 0 = fully outside
+      )
+    if R is not None:
+      # Weighted rank-reliability quantile (the pooler's own signal — distinct from the score-rank
+      # used to order the hitlist, which the report derives from the pooled probability).
+      results["clf_rank"] = (np.asarray(W, dtype=float) * np.asarray(R, dtype=float)).sum(axis=1)
     columns = results.columns.tolist()
     results["compound_id"] = cids
     results = results[["compound_id"] + columns]
