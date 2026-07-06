@@ -40,16 +40,15 @@ Train a classifier and predict, using the example dataset shipped in `dev/data.c
 
 ```bash
 # 1. Train a classification model
-zairachem fit -i dev/data.csv -m ./dili_model -c
+zairachem fit -i example/data_train.csv -m example_model
 
 # 2. Predict on new molecules (reusing the example here)
-zairachem predict -i dev/data.csv -m ./dili_model -o ./predictions
+zairachem predict -i example/smiles_test.csv -m example_model -o predictions_test
 ```
 
 ## CLI reference
 
-Run `zairachem <command> --help` for the authoritative, always-current options. Add `-v`/`--verbose`
-**before** the command for detailed logs (e.g. `zairachem -v fit ...`).
+Run `zairachem <command> --help` for the authoritative, always-current options.
 
 ### `fit` — train a model from a labelled CSV
 
@@ -79,24 +78,6 @@ Same core options as `fit` (`-i`, `-m`, `-s`, `--override`, `-b`, `--workers`, `
 | Option | Default | Description |
 | --- | --- | --- |
 | `-o, --output-dir` | *(required)* | Where predictions and the report are written. |
-
-### Advanced: run the pipeline step by step
-
-`fit` runs the full pipeline; you can also run (or re-run) individual steps against a model dir with
-`-m`. Order matters:
-
-```bash
-zairachem setup -i data.csv -c   # standardize & prepare the molecules
-zairachem describe               # compute descriptors (needs Docker)
-zairachem treat                  # impute & scale the descriptor matrix
-zairachem estimate               # train the per-descriptor estimators
-zairachem pool                   # combine them into a consensus
-zairachem report                 # render plots, tables & report.html
-zairachem finish                 # assemble final outputs & clean up
-```
-
-Re-running a single step is handy for iterating — e.g. `zairachem report -m ./dili_model` to
-re-render the report without redoing training.
 
 ## About the Ersilia Open Source Initiative
 

@@ -107,6 +107,20 @@ _CATEGORIES = [
   ),
 ]
 
+# Predict-aware overrides. The static _CATEGORIES / _GROUPS read from the fit perspective; at predict
+# the same figures describe the NEW molecules against the trained model, so a couple of headings shift
+# meaning. Applied where the section heading and the carousel title are emitted (never mutating the
+# static tables), keyed by section anchor / group key.
+_PREDICT_SECTION = {
+  "performance": (
+    "Test-set performance",
+    "How the trained model performs on your labelled test set (training reference overlaid).",
+  ),
+}
+_PREDICT_GROUP_TITLE = {
+  "oof-scores": "Predicted score by true class",
+}
+
 _TITLES = {
   "actives-inactives": "Class balance",
   "roc-curve": "ROC curve",
@@ -1559,12 +1573,13 @@ def _carousel(report_dir, group, members):
   )
 
 
-def _render_items(report_dir, anchor, items, present, rendered_groups, assigned):
+def _render_items(report_dir, anchor, items, present, rendered_groups, assigned, kind=None):
   """Render a section's items, collapsing grouped figures into one carousel at their home section.
 
   Grouped stems seen outside their home section (or after their group already rendered) are skipped;
   they surface in the carousel emitted at the home section instead. ``assigned`` tracks everything
-  rendered so the trailing "More" section can pick up genuine leftovers.
+  rendered so the trailing "More" section can pick up genuine leftovers. ``kind`` ("Predict"/"Fit")
+  selects the predict-aware carousel title overrides.
   """
   cards = []
   for stem in items:
@@ -1581,6 +1596,8 @@ def _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
     if len(group_members) == 1:
       cards.append(_card(report_dir, group_members[0]))
     else:
+      if kind == "Predict" and group["key"] in _PREDICT_GROUP_TITLE:
+        group = {**group, "title": _PREDICT_GROUP_TITLE[group["key"]]}
       cards.append(_carousel(report_dir, group, group_members))
   return cards
 
@@ -1711,7 +1728,7 @@ def write_html_report(output_dir):
     # No truth-keyed (projection-merged-*) maps in a prediction run — gather the projections coloured
     # by predicted probability instead, so they form a proper Chemical space section (not "More").
     proba = sorted(s for s in present if s.startswith("projection-") and s.endswith("-proba"))
-    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned)
+    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned, kind)
     if cards:
       sections.append((
         "space",
@@ -1720,11 +1737,13 @@ def write_html_report(output_dir):
         "<div class='grid'>" + "".join(cards) + "</div>",
       ))
   for anchor, heading, desc, members in _CATEGORIES:
+    if kind == "Predict" and anchor in _PREDICT_SECTION:
+      heading, desc = _PREDICT_SECTION[anchor]
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))
     else:
       items = [s for s in members if s in present]
-    cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned)
+    cards = _render_items(report_dir, anchor, items, present, rendered_groups, assigned, kind)
     grid = "<div class='grid'>" + "".join(cards) + "</div>" if cards else ""
     if anchor == "validation":
       inner = _validation_table_html(report_dir) + grid
