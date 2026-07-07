@@ -47,10 +47,6 @@ class SessionFile(ZairaBase):
     with open(self.session_file, "w") as f:
       json.dump(data, f, indent=4)
 
-  def delete_session_file(self):
-    if os.path.exists(self.session_file):
-      os.remove(self.session_file)
-
 
 class PipelineStep(ZairaBase):
   def __init__(self, name, output_dir):
@@ -102,23 +98,12 @@ class PipelineStep(ZairaBase):
     else:
       return False
 
-  def reset(self):
-    data = self._read_session()
-    steps = []
-    for s in data["steps"]:
-      if s == self.name:
-        break
-      else:
-        steps += [s]
-    data["steps"] = steps
-    self._write_session(data)
-
   def unmark(self):
     """Drop only this step's done-marker, leaving later steps intact.
 
     Used to force a single step to re-run (e.g. re-rendering the report) without disturbing the rest
-    of the pipeline's resume state — unlike :meth:`reset`, which also clears every step after this one.
-    A no-op if the step isn't marked done or the session file is absent.
+    of the pipeline's resume state. A no-op if the step isn't marked done or the session file is
+    absent.
     """
     data = self._read_session()
     if data is None:

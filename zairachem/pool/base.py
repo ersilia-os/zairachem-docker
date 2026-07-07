@@ -1,4 +1,4 @@
-import json, os, gc
+import json, os, gc, joblib
 import numpy as np
 import pandas as pd
 from typing import Iterator, Tuple
@@ -167,8 +167,6 @@ class BasePooler(ZairaBase):
 
     Returns None when any descriptor lacks the sibling column or the whole matrix is non-finite.
     """
-    import numpy as np
-
     cols = [c + suffix for c in pred_columns]
     if not pred_columns or any(c not in df.columns for c in cols):
       return None, False
@@ -190,9 +188,6 @@ class BasePooler(ZairaBase):
     these training artifacts live under the trained model dir. Missing files/keys → None entries,
     so the pooler falls back gracefully.
     """
-    import joblib
-    from zairachem.base.utils.results import ResultsIterator
-
     suffix = "-clf" if task == "classification" else "-reg"
     meta_path = self.get_trained_dir() if self.is_predict() else self.path
     # Map each descriptor's prediction column to its results folder via the relpath prefix.

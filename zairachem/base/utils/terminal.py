@@ -1,4 +1,4 @@
-import datetime, os, re, shlex, subprocess
+import datetime, os, shlex, subprocess
 from collections import namedtuple
 from zairachem.base.vars import BASE_DIR
 
@@ -64,8 +64,3 @@ def run_command(cmd, quiet=None):
     logger.error(f"Command failed (rc={result.returncode}): {display_cmd}\n{tail}")
 
   return output
-
-
-def is_quoted_list(s: str) -> bool:
-  pattern = r"^(['\"])\[.*\]\1$"
-  return bool(re.match(pattern, s))

@@ -2,7 +2,6 @@ import json, os
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zairachem.base import ZairaBase
-from zairachem.base.utils.matrices import Hdf5
 from zairachem.base.utils.isaura_report import quiet_isaura_reads
 from zairachem.base.utils.progress import LiveTableMonitor, STEP_COLORS, _bar
 from zairachem.describe.descriptors.api import BinaryStreamClient
@@ -67,16 +66,6 @@ class DescribeMonitor(LiveTableMonitor):
       done, total = args
       self.update_fields(model_id, frac=(done / total if total else None))
       self.set_substep(model_id, f"batch {done}/{total}")
-
-
-class RawLoader(ZairaBase):
-  def __init__(self):
-    ZairaBase.__init__(self)
-    self.path = self.get_output_dir()
-
-  def open(self, eos_id):
-    path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id, RAW_DESC_FILENAME)
-    return Hdf5(path)
 
 
 class RawDescriptors(ZairaBase):

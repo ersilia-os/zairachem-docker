@@ -19,16 +19,13 @@ from zairachem.estimate.tools.ghost.ghost import GhostLight
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
   MAPPING_FILENAME,
-  VALUES_COLUMN,
   SMILES_COLUMN,
   INPUT_SCHEMA_FILENAME,
-  PARAMETERS_FILE,
   RAW_INPUT_FILENAME,
   MAPPING_ORIGINAL_COLUMN,
   MAPPING_DEDUPE_COLUMN,
   DATA_FILENAME,
   DATA_SUBFOLDER,
-  METADATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
   POOL_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
@@ -49,12 +46,11 @@ class ResultsFetcher(ZairaBase):
     else:
       self.path = path
     self.trained_path = self.get_trained_dir()
-    self.individual_results_iterator = ResultsIterator(path=self.path)
     self.clf_task = "bin"
     self.reg_task = "val"
-    self.params = self.get_parameters()
     # Per-instance map cache (dedupe→original index). CSV reads use the process-level cache below.
     self._map_cache = {}
+    self._cv_dirs_cache = None
 
   def _read_csv_cached(self, path):
     # Process-level cache shared across ALL fetcher instances: the report renders dozens of plots, and
@@ -112,7 +108,12 @@ class ResultsFetcher(ZairaBase):
     Prefers the finished ``model/estimators`` layout; falls back to the in-pipeline
     ``pipeline/01_estimators/lq_estimators/<descriptor>/`` so diagnostics still render before a run's
     artefacts are copied into the trained tree.
+
+    Memoized per instance: several plots call this (and the CV accessors built on it) repeatedly, and
+    it walks the estimator tree + stats every time otherwise.
     """
+    if self._cv_dirs_cache is not None:
+      return self._cv_dirs_cache
     dirs = {}
     try:
       for rpath in ResultsIterator(path=self.trained_path).iter_relpaths():
@@ -129,6 +130,7 @@ class ResultsFetcher(ZairaBase):
           d = os.path.join(lq, name)
           if os.path.exists(os.path.join(d, "cv_report.json")):
             dirs[name] = d
+    self._cv_dirs_cache = dirs
     return dirs
 
   def get_cv_stats(self):
@@ -151,31 +153,9 @@ class ResultsFetcher(ZairaBase):
     if d is not None:
       f = os.path.join(d, "oof.csv")
       if os.path.exists(f):
-        df = pd.read_csv(f)
+        df = self._read_csv_cached(f)
         return list(df["oof_proba"]), list(df["y"])
     return None
-
-  def cv_summary(self):
-    """Aggregate of the per-descriptor CV stats, or {} when none are available."""
-    stats = self.get_cv_stats()
-    aucs = [s["oof_auc"] for s in stats if s.get("oof_auc") is not None]
-    if not aucs:
-      return {}
-    gaps = [s["overfit_gap"] for s in stats if s.get("overfit_gap") is not None]
-    best = max(stats, key=lambda s: s.get("oof_auc") if s.get("oof_auc") is not None else -1)
-    return {
-      "n_descriptors": len(stats),
-      "mean_oof_auc": float(np.mean(aucs)),
-      "best_oof_auc": float(best.get("oof_auc")),
-      "best_descriptor": best.get("descriptor"),
-      "mean_overfit_gap": float(np.mean(gaps)) if gaps else None,
-    }
-
-  def _read_processed_data(self):
-    return self._read_csv_cached(os.path.join(self.path, POOL_SUBFOLDER, DATA_FILENAME))
-
-  def _read_processed_data_train(self):
-    return self._read_csv_cached(os.path.join(self.trained_path, POOL_SUBFOLDER, DATA_FILENAME))
 
   def get_tasks(self):
     df = self._read_data()
@@ -225,12 +205,6 @@ class ResultsFetcher(ZairaBase):
 
   def get_pred_binary_clf(self):
     df = self._read_pooled_results()
-    for c in list(df.columns):
-      if "clf" in c and "bin" in c:
-        return list(df[c])
-
-  def get_pred_binary_clf_trained(self):
-    df = self._read_pooled_results_train()
     for c in list(df.columns):
       if "clf" in c and "bin" in c:
         return list(df[c])
@@ -310,7 +284,7 @@ class ResultsFetcher(ZairaBase):
       return None, None
     with open(manifest_path) as f:
       manifest = json.load(f)
-    return manifest, pd.read_csv(csv_path)
+    return manifest, self._read_csv_cached(csv_path)
 
   def get_projections(self):
     """Projections for this run: ``[{name, title, x_label, y_label, xs, ys}, ...]`` (row-aligned)."""
@@ -342,28 +316,15 @@ class ResultsFetcher(ZairaBase):
         return list(df[p["x"]]), list(df[p["y"]])
     return None
 
-  def get_parameters(self):
-    with open(os.path.join(self.trained_path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-      return json.load(f)
-
   def get_smiles(self):
-    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
+    df = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
     return list(df[SMILES_COLUMN])
 
   def get_original_smiles(self):
-    raw_data = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
+    raw_data = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
     return list(raw_data[schema["smiles_column"]])
-
-  def get_original_values(self):
-    raw_data = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
-    with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
-      schema = json.load(f)
-    if schema["values_column"] is None:
-      return None
-    else:
-      return list(raw_data[VALUES_COLUMN])
 
   def _top_binarizer(self, y, k):
     idxs = np.argsort(y)[::-1]
@@ -403,10 +364,6 @@ class ResultsFetcher(ZairaBase):
     yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_binary_clf())
     return yt.astype(int), yp.astype(int)
 
-  def clf_labeled_mask(self):
-    """Boolean mask over current-run rows where the classification label is present (not NaN)."""
-    return ~np.isnan(np.asarray(self.get_actives_inactives(), dtype=float))
-
   def classification_performance_report(self, y_true_train, y_pred_train, y_true_test, y_pred_test):
     # Drop unlabelled positions (NaN truth) so partial predict-time ground truth is handled, and
     # ensure numpy arrays so the class-count comparisons below are elementwise.
@@ -424,13 +381,7 @@ class ResultsFetcher(ZairaBase):
     aupr = auc(rec, prec)
     ghost = GhostLight()
     cutoff = ghost.get_threshold(y_true_train, y_pred_train)
-    b_pred_test = []
-    for y in y_pred_test:
-      if y >= cutoff:
-        b_pred_test += [1]
-      else:
-        b_pred_test += [0]
-    b_pred_test = np.array(b_pred_test)
+    b_pred_test = (np.asarray(y_pred_test) >= cutoff).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true_test, b_pred_test).ravel()
     data = collections.OrderedDict()
     data["num_train"] = n_tr

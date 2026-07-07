@@ -7,7 +7,6 @@ from zairachem.base.utils.logging import logger
 
 
 _SNIFF_SAMPLE_SIZE = 1000
-_MAX_EMPTY = 0.2  # TODO NOT USED
 _MIN_CORRECT = 0.8
 
 
@@ -19,14 +18,6 @@ class InputSchema(ZairaBase):
     self.df_ = pd.read_csv(self.input_file, nrows=_SNIFF_SAMPLE_SIZE)
     self.columns = [c for c in list(self.df_.columns) if not self.df_[c].isnull().all()]
     self.assigned_columns = set()
-
-  def columns_iter(self):
-    for c in self.columns:
-      if c not in self.assigned_columns:
-        yield c
-
-  def add_explored_column(self, col):
-    self.assigned_columns.update([col])
 
   def _prop_correct_smiles(self, col):
     values = list(self.df_[col])[

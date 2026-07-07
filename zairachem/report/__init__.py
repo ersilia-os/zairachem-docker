@@ -8,7 +8,6 @@ from zairachem.base.vars import DATA_FILENAME, DATA_SUBFOLDER, REPORT_SUBFOLDER
 
 # stylia 1.0.1 dropped the TWO_COLUMNS_WIDTH constant; keep the original figure proportions.
 TWO_COLUMNS_WIDTH = 7.09
-INDIVIDUAL_FIGSIZE = (TWO_COLUMNS_WIDTH / 2, TWO_COLUMNS_WIDTH / 2)
 
 # In stylia 1.0.1 create_figure's width/height are scale factors, not inches, so the old
 # inch-based figsizes must be rescaled. This factor maps the individual figure to ~1870 px,
@@ -57,9 +56,6 @@ class BaseResults(ZairaBase):
       df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME), nrows=0)
       self._data_columns = list(df.columns)
     return self._data_columns
-
-  def has_outcome_data(self):
-    return any("clf" in c or "reg" in c for c in self._columns())
 
   def has_clf_data(self):
     return any("bin" in c and "_skip" not in c and "_aux" not in c for c in self._columns())

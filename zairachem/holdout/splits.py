@@ -26,7 +26,7 @@ STRATEGIES = ("random", "scaffold", "butina")
 FOLD_SCHEMAS = ("random", "scaffold", "scaffold_det", "butina")
 
 # ECFP4-equivalent Morgan fingerprint (radius 2, 2048 bits), matching the repo's other Morgan uses
-# (setup/prep/utils.py, treat/fpsim2/searcher.py).
+# (setup/prep/utils.py).
 _MORGAN_RADIUS = 2
 _MORGAN_NBITS = 2048
 # Butina works on a Tanimoto *distance* threshold; 0.6 distance (0.4 similarity) is a common cluster

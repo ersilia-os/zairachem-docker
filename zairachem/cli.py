@@ -243,7 +243,6 @@ def common_options(
   require_input: bool = True,
   include_task: bool = False,
   include_eos: bool = False,
-  include_anonymize: bool = False,
   require_model: bool = False,
 ):
   def _decorator(func):
@@ -263,8 +262,8 @@ def common_options(
       ),
     ]
     # Build in display order: required I/O (input, model) first, then task / featurizer-ids /
-    # projection-ids, and anonymize last. (Commands that want anonymize grouped with their own
-    # output-control flags declare it themselves instead of via include_anonymize.)
+    # projection-ids. (Commands that want an --anonymize flag declare it themselves, grouped with
+    # their own output-control flags.)
     if include_task:
       options.append(
         click.option(
@@ -299,15 +298,6 @@ def common_options(
           "map. Overrides any projection_ids in a --featurizer-ids JSON file.",
         )
       )
-    if include_anonymize:
-      options.append(
-        click.option(
-          "--anonymize",
-          is_flag=True,
-          help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
-        )
-      )
-
     for option in reversed(options):
       func = option(func)
     return func

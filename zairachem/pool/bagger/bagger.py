@@ -124,7 +124,6 @@ class BaggerClassifier(object):
         y_hat = mdl1.predict_proba(X)[:, 1]
         Y_hat += [y_hat]
     Y_hat = np.array(Y_hat).T
-    filename = self._get_model_filename("overall")
     filename = self._get_model_filename("weighting")
     weights = joblib.load(filename)
     wvals = weights["weights"]

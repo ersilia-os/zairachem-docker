@@ -108,9 +108,3 @@ class Logger:
 
 
 logger = Logger()
-
-
-def setup_logging():
-  """Re-assert zairachem's log sinks. Call once after all imports (e.g. at CLI startup),
-  since third-party packages remove loguru handlers when they are imported."""
-  logger.configure()

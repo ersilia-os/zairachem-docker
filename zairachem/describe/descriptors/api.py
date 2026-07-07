@@ -757,7 +757,6 @@ class BinaryStreamClient(ZairaBase):
             if show
             else None
           )
-          processed_count = 0
           for batch_i, start in enumerate(range(0, len(checked_input), self.batch_size), start=1):
             batch = checked_input[start : start + self.batch_size]
             batch_abs_offset = good_idx[start]
@@ -787,7 +786,6 @@ class BinaryStreamClient(ZairaBase):
                 per_item_rows[good_idx[start + j]] = row
                 if isinstance(row, np.ndarray):
                   n_ok += 1
-            processed_count += len(arrays_out)
             if show:
               progress.advance(task, len(arrays_out))
             else:

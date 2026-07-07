@@ -38,7 +38,3 @@ class ResultsIterator(ZairaBase):
             rpaths += [[est_fam, d]]
     for rpath in rpaths:
       yield rpath
-
-  def iter_abspaths(self):
-    for rpath in self.iter_relpaths():
-      yield "/".join([self.path] + rpath)

@@ -1,11 +1,11 @@
-import json, os, gc
+import json, os
 import pandas as pd
 import numpy as np
 from typing import Iterator, Tuple, Optional
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import ChunkedH5Store, open_h5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import open_h5, DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import (
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
@@ -51,12 +51,7 @@ class BaseEstimatorIndividual(BaseEstimator):
     if not os.path.exists(path_):
       os.makedirs(path_)
     self.model_id = model_id
-    self.task = self._get_task()
-
-  def _get_task(self):
-    with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "r") as f:
-      task = json.load(f)["task"]
-    return task
+    # self.task is already set by BaseEstimator.__init__ (same params.json) — don't re-read it.
 
   def _open_h5(self):
     base = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, self.model_id)
@@ -74,30 +69,6 @@ class BaseEstimatorIndividual(BaseEstimator):
       return None
     return h5.shape()
 
-  def _get_X(self) -> Optional[np.ndarray]:
-    h5 = self._open_h5()
-    if h5 is None:
-      self.logger.warning(f"[estimator] No H5 data found for {self.model_id}")
-      return None
-    shape = h5.shape()
-    n_rows = shape[0]
-    if isinstance(h5, ChunkedH5Store):
-      self.logger.info(f"[estimator] loading {self.model_id} shape={shape} (chunked store)")
-      X = np.empty(shape, dtype=np.float32)
-      for start, end, chunk in h5.iter_values_with_indices():
-        X[start:end] = chunk
-      gc.collect()
-      return X
-    if n_rows <= self.batch_size * 2:
-      self.logger.info(f"[estimator] loading {self.model_id} shape={shape} (in-memory)")
-      return h5.values()
-    self.logger.info(f"[estimator] loading {self.model_id} shape={shape} (chunked read)")
-    X = np.empty(shape, dtype=np.float32)
-    for start, end, chunk in h5.iter_values_with_indices(self.batch_size):
-      X[start:end] = chunk
-    gc.collect()
-    return X
-
   def _iter_X(self, chunk_size: int = None) -> Iterator[Tuple[int, int, np.ndarray]]:
     if chunk_size is None:
       chunk_size = self.batch_size
@@ -108,10 +79,6 @@ class BaseEstimatorIndividual(BaseEstimator):
     )
     for start, end, chunk in h5.iter_values_with_indices(chunk_size):
       yield start, end, chunk
-
-  def _get_X_slice(self, start: int, end: int) -> np.ndarray:
-    h5 = self._open_h5()
-    return h5.values_slice(start, end)
 
   def _get_Y_col(self):
     if self.task == "classification":
