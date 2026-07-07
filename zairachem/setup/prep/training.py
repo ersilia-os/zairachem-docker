@@ -1,6 +1,6 @@
 import json, os, shutil
 
-from zairachem.base import create_session_symlink, params_path
+from zairachem.base import params_path
 from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.preflight import (
   require_docker_and_base,
@@ -161,7 +161,6 @@ class TrainSetup(BaseSetup):
   def _open_session(self):
     sf = SessionFile(self.output_dir)
     sf.open_session(mode="fit", output_dir=self.output_dir, model_dir=self.output_dir)
-    create_session_symlink(self.output_dir)
 
   def _make_subfolders(self):
     self._make_subfolder(DATA_SUBFOLDER)
@@ -179,10 +178,8 @@ class TrainSetup(BaseSetup):
       # Resuming an unfinished run: keep every existing artifact AND the session "steps" list (so the
       # guarded downstream steps skip what's done and continue). Do NOT wipe and do NOT call
       # _open_session (it rewrites session.json without "steps", erasing the resume markers). Only
-      # re-point the global session symlink at this model, ensure the subfolders exist, and restart
-      # the elapsed-time clock so the crash→resume gap isn't billed. params.json + the input copy are
-      # already on disk.
-      create_session_symlink(self.output_dir)
+      # ensure the subfolders exist and restart the elapsed-time clock so the crash→resume gap isn't
+      # billed. params.json + the input copy are already on disk.
       self._make_subfolders()
       self.reset_time()
       return
@@ -245,7 +242,7 @@ class TrainSetup(BaseSetup):
   def _normalize_input(self):
     step = PipelineStep("normalize_input", self.output_dir)
     if not step.is_done():
-      f = SingleFile(self.input_file, self.params)
+      f = SingleFile(self.input_file, self.params, self.output_dir)
       f.process()
       step.update()
 

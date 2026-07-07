@@ -4,7 +4,6 @@ import pandas as pd
 from time import time
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
-  BASE_DIR,
   DATA_FILENAME,
   DATA_SUBFOLDER,
   METADATA_SUBFOLDER,
@@ -21,24 +20,32 @@ def params_path(base):
 warnings.filterwarnings("ignore")
 
 
-def resolve_output_dir(output_dir):
-  if output_dir is None:
-    system_session = os.path.join(BASE_DIR, SESSION_FILE)
-    with open(system_session, "r") as f:
-      session = json.load(f)
-    return session["output_dir"]
-  else:
-    return os.path.abspath(output_dir)
+def session_dir(path):
+  """The run root for ``path``: the nearest ancestor (inclusive) that holds a ``session.json``.
+
+  A run is fully described by its own folder — there is no global "active session" pointer. The
+  session file lives at the run root (written by ``SessionFile.open_session``); a step whose
+  ``self.path`` is a subfolder (e.g. ``inputs/``) or a held-out fold dir (``folds/<name>/``) resolves
+  up to it. Raises if no session exists at or above ``path``."""
+  d = os.path.abspath(path)
+  while True:
+    if os.path.exists(os.path.join(d, SESSION_FILE)):
+      return d
+    parent = os.path.dirname(d)
+    if parent == d:
+      raise FileNotFoundError(f"No {SESSION_FILE} found at or above {path!r}")
+    d = parent
 
 
-def create_session_symlink(output_dir):
-  if output_dir is None:
-    output_dir = resolve_output_dir(output_dir)
-  output_session = os.path.join(os.path.abspath(output_dir), SESSION_FILE)
-  system_session = os.path.join(BASE_DIR, SESSION_FILE)
-  if os.path.islink(system_session):
-    os.unlink(system_session)
-  os.symlink(output_session, system_session)
+def read_session(path):
+  """Load the run's ``session.json`` (``mode``, ``model_dir``, resume ``steps``, timing)."""
+  with open(os.path.join(session_dir(path), SESSION_FILE), "r") as f:
+    return json.load(f)
+
+
+def write_session(path, data):
+  with open(os.path.join(session_dir(path), SESSION_FILE), "w") as f:
+    json.dump(data, f, indent=4)
 
 
 class ZairaBase(object):
@@ -46,51 +53,35 @@ class ZairaBase(object):
     self.logger = logger
 
   def get_output_dir(self):
-    with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
-      session = json.load(f)
-    return session["output_dir"]
+    # The run root (folder holding session.json) — resolved from self.path, no global lookup.
+    return session_dir(self.path)
 
-  def reset_time(self):
-    with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
-      session = json.load(f)
+  def reset_time(self, path=None):
+    path = path or self.path
+    session = read_session(path)
     session["time_stamp"] = int(time())
-    output_dir = session["output_dir"]
-    with open(os.path.join(output_dir, SESSION_FILE), "w") as f:
-      json.dump(session, f, indent=4)
+    write_session(path, session)
 
-  def update_elapsed_time(self):
-    with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
-      session = json.load(f)
-    delta_time = int(time()) - session["time_stamp"]
-    session["elapsed_time"] = session["elapsed_time"] + delta_time
-    output_dir = session["output_dir"]
-    with open(os.path.join(output_dir, SESSION_FILE), "w") as f:
-      json.dump(session, f, indent=4)
+  def update_elapsed_time(self, path=None):
+    path = path or self.path
+    session = read_session(path)
+    session["elapsed_time"] = session["elapsed_time"] + (int(time()) - session["time_stamp"])
+    write_session(path, session)
 
   def get_trained_dir(self):
-    with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
-      session = json.load(f)
-    return session["model_dir"]
+    # The trained model dir: equals the run root at fit, differs at predict. Recorded per-run.
+    return read_session(self.path)["model_dir"]
 
   def _load_params(self):
-    """Load this run's ``parameters.json`` (from ``self.path``, else the active session dir)."""
-    base = getattr(self, "path", None) or self.get_output_dir()
-    with open(params_path(base), "r") as f:
+    """Load this run's ``parameters.json`` (under ``self.path/metadata/``)."""
+    with open(params_path(self.path), "r") as f:
       return json.load(f)
 
   def is_predict(self):
-    with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
-      session = json.load(f)
-    if session["mode"] == "predict":
-      return True
-    else:
-      return False
+    return read_session(self.path)["mode"] == "predict"
 
   def is_train(self):
-    if self.is_predict():
-      return False
-    else:
-      return True
+    return not self.is_predict()
 
   def _dummy_indices(self, path):
     df = pd.read_csv(os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME))

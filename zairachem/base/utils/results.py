@@ -14,10 +14,7 @@ from zairachem.base.vars import ESTIMATORS_SUBFOLDER
 class ResultsIterator(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
 
   def _read_model_ids(self):
     # Honour --max-descriptors pre-screening: use the selected subset when present, else every

@@ -16,10 +16,7 @@ class Imputer(ZairaBase):
 
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.output_dir = os.path.abspath(self.path)
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     assert os.path.exists(self.output_dir)
@@ -28,7 +25,7 @@ class Imputer(ZairaBase):
     step = PipelineStep("treated_descriptions", self.output_dir)
     if not step.is_done():
       logger.info(f"[imputer] Using chunk size: {self.batch_size}")
-      TreatedDescriptors(chunk_size=self.batch_size).run()
+      TreatedDescriptors(path=self.path, chunk_size=self.batch_size).run()
       step.update()
 
   def run(self):

@@ -18,10 +18,7 @@ from zairachem.base.vars import (
 class SimpleEvaluator(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.results_iterator = ResultsIterator(path=self.path)
 
   def _get_original_input_value(self):

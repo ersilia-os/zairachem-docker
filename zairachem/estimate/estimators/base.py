@@ -26,10 +26,7 @@ class BaseEstimator(ZairaBase):
   def __init__(self, path, batch_size=None):
     self.logger = logger
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     self.logger.info(f"Specified model directory: {self.path}")
     if self.is_predict():
@@ -99,10 +96,7 @@ class BaseEstimatorIndividual(BaseEstimator):
 class BaseOutcomeAssembler(ZairaBase):
   def __init__(self, path=None):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
     else:

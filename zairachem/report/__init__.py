@@ -42,10 +42,7 @@ stylia.set_format("print")
 class BaseResults(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self._data_columns = None  # cached column names of data.csv (read once; see _columns())
 
   def _columns(self):

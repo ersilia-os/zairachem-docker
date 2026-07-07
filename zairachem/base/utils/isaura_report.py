@@ -554,23 +554,14 @@ def record_provenance(
   _write_provenance(output_dir, data)
 
 
-def report_data_provenance(output_dir=None):
+def report_data_provenance(output_dir):
   """Render per-model stacked bars of where each model's data came from this run.
 
   By the time Describe runs, any lake→project migration has already happened, so every row is either
   **read from the project store** or **computed via Ersilia** (a cache miss). The bar reflects that
   two-way split. (How the project itself was seeded from the lake is shown separately by the setup
-  "Migrating isaura-public → project" table.) Reads provenance.json; skips quietly if absent. When
-  output_dir is None, it's resolved from the active session.
+  "Migrating isaura-public → project" table.) Reads provenance.json; skips quietly if absent.
   """
-  if output_dir is None:
-    try:
-      from zairachem.base.vars import BASE_DIR, SESSION_FILE
-
-      with open(os.path.join(BASE_DIR, SESSION_FILE)) as f:
-        output_dir = json.load(f)["output_dir"]
-    except Exception:
-      return
   data = _load_provenance(output_dir) if os.path.exists(_provenance_path(output_dir)) else None
   if not data or not (data.get("featurizers") or data.get("projections")):
     return

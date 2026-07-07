@@ -33,10 +33,7 @@ CLEAN_TARGET_PREDICT = "predict"
 class Cleaner(ZairaBase):
   def __init__(self, path, target=CLEAN_TARGET_ALL):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.output_dir = os.path.abspath(self.path)
     self.target = target
     self._is_predict = self.is_predict()
@@ -91,10 +88,7 @@ class Cleaner(ZairaBase):
 class Anonymizer(ZairaBase):
   def __init__(self, path, target=CLEAN_TARGET_ALL):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.output_dir = os.path.abspath(self.path)
     self.target = target
     self._is_predict = self.is_predict()
@@ -248,10 +242,7 @@ class Anonymizer(ZairaBase):
 class Finisher(ZairaBase):
   def __init__(self, path, anonymize=False, keep_intermediate_data=False):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.anonymize = anonymize
     self.keep_intermediate_data = keep_intermediate_data
 

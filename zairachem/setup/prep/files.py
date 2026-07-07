@@ -89,8 +89,9 @@ class ParametersFile(object):
 
 
 class SingleFile(InputSchema):
-  def __init__(self, input_file, params):
+  def __init__(self, input_file, params, path):
     InputSchema.__init__(self, input_file)
+    self.path = path  # the run root, so get_output_dir()/get_trained_dir() resolve the session
     self.params = params
     self.df = pd.read_csv(input_file)
 
@@ -263,8 +264,8 @@ class SingleFile(InputSchema):
 
 
 class SingleFileForPrediction(SingleFile):
-  def __init__(self, input_file, params):
-    SingleFile.__init__(self, input_file, params)
+  def __init__(self, input_file, params, path):
+    SingleFile.__init__(self, input_file, params, path)
     self.trained_path = self.get_trained_dir()
 
   def get_trained_values_column(self):

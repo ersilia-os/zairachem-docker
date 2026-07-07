@@ -249,10 +249,7 @@ class ReliabilityPooler(ZairaBase):
   def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     if not self.is_predict():
       self.estimator = Fitter(path=self.path, batch_size=self.batch_size)
     else:

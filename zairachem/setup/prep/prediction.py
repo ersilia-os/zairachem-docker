@@ -10,7 +10,7 @@ from zairachem.setup.prep import (
   SetupChecker,
 )
 
-from zairachem.base import create_session_symlink, params_path
+from zairachem.base import params_path
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
@@ -159,14 +159,11 @@ class PredictSetup(BaseSetup):
   def _open_session(self):
     sf = SessionFile(self.output_dir)
     # Write the session DATA only when this output dir has none yet — a resumed run must keep its
-    # existing step log and elapsed time (open_session would reset them).
+    # existing step log and elapsed time (open_session would reset them). The session records
+    # ``model_dir`` (the trained model, distinct from this output dir), which every step reads back
+    # from this folder's own session.json — no global pointer involved.
     if not os.path.exists(sf.session_file):
       sf.open_session(mode="predict", output_dir=self.output_dir, model_dir=self.model_dir)
-    # ALWAYS (re)point the global "active run" symlink at THIS run's output dir. Every path=None
-    # pipeline step (describe, treat, report, finish, …) resolves its directory through this symlink,
-    # so if it is left pointing at a prior run — e.g. the model dir from a fit, when the initialize
-    # step is skipped on resume — those steps would read and WRITE there instead of the output dir.
-    create_session_symlink(self.output_dir)
 
   def _make_subfolders(self):
     self._make_subfolder(DATA_SUBFOLDER)
@@ -219,7 +216,7 @@ class PredictSetup(BaseSetup):
     step = PipelineStep("normalize_input", self.output_dir)
     if not step.is_done():
       params = ParametersFile(path=params_path(self.model_dir)).load()
-      f = SingleFileForPrediction(self.input_file, params)
+      f = SingleFileForPrediction(self.input_file, params, self.output_dir)
       f.process()
       step.update()
 

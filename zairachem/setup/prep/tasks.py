@@ -23,10 +23,7 @@ from sklearn.preprocessing import PowerTransformer, QuantileTransformer
 class ExpectedTaskType(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
     else:
@@ -193,10 +190,7 @@ class ClfTasksForPrediction(object):
 class SingleTasks(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
     else:

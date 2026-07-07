@@ -45,9 +45,8 @@ class ProjectionMonitor(DescribeMonitor):
 
 
 class Manifolds(DescriptorBase):
-  def __init__(self, batch_size=None):
-    DescriptorBase.__init__(self)
-    self.path = self.get_output_dir()
+  def __init__(self, path, batch_size=None):
+    DescriptorBase.__init__(self, path)
     self.input_file = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
     self.params = self._load_params()
     self.projection_ids = self.params.get("projection_ids") or []
@@ -108,6 +107,7 @@ class Manifolds(DescriptorBase):
     from zairachem.describe.descriptors.api import BinaryStreamClient
 
     client = BinaryStreamClient(
+      path=self.path,
       csv_path=self.input_file,
       model_id=model_id,
       project_name=os.path.basename(self.path),

@@ -41,10 +41,7 @@ _CSV_CACHE = {}
 class ResultsFetcher(ZairaBase):
   def __init__(self, path):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.trained_path = self.get_trained_dir()
     self.clf_task = "bin"
     self.reg_task = "val"
