@@ -107,11 +107,11 @@ ipython_config.py
 #Pipfile.lock
 
 # poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-#poetry.lock
+#   ZairaChem installs via `pip install -e .` (see install.sh) and has no poetry-based CI, so the
+#   lock file is not consumed by any install path. Committing it only fed Dependabot the full
+#   transitive tree (noise). Reproducibility for the deps that matter comes from the exact pins in
+#   pyproject.toml's [tool.poetry.dependencies]. Regenerate locally with `poetry lock` if desired.
+poetry.lock
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
