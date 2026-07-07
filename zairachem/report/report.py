@@ -168,10 +168,7 @@ _FIT_ONLY = {
 class Reporter(ZairaBase):
   def __init__(self, path, plot_name=None, make_plots=True):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.output_dir = os.path.abspath(self.path)
     assert os.path.exists(self.output_dir)
     self.plot_name = plot_name

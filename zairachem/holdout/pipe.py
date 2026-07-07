@@ -22,7 +22,7 @@ from zairachem.holdout.monitor import EvaluateMonitor, _fmt_duration
 class HoldoutValidationPipeline(ZairaBase):
   def __init__(self, path=None, batch_size=None, est_seconds=None):
     ZairaBase.__init__(self)
-    self.path = path or self.get_output_dir()
+    self.path = path
     self.batch_size = batch_size
     # Per-fold time predictor: the just-finished training step's wall-clock (a fold refits the same
     # descriptor stack). Used for the upfront estimate and the live ETA.

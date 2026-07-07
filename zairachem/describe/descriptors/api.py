@@ -59,7 +59,7 @@ class BinaryStreamClient(ZairaBase):
   _store_lock = threading.RLock()
 
   def __init__(
-    self, csv_path, model_id=None, url=None, project_name=None, batch_size=DEFAULT_BATCH_SIZE
+    self, path, csv_path, model_id=None, url=None, project_name=None, batch_size=DEFAULT_BATCH_SIZE
   ):
     try:
       super(ZairaBase, self).__init__()
@@ -68,7 +68,7 @@ class BinaryStreamClient(ZairaBase):
       self.csv_path = csv_path
       self.url = url
       self.model_id = model_id
-      self.path = self.get_output_dir()
+      self.path = path
       self.input_data, self.input_header = self._load_data()
       self.params = self._load_params()
       self.read_store = self.params.get("read_store")

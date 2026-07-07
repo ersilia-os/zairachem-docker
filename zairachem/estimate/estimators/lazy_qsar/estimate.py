@@ -450,10 +450,7 @@ class IndividualEstimator(ZairaBase):
     ZairaBase.__init__(self)
     self.model_id = model_id
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     if not self.is_predict():
       self.estimator = Fitter(
         path=self.path,

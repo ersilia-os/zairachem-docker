@@ -2,7 +2,6 @@ import os
 
 from zairachem.setup.prep.training import TrainSetup
 from zairachem.setup.prep import PipelineStep
-from zairachem.base import create_session_symlink
 from zairachem.base.utils.console import echo
 from zairachem.base.utils.progress import tracker, summarize_setup
 
@@ -38,7 +37,6 @@ def run(
   # any --override run, skips straight to setup which wipes + rebuilds).
   resume = False
   if os.path.exists(ts.output_dir) and not override:
-    create_session_symlink(ts.output_dir)
     if ts.is_done():
       # A complete model: re-training needs an explicit --override.
       echo(

@@ -11,10 +11,7 @@ from zairachem.pool.reliability_pooler.pipe import ReliabilityPoolerPipeline
 class PoolerPipeline(ZairaBase):
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.output_dir = os.path.abspath(self.path)
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     assert os.path.exists(self.output_dir)

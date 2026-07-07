@@ -85,10 +85,7 @@ class BasePooler(ZairaBase):
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.logger = logger
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     self.task = self._get_task()
 
@@ -215,10 +212,7 @@ class BasePooler(ZairaBase):
 class BaseOutcomeAssembler(ZairaBase):
   def __init__(self, path=None):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
     else:

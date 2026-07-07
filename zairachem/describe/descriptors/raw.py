@@ -69,9 +69,9 @@ class DescribeMonitor(LiveTableMonitor):
 
 
 class RawDescriptors(ZairaBase):
-  def __init__(self, batch_size=None, workers=None):
+  def __init__(self, path, batch_size=None, workers=None):
     ZairaBase.__init__(self)
-    self.path = self.get_output_dir()
+    self.path = path
     self.params = self._load_params()
     self.input_csv = os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME)
     self.input_csv_ersilia = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
@@ -112,6 +112,7 @@ class RawDescriptors(ZairaBase):
     # One fresh client per model (no shared mutable state) so models can be featurized concurrently.
     # Each starts in 'heavy' mode with its own feature width and writes its own output H5.
     client = BinaryStreamClient(
+      path=self.path,
       csv_path=self.input_csv_ersilia,
       model_id=eos_id,
       url=get_model_url(eos_id),

@@ -21,23 +21,16 @@ _LIVE_TABLE_STEPS = {"describe", "projections", "treat", "estimate"}
 
 
 def _resolve_output_dir(output_dir=None):
-  if output_dir:
-    return output_dir
-  from zairachem.base.vars import BASE_DIR, SESSION_FILE
+  return os.path.abspath(output_dir) if output_dir else None
+
+
+def _is_predict(output_dir):
+  """True if the run in ``output_dir`` is a prediction run (so step text can say 'apply', not
+  'train'). Reads the run's own session.json — no global pointer."""
+  from zairachem.base.vars import SESSION_FILE
 
   try:
-    with open(os.path.join(BASE_DIR, SESSION_FILE)) as f:
-      return json.load(f)["output_dir"]
-  except Exception:
-    return None
-
-
-def _is_predict():
-  """True if the active session is a prediction run (so step text can say 'apply', not 'train')."""
-  from zairachem.base.vars import BASE_DIR, SESSION_FILE
-
-  try:
-    with open(os.path.join(BASE_DIR, SESSION_FILE)) as f:
+    with open(os.path.join(output_dir, SESSION_FILE)) as f:
       return json.load(f).get("mode") == "predict"
   except Exception:
     return False
@@ -171,7 +164,7 @@ def _featurizers(output_dir):
   out ones are omitted from every count/summary; at fit, all requested featurizers are returned."""
   params = _load_params(output_dir)
   all_desc = params.get("featurizer_ids", []) or []
-  if _is_predict():
+  if _is_predict(output_dir):
     try:
       from zairachem.base.utils.descriptors import effective_descriptors
 
@@ -262,7 +255,7 @@ def summarize_estimate(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
-  if _is_predict():
+  if _is_predict(d):
     # Predict applies the trained models — there are no freshly trained estimators or CV stats here.
     n = len(_featurizers(d))
     return _plurals(n, "descriptor") + " scored" if n else "models applied"
@@ -591,7 +584,7 @@ def final_summary_panel(output_dir=None):
   except Exception:
     effective = list(all_desc)
   used = set(effective)
-  if _is_predict():
+  if _is_predict(d):
     # Predict only ever uses the selected descriptors — the pre-screened-out ones are never computed
     # for these molecules, so omit them entirely (in order) rather than listing them as unused.
     desc_label = "  ".join(f"[green]{m}[/]" for m in (effective or all_desc))

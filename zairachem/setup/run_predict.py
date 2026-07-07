@@ -1,7 +1,6 @@
 import os
 
 from zairachem.setup.prep.prediction import PredictSetup
-from zairachem.base import create_session_symlink
 from zairachem.base.utils.console import echo
 from zairachem.base.utils.progress import tracker, summarize_setup
 
@@ -30,9 +29,9 @@ def run(
     "ZairaChem · Prediction",
     subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(ps.output_dir))}",
     steps=[k for k, _, _ in PIPELINE_STEPS if k != "holdout"],
+    output_dir=ps.output_dir,
   )
   if ps.is_done():
-    create_session_symlink(ps.output_dir)
     echo(
       f"Predictions already exist at {ps.output_dir}. Use --override-dir or a different -o to redo.",
       kind="warning",

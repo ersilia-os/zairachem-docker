@@ -65,8 +65,8 @@ class TreatedDescriptors(DescriptorBase):
   feature dimensionality is identical across fit and predict.
   """
 
-  def __init__(self, chunk_size=DEFAULT_CHUNK_SIZE):
-    DescriptorBase.__init__(self)
+  def __init__(self, path, chunk_size=DEFAULT_CHUNK_SIZE):
+    DescriptorBase.__init__(self, path)
     self.logger = logger
     self.chunk_size = chunk_size
     self._name = TREATED_DESC_FILENAME

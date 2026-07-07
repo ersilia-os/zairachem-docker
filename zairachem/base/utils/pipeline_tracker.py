@@ -68,13 +68,16 @@ class PipelineTracker:
     self.meta = {}
     self._t0 = {}
     self._current = None
+    self._output_dir = None
 
-  def begin(self, title, subtitle="", steps=None):
-    """Print the run header and arm the tracker."""
+  def begin(self, title, subtitle="", steps=None, output_dir=None):
+    """Print the run header and arm the tracker. ``output_dir`` is the run folder, used to tell
+    fit from predict for the per-step descriptions (read from its own session.json)."""
     self.meta = {k: (lbl, desc) for k, lbl, desc in PIPELINE_STEPS}
     self.order = list(steps) if steps else [k for k, _, _ in PIPELINE_STEPS]
     self._t0 = {}
     self._current = None
+    self._output_dir = output_dir
     self._active = True
     body = f"[dim]{subtitle}[/]" if subtitle else "[dim]starting…[/]"
     console.print(
@@ -102,7 +105,7 @@ class PipelineTracker:
     set_active_color(color)
     self._t0[key] = time.time()
     label, desc = self.meta.get(key, (key.title(), ""))
-    if _is_predict() and key in _PREDICT_STEP_DESC:
+    if self._output_dir and _is_predict(self._output_dir) and key in _PREDICT_STEP_DESC:
       desc = _PREDICT_STEP_DESC[key]  # predict applies a trained model — not "train/cross-validate"
     idx = self.order.index(key) + 1
     console.print()

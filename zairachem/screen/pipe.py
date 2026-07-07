@@ -37,7 +37,7 @@ SCREEN_REPEATS = 3
 class ScreenPipeline(ZairaBase):
   def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
-    self.path = path or self.get_output_dir()
+    self.path = path
     self.params = self._load_params()
 
   def _candidates(self):

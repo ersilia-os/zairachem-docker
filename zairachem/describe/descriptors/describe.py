@@ -32,10 +32,7 @@ install_file = base_file_path / "install_compose.sh"
 class Describer(ZairaBase):
   def __init__(self, path, batch_size=None, workers=None):
     ZairaBase.__init__(self)
-    if path is None:
-      self.path = self.get_output_dir()
-    else:
-      self.path = path
+    self.path = path
     self.output_dir = os.path.abspath(self.path)
     if not os.path.exists(self.output_dir):
       os.makedirs(self.output_dir, exist_ok=True)
@@ -86,7 +83,7 @@ class Describer(ZairaBase):
   def _raw_descriptions(self):
     step = PipelineStep("raw_descriptions", self.output_dir)
     if not step.is_done():
-      RawDescriptors(batch_size=self.batch_size, workers=self.workers).run()
+      RawDescriptors(path=self.path, batch_size=self.batch_size, workers=self.workers).run()
       step.update()
     else:
       self.logger.info("Descriptors already done — skipping.")

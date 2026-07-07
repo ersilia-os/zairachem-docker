@@ -4,9 +4,9 @@ from zairachem.base.vars import DESCRIPTORS_SUBFOLDER
 
 
 class DescriptorBase(ZairaBase):
-  def __init__(self):
+  def __init__(self, path):
     ZairaBase.__init__(self)
-    self.path = self.get_output_dir()
+    self.path = path
     self.trained_path = self.get_trained_dir()
     self._is_predict = self.is_predict()
     self._is_train = self.is_train()

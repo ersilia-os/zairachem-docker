@@ -56,14 +56,16 @@ rc.COMMAND_GROUPS = {
 
 
 def process_group(
+  output_dir,
   anonymize,
   batch_size=None,
   keep_intermediate_data=False,
   no_report=False,
   describe_workers=None,
 ):
-  # Each pipeline class is imported right before its step runs, so heavy dependencies load only
-  # when that step executes (matplotlib for reporting, lazyqsar/xgboost/onnx for estimation) —
+  # ``output_dir`` is the run folder; it is passed explicitly to every step (no global session
+  # lookup). Each pipeline class is imported right before its step runs, so heavy dependencies load
+  # only when that step executes (matplotlib for reporting, lazyqsar/xgboost/onnx for estimation) —
   # not all at once at the start. Several of these imports call loguru's logger.remove(), so
   # logger.configure() is re-asserted after each one to keep zairachem's log sinks alive.
   # The shared `tracker` (begun in fit/predict) shows which step is running; start()/complete()
@@ -74,8 +76,8 @@ def process_group(
 
   logger.configure()
   tracker.start("describe")
-  Describer(path=None, batch_size=batch_size, workers=describe_workers).run()
-  tracker.complete("describe", SUMMARIES["describe"]())
+  Describer(path=output_dir, batch_size=batch_size, workers=describe_workers).run()
+  tracker.complete("describe", SUMMARIES["describe"](output_dir))
 
   # Projections are an independent 2-D embedding shown as-is in the report (NOT a transformation of
   # the descriptors) — their own step, run while the model containers from Describe are still up.
@@ -84,17 +86,17 @@ def process_group(
 
   logger.configure()
   tracker.start("projections")
-  Manifolds(batch_size=batch_size).run()
+  Manifolds(path=output_dir, batch_size=batch_size).run()
   # Rendered here so it reflects BOTH featurizers (describe) and projectors (this step).
-  report_data_provenance()
-  tracker.complete("projections", SUMMARIES["projections"]())
+  report_data_provenance(output_dir)
+  tracker.complete("projections", SUMMARIES["projections"](output_dir))
 
   from zairachem.treat.imputers.impute import Imputer
 
   logger.configure()
   tracker.start("treat")
-  Imputer(path=None, batch_size=batch_size).run()
-  tracker.complete("treat", SUMMARIES["treat"]())
+  Imputer(path=output_dir, batch_size=batch_size).run()
+  tracker.complete("treat", SUMMARIES["treat"](output_dir))
 
   # Descriptor pre-screening (--max-descriptors). Self-gates on params["max_descriptors"]; a no-op
   # otherwise. Runs after treat (needs the treated matrices) and before estimate so only the selected
@@ -103,8 +105,8 @@ def process_group(
 
   logger.configure()
   tracker.start("screen")
-  ScreenPipeline(path=None, batch_size=batch_size).run()
-  tracker.complete("screen", SUMMARIES["screen"]())
+  ScreenPipeline(path=output_dir, batch_size=batch_size).run()
+  tracker.complete("screen", SUMMARIES["screen"](output_dir))
 
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
   import time
@@ -112,19 +114,19 @@ def process_group(
   logger.configure()
   tracker.start("estimate")
   _estimate_t0 = time.time()
-  EstimatorPipeline(path=None, batch_size=batch_size).run()
+  EstimatorPipeline(path=output_dir, batch_size=batch_size).run()
   # Wall-clock of training the full descriptor stack — the per-fold predictor for held-out validation
   # (each fold refits the same stack). ~0 on a resume where estimate was already done; the monitor
   # ignores tiny values.
   estimate_seconds = time.time() - _estimate_t0
-  tracker.complete("estimate", SUMMARIES["estimate"]())
+  tracker.complete("estimate", SUMMARIES["estimate"](output_dir))
 
   from zairachem.pool.pipe import PoolerPipeline
 
   logger.configure()
   tracker.start("pool")
-  PoolerPipeline(path=None, batch_size=batch_size).run()
-  tracker.complete("pool", SUMMARIES["pool"]())
+  PoolerPipeline(path=output_dir, batch_size=batch_size).run()
+  tracker.complete("pool", SUMMARIES["pool"](output_dir))
 
   # Held-out validation (--evaluate). Self-gates on params["evaluate"] read from parameters.json, so
   # this is a no-op for a plain fit and for predict. Runs before the report so its section is rendered.
@@ -132,28 +134,30 @@ def process_group(
 
   logger.configure()
   tracker.start("holdout")
-  HoldoutValidationPipeline(path=None, batch_size=batch_size, est_seconds=estimate_seconds).run()
-  tracker.complete("holdout", SUMMARIES["holdout"]())
+  HoldoutValidationPipeline(
+    path=output_dir, batch_size=batch_size, est_seconds=estimate_seconds
+  ).run()
+  tracker.complete("holdout", SUMMARIES["holdout"](output_dir))
 
   from zairachem.report.report import Reporter
 
   logger.configure()
   tracker.start("report")
-  Reporter(path=None, plot_name=None, make_plots=not no_report).run()
-  tracker.complete("report", SUMMARIES["report"]())
+  Reporter(path=output_dir, plot_name=None, make_plots=not no_report).run()
+  tracker.complete("report", SUMMARIES["report"](output_dir))
 
   from zairachem.finish.finish import Finisher
 
   logger.configure()
   tracker.start("finish")
   Finisher(
-    path=None,
+    path=output_dir,
     anonymize=anonymize,
     keep_intermediate_data=keep_intermediate_data,
   ).run()
-  tracker.complete("finish", SUMMARIES["finish"]())
+  tracker.complete("finish", SUMMARIES["finish"](output_dir))
 
-  final_summary_panel()
+  final_summary_panel(output_dir)
 
 
 # `--store` is an optional-value option: omitted -> None (no store); `--store` alone -> this
@@ -575,6 +579,7 @@ def fit(
   )
   if proceed:
     process_group(
+      os.path.abspath(model_dir),
       anonymize,
       batch_size=batch_size,
       keep_intermediate_data=keep_intermediate_data,
@@ -584,7 +589,7 @@ def fit(
   else:
     from zairachem.base.utils.progress import final_summary_panel
 
-    final_summary_panel()
+    final_summary_panel(os.path.abspath(model_dir))
 
 
 @cli.command(name="predict", help="Predict activities for new molecules with a trained model.")
@@ -669,6 +674,7 @@ def predict(
   )
   if proceed:
     process_group(
+      os.path.abspath(output_dir),
       anonymize,
       batch_size=batch_size,
       keep_intermediate_data=keep_intermediate_data,
@@ -678,7 +684,7 @@ def predict(
   else:
     from zairachem.base.utils.progress import final_summary_panel
 
-    final_summary_panel()
+    final_summary_panel(os.path.abspath(output_dir))
 
 
 @cli.command(name="setup", help="Standardize and prepare the input molecules.")
@@ -715,34 +721,28 @@ def setup_cmd(
 
 
 _MODEL_DIR_HELP = (
-  "Model directory to run this step against. Defaults to the most recent run. Re-running a step "
-  "re-executes it (e.g. re-render the report after editing a plot) without redoing the rest."
+  "Model directory to run this step against. Re-running a step re-executes it (e.g. re-render the "
+  "report after editing a plot) without redoing the rest."
 )
 
 
 def _activate_step(model_dir, *step_names):
-  """Point a single-step command at a model and force that step to re-run.
+  """Force the named step(s) to re-run against a model directory; return its absolute path.
 
-  An explicit ``-m/--model-dir`` becomes the active session (so the step operates on that model);
-  without it, the most recent run's model is used. The step's marker(s) are then unmarked so its own
-  ``is_done`` guard re-executes it — enabling fast iteration on one step against an existing model.
-  Returns the resolved absolute model directory.
+  Each step's done-marker is unmarked so the step's own ``is_done`` guard re-executes it — enabling
+  fast iteration on one step against an existing model. The resolved path is passed straight to the
+  step (there is no global "active run" to resolve against).
   """
-  from zairachem.base import ZairaBase, create_session_symlink
   from zairachem.setup.prep import PipelineStep
 
-  if model_dir is not None:
-    output_dir = os.path.abspath(model_dir)
-    create_session_symlink(output_dir)
-  else:
-    output_dir = ZairaBase().get_output_dir()
+  output_dir = os.path.abspath(model_dir)
   for name in step_names:
     PipelineStep(name, output_dir).unmark()
   return output_dir
 
 
 @cli.command(name="describe", help="Compute molecular descriptors for each featurizer.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option("--model-dir", "-m", required=True, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -757,9 +757,9 @@ def describe_cmd(model_dir, batch_size, describe_workers):
 
   logger.configure()
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")
-  _activate_step(model_dir, "raw_descriptions")
-  Describer(path=None, batch_size=batch_size, workers=describe_workers).run()
-  report_data_provenance()
+  output_dir = _activate_step(model_dir, "raw_descriptions")
+  Describer(path=output_dir, batch_size=batch_size, workers=describe_workers).run()
+  report_data_provenance(output_dir)
 
 
 # Projections (the report's 2-D embedding) run as part of the fit pipeline (process_group, between
@@ -767,7 +767,7 @@ def describe_cmd(model_dir, batch_size, describe_workers):
 
 
 @cli.command(name="treat", help="Impute and scale the descriptor matrix.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option("--model-dir", "-m", required=True, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -780,12 +780,12 @@ def treat_cmd(model_dir, batch_size):
 
   logger.configure()
   logger.debug("[#ff69b4]Running the treatment pipeline[/]")
-  _activate_step(model_dir, "treated_descriptions")
-  Imputer(path=None, batch_size=batch_size).run()
+  output_dir = _activate_step(model_dir, "treated_descriptions")
+  Imputer(path=output_dir, batch_size=batch_size).run()
 
 
 @cli.command(name="estimate", help="Train the per-descriptor base estimators.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option("--model-dir", "-m", required=True, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -800,12 +800,12 @@ def estimate_cmd(model_dir, batch_size):
   logger.configure()
 
   logger.debug("[#ff69b4]Running the estimator pipeline[/]")
-  _activate_step(model_dir, "lazy-qsar", "simple_evaluation")
-  EstimatorPipeline(path=None, batch_size=batch_size).run()
+  output_dir = _activate_step(model_dir, "lazy-qsar", "simple_evaluation")
+  EstimatorPipeline(path=output_dir, batch_size=batch_size).run()
 
 
 @cli.command(name="pool", help="Combine the per-descriptor estimators into a consensus.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option("--model-dir", "-m", required=True, help=_MODEL_DIR_HELP)
 @click.option(
   "--batch-size",
   "-b",
@@ -818,12 +818,12 @@ def pool_cmd(model_dir, batch_size):
 
   logger.configure()
   logger.debug("[#ff69b4]Running the pooling pipeline[/]")
-  _activate_step(model_dir, "pool")
-  PoolerPipeline(path=None, batch_size=batch_size).run()
+  output_dir = _activate_step(model_dir, "pool")
+  PoolerPipeline(path=output_dir, batch_size=batch_size).run()
 
 
 @cli.command(name="report", help="Render the plots, tables and HTML report.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option("--model-dir", "-m", required=True, help=_MODEL_DIR_HELP)
 @click.option(
   "--plot-name", default=None, help="Render only the named plot instead of the full report."
 )
@@ -839,12 +839,12 @@ def report_cmd(model_dir, plot_name, no_report):
 
   logger.configure()
   logger.debug("[#ff69b4]Running the reporting pipeline[/]")
-  _activate_step(model_dir, "report")
-  Reporter(path=None, plot_name=plot_name, make_plots=not no_report).run()
+  output_dir = _activate_step(model_dir, "report")
+  Reporter(path=output_dir, plot_name=plot_name, make_plots=not no_report).run()
 
 
 @cli.command(name="finish", help="Assemble final outputs and clean up intermediate data.")
-@click.option("--model-dir", "-m", default=None, help=_MODEL_DIR_HELP)
+@click.option("--model-dir", "-m", required=True, help=_MODEL_DIR_HELP)
 @click.option(
   "--anonymize",
   is_flag=True,
@@ -862,9 +862,9 @@ def finish_cmd(model_dir, anonymize, keep_intermediate_data):
 
   logger.configure()
   logger.debug("[#ff69b4]Running the finishing pipeline[/]")
-  _activate_step(model_dir, "finish")
+  output_dir = _activate_step(model_dir, "finish")
   Finisher(
-    path=None,
+    path=output_dir,
     anonymize=anonymize,
     keep_intermediate_data=keep_intermediate_data,
   ).run()
