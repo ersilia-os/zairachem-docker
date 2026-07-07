@@ -2,7 +2,7 @@ import contextlib, h5py, os, re, subprocess
 import numpy as np
 from pathlib import Path
 from typing import Optional
-from zairachem.base.vars import ORG, BASE_DIR
+from zairachem.base.vars import BASE_DIR
 from zairachem.base.utils.terminal import run_command
 from zairachem.base.utils.logging import logger
 
@@ -44,10 +44,6 @@ def load_yml(file):
 def _service_name(model_id: str) -> str:
   s = re.sub(r"[^a-zA-Z0-9]+", "_", model_id.lower()).strip("_") or "svc"
   return f"{s}_api"
-
-
-def get_model_docker_repo(model_ids):
-  return [f"{ORG}/{model}" for model in model_ids]
 
 
 def write_service_file(model_ids):

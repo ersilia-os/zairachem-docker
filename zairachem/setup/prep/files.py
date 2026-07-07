@@ -75,12 +75,6 @@ class ModelIdsFile(object):
     self.data = {"featurizer_ids": self.parse_ids(self.value, flag="--featurizer-ids")}
     return self.data
 
-  def get_featurizer_ids(self):
-    return self.load()["featurizer_ids"]
-
-  def get_projection_ids(self):
-    return self.load()["projection_ids"]
-
 
 class ParametersFile(object):
   def __init__(self, path):

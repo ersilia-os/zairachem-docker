@@ -139,11 +139,10 @@ class TreatedDescriptors(DescriptorBase):
     data.save_info(output_path.replace(".h5", ".json"))
 
   def _treat_chunked(
-    self, raw_h5, raw_features, expected_cols, transformer, output_path, substep=None
+    self, raw_h5, n_rows, raw_features, expected_cols, transformer, output_path, substep=None
   ):
     store = ChunkedH5Store(output_path)
     store.create(len(expected_cols), expected_cols)
-    n_rows = raw_h5.n_rows()
     n_chunks = max(1, -(-n_rows // self.chunk_size))  # ceil division
     for k, (start, end, values, inputs) in enumerate(raw_h5.iter_all(self.chunk_size), start=1):
       if substep:
@@ -163,12 +162,8 @@ class TreatedDescriptors(DescriptorBase):
     with open(output_path.replace(".h5", ".json"), "w") as f:
       json.dump(info, f, indent=4)
 
-  def _should_use_chunked(self, raw_h5):
-    try:
-      return raw_h5.n_rows() > self.chunk_size * 2
-    except Exception as e:
-      self.logger.warning(f"[treat] Could not determine row count: {e}")
-      return False
+  def _should_use_chunked(self, n_rows):
+    return n_rows > self.chunk_size * 2
 
   def _prefetch_transformers(self, eos_ids):
     """Resolve + load every featurizer's transformer up front, downloads in parallel.
@@ -213,13 +208,18 @@ class TreatedDescriptors(DescriptorBase):
     # transform() requires the feature columns to match in set AND order; reorder to the
     # transformer's column order (set equality already verified above).
     expected_cols = list(transformer["columns"].keys())
+    try:
+      n_rows = raw_h5.n_rows()  # read once; drives both the chunked decision and the chunk loop
+    except Exception as e:
+      self.logger.warning(f"[treat] Could not determine row count for {eos_id}: {e}")
+      n_rows = 0
     self.logger.info(
       f"[treat] Applying reference transformer to {eos_id} ({type(raw_h5).__name__})"
     )
-    if self._should_use_chunked(raw_h5):
+    if self._should_use_chunked(n_rows):
       self.logger.info(f"[treat] Using chunked processing for {eos_id}")
       self._treat_chunked(
-        raw_h5, raw_features, expected_cols, transformer, output_h5_path, substep=substep
+        raw_h5, n_rows, raw_features, expected_cols, transformer, output_h5_path, substep=substep
       )
     else:
       self.logger.info(f"[treat] Using in-memory processing for {eos_id}")

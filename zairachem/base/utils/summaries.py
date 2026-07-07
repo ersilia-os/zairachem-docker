@@ -382,66 +382,6 @@ def _active_inactive(output_dir):
   return None
 
 
-def _provenance(output_dir):
-  """The run's data-provenance dict (per-model n_total/n_from_project/n_computed), or {}."""
-  try:
-    from zairachem.base.utils.isaura_report import _load_provenance
-
-    return _load_provenance(output_dir)
-  except Exception:
-    return {}
-
-
-def _model_width(output_dir, eos):
-  """Descriptor column count for a single featurizer model, or None."""
-  from zairachem.base.vars import DESCRIPTORS_SUBFOLDER
-
-  try:
-    import h5py
-
-    base = os.path.join(output_dir, DESCRIPTORS_SUBFOLDER, eos)
-    h5 = os.path.join(base, "raw.h5")
-    if not os.path.exists(h5):
-      chunk = os.path.join(base, "raw_chunks", "chunk_0000.h5")
-      h5 = chunk if os.path.exists(chunk) else None
-    if not h5:
-      return None
-    with h5py.File(h5, "r") as f:
-      if "Features" in f:
-        return int(f["Features"].shape[0])
-      if "Values" in f:
-        return int(f["Values"].shape[1])
-  except Exception:
-    pass
-  return None
-
-
-def _treat_widths(output_dir, featurizer_ids):
-  """(columns_in, columns_out) summed across featurizers — raw H5 width vs treated info width.
-
-  Returns None if nothing readable. Derived entirely from artifacts (no extra persistence).
-  """
-  from zairachem.base.vars import DESCRIPTORS_SUBFOLDER, TREATED_DESC_FILENAME
-
-  ci = co = 0
-  ok = False
-  for eos in featurizer_ids:
-    rin = _model_width(output_dir, eos)
-    info = os.path.join(
-      output_dir, DESCRIPTORS_SUBFOLDER, eos, TREATED_DESC_FILENAME.replace(".h5", ".json")
-    )
-    try:
-      with open(info) as f:
-        cout = int(json.load(f).get("features"))
-    except Exception:
-      cout = None
-    if rin is not None and cout is not None:
-      ci += rin
-      co += cout
-      ok = True
-  return (ci, co) if ok else None
-
-
 def _plots_by_category(output_dir):
   """Group report PNGs into coarse categories by filename keyword. Returns {category: count}."""
   from zairachem.base.vars import REPORT_SUBFOLDER
@@ -486,17 +426,6 @@ def _dir_size_mb(output_dir):
     return total / (1024 * 1024)
   except Exception:
     return None
-
-
-def _fmt_timing(timing, top=4):
-  """Compact 'phase Xs · phase Ys' string from a cv_report timing dict (largest phases first)."""
-  if not isinstance(timing, dict):
-    return ""
-  scalars = [(k, v) for k, v in timing.items() if isinstance(v, (int, float))]
-  if not scalars:
-    return ""
-  items = sorted(scalars, key=lambda kv: -kv[1])[:top]
-  return " · ".join(f"{k} {v:.1f}s" for k, v in items)
 
 
 def _detail_rows(key, output_dir=None):

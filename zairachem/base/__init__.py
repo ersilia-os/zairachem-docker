@@ -50,11 +50,6 @@ class ZairaBase(object):
       session = json.load(f)
     return session["output_dir"]
 
-  def get_elapsed_time(self):
-    with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
-      session = json.load(f)
-    return session["elapsed_time"]
-
   def reset_time(self):
     with open(os.path.join(BASE_DIR, SESSION_FILE), "r") as f:
       session = json.load(f)

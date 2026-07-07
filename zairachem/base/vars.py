@@ -33,7 +33,6 @@ DEFAULT_ISAURA_BUCKET = "isaura-public"
 NETWORK_NAME = "ersilia_network"
 GITHUB_ORG = "ersilia-os"
 GITHUB_CONTENT_URL = f"https://raw.githubusercontent.com/{GITHUB_ORG}"
-GITHUB_ERSILIA_REPO = "ersilia"
 PREDEFINED_COLUMN_FILE = "model/framework/columns/run_columns.csv"
 COMPOUNDS_FILENAME = "compounds.csv"
 STANDARD_COMPOUNDS_FILENAME = "compounds_std.csv"
@@ -44,13 +43,10 @@ PARAMETERS_FILE = "parameters.json"
 INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
 RAW_DESC_FILENAME = "raw.h5"
-FILTERED_DESC_FILENAME = "filtered.h5"
 TREATED_DESC_FILENAME = "treated.h5"
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 
-DEFAULT_PUBLIC_BUCKET = ["isaura-public"]
-DEFAULT_PRIVATE_BUCKET = ["isaura-private"]
 
 MAPPING_ORIGINAL_COLUMN = "orig_idx"
 MAPPING_DEDUPE_COLUMN = "uniq_idx"
@@ -74,7 +70,6 @@ DATA_FILENAME = "data.csv"
 # Bare one-column ("smiles") list of the run's compounds, for ad-hoc manual use.
 SMILES_LIST_FILENAME = "smiles.csv"
 ERSILIA_DATA_FILENAME = "ersilia_data.csv"
-REFERENCE_FILENAME = "reference.csv"
 PROVENANCE_FILENAME = "provenance.json"
 # Descriptors are featurized once on the full dataset and shared by the final model and every fold.
 # The estimators + pooler of the final production model live under model/; each held-out fold gets a
@@ -112,17 +107,12 @@ Y_HAT_FILE = "y_hat.joblib"
 RESULTS_UNMAPPED_FILENAME = "results_unmapped.csv"
 RESULTS_MAPPED_FILENAME = "results_mapped.csv"
 
-CLF_REPORT_FILENAME = "clf_report.json"
-REG_REPORT_FILENAME = "reg_report.json"
 
 MIN_CLASS = 30
-N_FOLDS = 5
 RANDOM_SEED = 42
 
 _CONFIG_FILENAME = "config.json"
 
-PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
-ZAIRACHEM_DATA_PATH = os.path.join(PACKAGE_ROOT, "data")
 
 # Reference library used to pre-fit the eosframes descriptor transformers. The treat step
 # downloads the transformer fitted on this library for each featurizer and applies it (rather than
@@ -149,5 +139,4 @@ MAX_PROJECTIONS = 3
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 
 DEFAULT_ISAURA_BATCH_SIZE = 10000
-DEFAULT_API_BATCH_SIZE = 1000
 DEFAULT_CHUNK_SIZE = 10000

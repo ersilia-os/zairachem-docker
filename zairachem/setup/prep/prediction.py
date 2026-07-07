@@ -103,12 +103,6 @@ class PredictSetup(BaseSetup):
       ("Model output table", os.path.join(self.model_dir, OUTPUT_FILENAME)),
     ]
 
-  def model_is_ready(self):
-    """True if the model folder contains every artifact prediction needs."""
-    if not os.path.isdir(self.model_dir):
-      return False
-    return all(os.path.exists(p) for _, p in self._required_artifacts())
-
   def _check_model_ready(self):
     """Validate the model folder up front; show a formatted message and stop if it's incomplete."""
     if not os.path.isdir(self.model_dir):
@@ -362,30 +356,4 @@ class PredictSetup(BaseSetup):
         self.contribute_store = None
         self._update_params()
     # store == isaura-public: read/write the shared lake directly — no self-migration needed.
-    self.update_elapsed_time()
-
-
-class ONNXPredictSetup(PredictSetup):
-  def __init__(self, input_file, output_dir, model_dir, time_budget):
-    super().__init__(input_file, output_dir, model_dir, time_budget)
-
-  def _make_subfolders(self):
-    self._make_subfolder(DATA_SUBFOLDER)
-    self._make_subfolder(REPORT_SUBFOLDER)
-
-  def _normalize_input(self):
-    step = PipelineStep("normalize_input", self.output_dir)
-    if not step.is_done():
-      f = SingleFileForPrediction(self.input_file, None)
-      f.process()
-      step.update()
-
-  def setup(self):
-    self._initialize()
-    self._normalize_input()
-    self._standardize()
-    if self.has_tasks:
-      self._tasks()
-    self._merge()
-    self._clean()
     self.update_elapsed_time()

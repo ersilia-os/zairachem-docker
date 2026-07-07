@@ -471,10 +471,7 @@ class IndividualEstimator(ZairaBase):
       )
 
   def run(self):
-    if not self.is_predict():
-      results = self.estimator.run()
-    else:
-      results = self.estimator.run()
+    results = self.estimator.run()
     joblib.dump(
       results,
       os.path.join(

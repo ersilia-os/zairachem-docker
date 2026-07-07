@@ -77,20 +77,6 @@ class ChemblStandardize(object):
   def get_input_file(self):
     return os.path.join(self.outdir, COMPOUNDS_FILENAME)
 
-  def _run_sequential(self, df):
-    R = []
-    n_total = len(df)
-    with SetupProgress() as progress:
-      task = progress.add_task("Standardizing molecules", total=n_total)
-      for idx, r in enumerate(df.values):
-        identifier = r[0]
-        smi = r[1]
-        st_smi = _standardize_single(smi)
-        if st_smi is not None:
-          R.append([identifier, smi, st_smi])
-        progress.update(task, advance=1)
-    return R
-
   def _run_parallel(self, df):
     n_total = len(df)
     data = [(r[0], r[1]) for r in df.values]

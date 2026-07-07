@@ -158,104 +158,6 @@ class RocCurvePlot(BasePlot):
       self.is_available = False
 
 
-class ScoreViolinPlot(BasePlot):
-  """Violin plot of the classifier score distribution split by true class (classification only)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
-    self.name = "score-violin"
-    self.is_available = False
-    if not self.has_clf_data():
-      return
-    bt, yp = ResultsFetcher(path=path).clf_truth_proba()
-    # Same style as the OOF score lenses: white inner box + median line, no whiskers.
-    if not _draw_score_violins(self.ax, yp, bt, "Classifier score (probability)"):
-      return
-    self.ax.set_title("Score distribution")
-    self.is_available = True
-
-
-class ScoreStripPlot(BasePlot):
-  """Per-compound classifier scores as a jittered strip with quartile boxes, by true class."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(3, 2))
-    self.MAX_SAMPLES = 1000
-    if self.has_clf_data():
-      self.is_available = True
-      self.name = "score-strip"
-      ax = self.ax
-      bt, yp = ResultsFetcher(path=path).clf_truth_proba()
-      data = pd.DataFrame({"yp": yp, "bt": bt})
-      data_a = data[data["bt"] == 1]
-      data_i = data[data["bt"] == 0]
-      if data_a.shape[0] > self.MAX_SAMPLES:
-        data_a = data_a.sample(n=self.MAX_SAMPLES)
-      if data_i.shape[0] > self.MAX_SAMPLES:
-        data_i = data_i.sample(n=self.MAX_SAMPLES)
-      y_i = data_i["yp"]
-      y_a = data_a["yp"]
-      n_i = np.random.uniform(-0.3, 0.3, len(y_i))
-      n_a = np.random.uniform(-0.3, 0.3, len(y_a))
-      ax.scatter(n_a + 1, y_a, color=named_colors.red, zorder=1, alpha=0.5, s=20)
-      ax.scatter(n_i, y_i, color=named_colors.blue, zorder=1, alpha=0.5, s=20)
-      p05 = np.percentile(data_a["yp"], 5)
-      p25 = np.percentile(data_a["yp"], 25)
-      p50 = np.percentile(data_a["yp"], 50)
-      p75 = np.percentile(data_a["yp"], 75)
-      p95 = np.percentile(data_a["yp"], 95)
-      r = Rectangle(
-        (0.85, p25),
-        0.3,
-        p75 - p25,
-        color=named_colors.red,
-        alpha=0.5,
-        zorder=20000,
-        lw=0,
-        edgecolor=named_colors.red,
-      )
-      ax.plot([1, 1], [p75, p95], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([1, 1], [p05, p25], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([0.85, 1.15], [p25, p25], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([0.85, 1.15], [p50, p50], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([0.85, 1.15], [p75, p75], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([0.85, 0.85], [p25, p75], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([1.15, 1.15], [p25, p75], lw=1, color=named_colors.black, zorder=20000)
-      ax.add_patch(r)
-      p05 = np.percentile(data_i["yp"], 5)
-      p25 = np.percentile(data_i["yp"], 25)
-      p50 = np.percentile(data_i["yp"], 50)
-      p75 = np.percentile(data_i["yp"], 75)
-      p95 = np.percentile(data_i["yp"], 95)
-      r = Rectangle(
-        (-0.15, p25),
-        0.3,
-        p75 - p25,
-        color=named_colors.blue,
-        alpha=0.5,
-        zorder=20000,
-        lw=0,
-        edgecolor=named_colors.blue,
-      )
-      ax.plot([0, 0], [p75, p95], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([0, 0], [p05, p25], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([-0.15, 0.15], [p25, p25], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([-0.15, 0.15], [p50, p50], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([-0.15, 0.15], [p75, p75], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([-0.15, -0.15], [p25, p75], lw=1, color=named_colors.black, zorder=20000)
-      ax.plot([0.15, 0.15], [p25, p75], lw=1, color=named_colors.black, zorder=20000)
-      ax.add_patch(r)
-      ax.set_xticks([0, 1])
-      ax.set_xticklabels(["Inactive", "Active"])
-      ax.set_title("Score distribution")
-      ax.set_xlabel("")
-      ax.set_ylabel("Classifier score (probability)")
-      ax.set_xlim(-0.5, 1.5)
-
-    else:
-      self.is_available = False
-
-
 def _percentile_rank(p):
   """Empirical percentile rank in [0, 1] of each value (ties broken by first occurrence)."""
   p = np.asarray(p, dtype=float)
@@ -468,7 +370,7 @@ class IndividualEstimatorsR2Plot(BasePlot):
       self.fetcher = ResultsFetcher(path=path)
       tasks = self.fetcher.get_reg_tasks()
       task = tasks[0]
-      yt = ResultsFetcher(path=path).get_transformed()
+      yt = self.fetcher.get_transformed()
       df_ys = self.fetcher._read_individual_estimator_results(task)
       scores = []
       labels = []
@@ -975,24 +877,6 @@ class RegressionPlotTransf(BasePlot):
       self.is_available = False
 
 
-class HistogramPlotTransf(BasePlot):
-  """Histogram of the predicted (transformed) activity (regression only)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    if self.has_reg_data():
-      self.is_available = True
-      self.name = "histogram-trans"
-      ax = self.ax
-      yp = ResultsFetcher(path=path).get_pred_reg_trans()
-      ax.hist(yp, color=named_colors.green)
-      ax.set_xlabel("Predicted Activity")
-      ax.set_ylabel("Frequency")
-      ax.set_title("Predicted activity distribution")
-    else:
-      self.is_available = False
-
-
 class RegressionPlotRaw(BasePlot):
   """Predicted vs. observed scatter on the raw activity, with R²/MAE (regression only)."""
 
@@ -1012,24 +896,6 @@ class RegressionPlotRaw(BasePlot):
           round(r2_score(yt, yp), 3), round(mean_absolute_error(yt, yp), 3)
         )
       )
-    else:
-      self.is_available = False
-
-
-class HistogramPlotRaw(BasePlot):
-  """Histogram of the predicted (raw) activity (regression only)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    if self.has_reg_data():
-      self.is_available = True
-      self.name = "histogram-raw"
-      ax = self.ax
-      yp = ResultsFetcher(path=path).get_pred_reg_raw()
-      ax.hist(yp, color=named_colors.green)
-      ax.set_xlabel("Predicted Activity")
-      ax.set_ylabel("Frequency")
-      ax.set_title("Predicted activity distribution")
     else:
       self.is_available = False
 
@@ -1412,40 +1278,6 @@ class EnrichmentCurvePlot(BasePlot):
     ax.set_ylabel("Fraction of actives found")
     ax.set_title("Cumulative gain")
     ax.legend(loc="lower right", fontsize=6)
-    self.is_available = True
-
-
-class EnrichmentFactorPlot(BasePlot):
-  """Enrichment factor at 1% / 5% / 10% of the ranked library (hit-rate-in-top / prevalence)."""
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.name = "enrichment-factor"
-    self.is_available = False
-    if not self.has_clf_data():
-      return
-    yt, yp = _clf_truth_proba(path)
-    if yt is None or yt.sum() < 1:
-      return
-    ax = self.ax
-    n = len(yt)
-    prevalence = float(yt.mean())
-    yt_sorted = yt[np.argsort(-yp)]
-    fracs = [0.01, 0.05, 0.10]
-    efs = []
-    for fr in fracs:
-      k = max(1, int(round(fr * n)))
-      hit_rate = float(yt_sorted[:k].mean())
-      efs.append(hit_rate / prevalence if prevalence > 0 else 0.0)
-    labels = ["1%", "5%", "10%"]
-    colors = category_palette.get(len(labels))
-    ax.bar(labels, efs, color=colors, alpha=0.85)
-    ax.axhline(1.0, color=named_colors.gray, lw=1, ls="--")
-    for i, ef in enumerate(efs):
-      ax.text(i, ef, f"{ef:.1f}×", va="bottom", ha="center", fontsize=7)
-    ax.set_xlabel("Top fraction screened")
-    ax.set_ylabel("Enrichment factor")
-    ax.set_title("Early enrichment")
     self.is_available = True
 
 
