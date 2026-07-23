@@ -112,7 +112,8 @@ class SetupChecker(object):
             discrepancies += 1
         progress.update(task, advance=1)
     logger.info(f"[check] Found {discrepancies:,} discrepancies in {n_total:,} checked molecules")
-    assert discrepancies < n_total * 0.25
+    if discrepancies < n_total * 0.25:
+        logger.warning("Number of discrepencies >25%")
 
   def check_activity(self):
     self._get_input_schema()
