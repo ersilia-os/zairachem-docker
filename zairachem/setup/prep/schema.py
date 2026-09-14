@@ -49,7 +49,7 @@ class InputSchema(ZairaBase):
       else:
         continue
     if len(cols) > 1:
-      raise Exception("More than one column contains smiles as header")
+      logger.warning(f"More than one column contains smiles as header. Proceeding with first col: {cols[0]}")
     return [cols[0]]
 
   def _is_values_column(self, col):
