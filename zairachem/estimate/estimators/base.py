@@ -17,6 +17,7 @@ from zairachem.base.vars import (
   DATA_FILENAME,
   ESTIMATORS_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
+  RANK_REFERENCE_TREATED_FILENAME,
   RAW_DESC_FILENAME,
   TREATED_DESC_FILENAME,
 )
@@ -59,6 +60,18 @@ class BaseEstimatorIndividual(BaseEstimator):
         return h5
     self.logger.warning(f"[estimator] No H5 data found for {self.model_id} at {base}")
     return None
+
+  def _rank_reference_h5(self):
+    """The treated rank-reference H5 for this descriptor, or None when there is none.
+
+    Only paired with ``treated.h5``: the reference is scaled by the treat step, so it is on the
+    model's scale only when the model trains on the treated matrix too.
+    """
+    base = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, self.model_id)
+    path = os.path.join(base, RANK_REFERENCE_TREATED_FILENAME)
+    if open_h5(os.path.join(base, TREATED_DESC_FILENAME)) is None or not os.path.exists(path):
+      return None
+    return path
 
   def _get_X_shape(self) -> Optional[Tuple[int, int]]:
     h5 = self._open_h5()

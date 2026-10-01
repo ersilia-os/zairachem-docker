@@ -5,15 +5,15 @@ description = "ZairaChem is an automated ML tool for building QSAR models"
 authors = ["Ersilia Open Source Initiative <hello@ersilia.io>", "Gemma Turon <gemma@ersilia.io>", "Abel Legese <abel@ersilia.io>", "Miquel Duran-Frigola <miquel@ersilia.io>"]
 
 [tool.poetry.dependencies]
-python        = ">=3.10,<4.0"
+python        = ">=3.11,<3.14"
 pandas        = "2.3.0"
 loguru        = "0.7.3"
 h5py          = "3.14.0"
 joblib        = "1.5.1"
 numpy         = "2.1.3"
 rdkit         = "2024.3.6"
-scikit-learn  = "1.6.1"
-lazyqsar      = { version = "3.4.2", extras = ["fit"] }
+scikit-learn  = "1.9.1"
+lazyqsar      = { version = "3.6.0", extras = ["fit"] }
 stylia        = "1.0.1"
 matplotlib    = "3.10.0"
 seaborn       = "0.13.2"
