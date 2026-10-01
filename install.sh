@@ -304,9 +304,9 @@ conda_env_exists() { "$CONDA_BIN" env list | awk '{print $1}' | grep -qx "$1"; }
 
 find_system_python() {
   local c
-  for c in python3.12 python3.11 python3.10 python3 python; do
+  for c in python3.13 python3.12 python3.11 python3 python; do
     if command -v "$c" >/dev/null 2>&1 &&
-       "$c" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 10) else 1)' 2>/dev/null; then
+       "$c" -c 'import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 14) else 1)' 2>/dev/null; then
       command -v "$c"; return 0
     fi
   done
@@ -343,8 +343,8 @@ setup_environment() {
   else
     local pybin
     if ! pybin="$(find_system_python)"; then
-      err "No suitable system Python (>= 3.10) found for a venv."
-      err "Install Python >= 3.10, or install conda/mamba and re-run."
+      err "No suitable system Python (3.11-3.13) found for a venv."
+      err "Install Python 3.11-3.13, or install conda/mamba and re-run."
       exit 1
     fi
     info "Using system Python: ${pybin}"

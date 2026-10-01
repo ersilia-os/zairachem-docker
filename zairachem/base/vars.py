@@ -44,6 +44,13 @@ INPUT_SCHEMA_FILENAME = "input_schema.json"
 RAW_INPUT_FILENAME = "raw_input"
 RAW_DESC_FILENAME = "raw.h5"
 TREATED_DESC_FILENAME = "treated.h5"
+# lazy-qsar's rank reference: a fixed library of drug-like molecules that `rank` is a position
+# against. Describe featurizes it next to the run's own compounds (RAW), treat scales it with the same
+# transformer (TREATED, written as one plain H5 because lazy-qsar's reference_h5_file reads a single
+# file), and estimate hands it to fit. Fit-only: a trained model carries the scored reference itself.
+RANK_REFERENCE_SMILES_FILENAME = "rank_reference.csv"
+RANK_REFERENCE_RAW_FILENAME = "rank_reference_raw.h5"
+RANK_REFERENCE_TREATED_FILENAME = "rank_reference.h5"
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 

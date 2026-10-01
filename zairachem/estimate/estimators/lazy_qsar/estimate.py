@@ -24,6 +24,18 @@ from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
 
 
+def _rank_or_warn(ranks, model_id, stage):
+  """``ranks`` when any is finite, else None after one warning.
+
+  lazy-qsar raises on ``predict_rank`` for a model fitted without a rank reference. The per-chunk
+  calls swallow that so proba still flows, which leaves this as the one place it is reported.
+  """
+  if np.isfinite(ranks).any():
+    return ranks
+  logger.warning(f"[lazyqsar:{stage}] {model_id}: rank unavailable; the pooler runs without it")
+  return None
+
+
 class Fitter(BaseEstimatorIndividual):
   def __init__(self, path, model_id, is_simple, batch_size=None, substep_cb=None):
     BaseEstimatorIndividual.__init__(
@@ -77,8 +89,13 @@ class Fitter(BaseEstimatorIndividual):
       logger.info(
         f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
       )
+      reference_h5 = self._rank_reference_h5()
+      if reference_h5 is None:
+        logger.warning(
+          f"[lazyqsar:fit] {self.model_id}: no rank reference found; `rank` will be unavailable"
+        )
       model = LazyClassifier()
-      model.fit(X=X_train, y=y_train)
+      model.fit(X=X_train, y=y_train, reference_h5_file=reference_h5)
       # Capture lazy-qsar's internal cross-validation outputs (OOF AUROC etc.) before X_train is
       # freed — they are computed during fit and would otherwise be discarded.
       descriptor_dir = os.path.join(self.trained_path, self.model_id)
@@ -91,10 +108,11 @@ class Fitter(BaseEstimatorIndividual):
       ad_model, ad_cutoff = self._fit_ad(X_train, descriptor_dir)
       # Per-row signals scattered back to original row order. ``preds`` is the calibrated
       # probability (OOF for training rows where available — honest, not resubstitution); ``ranks``
-      # is the training-OOF rank quantile; ``ads`` is the applicability-domain score. The training
-      # set is currently the whole dataset (get_train_indices returns all rows), so X_train holds
-      # every row and we predict straight from it in batches; if a real train/test split is ever
-      # introduced (train_order no longer covers all rows) we fall back to a chunked re-read.
+      # is lazy-qsar's position against its rank reference library (0.50 = top 10%, 0.65 = top 1%);
+      # ``ads`` is the applicability-domain score. The training set is currently the whole dataset
+      # (get_train_indices returns all rows), so X_train holds every row and we predict straight
+      # from it in batches; if a real train/test split is ever introduced (train_order no longer
+      # covers all rows) we fall back to a chunked re-read.
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
       preds_raw = np.full(n_samples, np.nan, dtype=np.float32)  # uncalibrated OOF (report raw lens)
@@ -152,7 +170,7 @@ class Fitter(BaseEstimatorIndividual):
       tr = train_order_arr
       curve = self._build_rank_error_curve(ranks[tr], preds[tr], y[tr])
       self._write_pool_signals(model, curve, ad_cutoff, y, descriptor_dir)
-      rank_arg = ranks if np.isfinite(ranks).any() else None
+      rank_arg = _rank_or_warn(ranks, self.model_id, "fit")
       ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
       raw_arg = preds_raw if np.isfinite(preds_raw).any() else None
       tasks[t] = make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg, y_raw=raw_arg)
@@ -428,7 +446,7 @@ class Predictor(BaseEstimatorIndividual):
         logger.debug(f"[lazyqsar:predict] Processed {start}-{end}/{n_samples}")
         del chunk
         gc.collect()
-      rank_arg = ranks if np.isfinite(ranks).any() else None
+      rank_arg = _rank_or_warn(ranks, self.model_id, "predict")
       ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
       tasks[t] = make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg)
     self.update_elapsed_time()

@@ -1,4 +1,5 @@
 import gc, json, os
+import h5py
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
@@ -28,6 +29,8 @@ from zairachem.base.utils.progress import LiveTableMonitor, STEP_COLORS
 from zairachem.base.vars import (
   DEFAULT_REFERENCE_LIBRARY,
   DESCRIPTORS_SUBFOLDER,
+  RANK_REFERENCE_RAW_FILENAME,
+  RANK_REFERENCE_TREATED_FILENAME,
   RAW_DESC_FILENAME,
   TREATED_DESC_FILENAME,
   TRANSFORMERS_SUBFOLDER,
@@ -162,6 +165,34 @@ class TreatedDescriptors(DescriptorBase):
     with open(output_path.replace(".h5", ".json"), "w") as f:
       json.dump(info, f, indent=4)
 
+  def _treat_rank_reference(self, eos_id, run_eos_path, transformer, substep=None):
+    """Scale the rank-reference descriptors with the run's transformer, into one plain H5.
+
+    Fit-only, and only when describe featurized the library. The reference has to reach lazy-qsar on
+    exactly the scale the model is trained on, so it goes through the same transformer, column order
+    and imputation as ``treated.h5``. Written as a single file with a ``Values`` dataset, streamed
+    chunk by chunk, because that is what lazy-qsar's ``reference_h5_file`` reads.
+    """
+    raw_h5 = open_h5(os.path.join(run_eos_path, RANK_REFERENCE_RAW_FILENAME))
+    if self._is_predict or raw_h5 is None:
+      return
+    raw_features = raw_h5.features()
+    validate_transformer(transformer, raw_features, eos_id)
+    expected_cols = list(transformer["columns"].keys())
+    n_rows = raw_h5.n_rows()
+    output_path = os.path.join(run_eos_path, RANK_REFERENCE_TREATED_FILENAME)
+    with h5py.File(output_path, "w") as f:
+      values = f.create_dataset("Values", shape=(n_rows, len(expected_cols)), dtype=OUTPUT_DTYPE)
+      for start, end, chunk in raw_h5.iter_values_with_indices(self.chunk_size):
+        if substep:
+          substep(f"rank reference {end:,}/{n_rows:,}")
+        df = pd.DataFrame(np.asarray(chunk, dtype="float32"), columns=raw_features)[expected_cols]
+        scaled = eosframes_transform(df, transformer, output_dtype=OUTPUT_DTYPE, impute=True)
+        values[start:end] = scaled[expected_cols].to_numpy(dtype="float32")
+        del df, scaled, chunk
+        gc.collect()
+      f.create_dataset("Features", data=np.array(expected_cols, h5py.string_dtype()))
+
   def _should_use_chunked(self, n_rows):
     return n_rows > self.chunk_size * 2
 
@@ -226,6 +257,7 @@ class TreatedDescriptors(DescriptorBase):
       self._treat_in_memory(
         raw_h5, raw_features, expected_cols, transformer, output_h5_path, substep=substep
       )
+    self._treat_rank_reference(eos_id, run_eos_path, transformer, substep=substep)
     gc.collect()
     return len(raw_features), len(expected_cols)
 
