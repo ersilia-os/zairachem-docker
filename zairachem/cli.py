@@ -139,6 +139,11 @@ def process_group(
   ).run()
   tracker.complete("holdout", SUMMARIES["holdout"](output_dir))
 
+  # The held-out folds are the last fits; after them the rank-reference matrices are never read.
+  from zairachem.base.utils.descriptors import drop_rank_references
+
+  drop_rank_references(output_dir)
+
   from zairachem.report.report import Reporter
 
   logger.configure()

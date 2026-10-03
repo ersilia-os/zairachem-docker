@@ -21,6 +21,7 @@ from zairachem.base.utils.matrices import (
   Hdf5,
   ChunkedH5Store,
   open_h5,
+  remove_h5,
   DEFAULT_CHUNK_SIZE,
 )
 from zairachem.base.utils.logging import logger
@@ -171,9 +172,12 @@ class TreatedDescriptors(DescriptorBase):
     Fit-only, and only when describe featurized the library. The reference has to reach lazy-qsar on
     exactly the scale the model is trained on, so it goes through the same transformer, column order
     and imputation as ``treated.h5``. Written as a single file with a ``Values`` dataset, streamed
-    chunk by chunk, because that is what lazy-qsar's ``reference_h5_file`` reads.
+    chunk by chunk, because that is what lazy-qsar's ``reference_h5_file`` reads. The raw copy is
+    deleted once the treated one is complete: nothing reads it again, and it is as large as the
+    treated one.
     """
-    raw_h5 = open_h5(os.path.join(run_eos_path, RANK_REFERENCE_RAW_FILENAME))
+    raw_path = os.path.join(run_eos_path, RANK_REFERENCE_RAW_FILENAME)
+    raw_h5 = open_h5(raw_path)
     if self._is_predict or raw_h5 is None:
       return
     raw_features = raw_h5.features()
@@ -192,6 +196,7 @@ class TreatedDescriptors(DescriptorBase):
         del df, scaled, chunk
         gc.collect()
       f.create_dataset("Features", data=np.array(expected_cols, h5py.string_dtype()))
+    remove_h5(raw_path)
 
   def _should_use_chunked(self, n_rows):
     return n_rows > self.chunk_size * 2
