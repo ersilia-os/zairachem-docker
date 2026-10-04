@@ -28,42 +28,48 @@ def _service_block(model_id, host_port, network_name):
 """
 
 
-def _nginx_upstream_and_location(model_id):
+def _nginx_upstream(model_id):
+  # `upstream` is only valid directly under `http`, so these go before the `server` block.
   service_name = f"{_sanitize(model_id)}_api"
-  public_path = f"/{model_id}/"
   return f"""    upstream {service_name} {{
         server {service_name}:80;
         keepalive 64;
     }}
 
-    location {public_path} {{
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        proxy_connect_timeout 30s;
-        proxy_send_timeout 120s;
-        proxy_read_timeout 300s;
-        proxy_buffering on;
-        proxy_buffers 32 16k;
-        proxy_busy_buffers_size 64k;
-        proxy_max_temp_file_size 0;
-        proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
-        proxy_cache api_cache;
-        proxy_cache_revalidate on;
-        proxy_cache_use_stale error timeout http_500 http_502 http_503 http_504 updating;
-        proxy_cache_bypass $http_cache_control $http_pragma;
-        proxy_no_cache $http_cache_control $http_pragma;
-        proxy_cache_valid 200 301 302 10m;
-        proxy_cache_valid 404 1m;
-        add_header X-Cache-Status $upstream_cache_status always;
-        limit_req zone=perip burst=20 nodelay;
-        limit_conn perip_conn 40;
-        proxy_pass http://{service_name}/;
-    }}
+"""
+
+
+def _nginx_location(model_id):
+  service_name = f"{_sanitize(model_id)}_api"
+  public_path = f"/{model_id}/"
+  return f"""        location {public_path} {{
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 120s;
+            proxy_read_timeout 300s;
+            proxy_buffering on;
+            proxy_buffers 32 16k;
+            proxy_busy_buffers_size 64k;
+            proxy_max_temp_file_size 0;
+            proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
+            proxy_cache api_cache;
+            proxy_cache_revalidate on;
+            proxy_cache_use_stale error timeout http_500 http_502 http_503 http_504 updating;
+            proxy_cache_bypass $http_cache_control $http_pragma;
+            proxy_no_cache $http_cache_control $http_pragma;
+            proxy_cache_valid 200 301 302 10m;
+            proxy_cache_valid 404 1m;
+            add_header X-Cache-Status $upstream_cache_status always;
+            limit_req zone=perip burst=20 nodelay;
+            limit_conn perip_conn 40;
+            proxy_pass http://{service_name}/;
+        }}
 """
 
 
@@ -176,6 +182,15 @@ def generate_compose_and_nginx(
 
   compose_yaml = header + redis + nginx + services + networks + volumes
 
+  return compose_yaml, generate_nginx_conf(models_with_ports)
+
+
+def generate_nginx_conf(model_ids):
+  """The nginx gateway config for ``model_ids``: one upstream + one ``/<model_id>/`` route each.
+
+  Independent of the host ports (nginx reaches each service on the Docker network), so it can be
+  rewritten on every run without touching the compose file.
+  """
   nginx_top = """worker_processes auto;
 
 events {
@@ -242,7 +257,8 @@ http {
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;
 
-    server {
+"""
+  server_top = """    server {
         listen 80;
         server_name _;
 
@@ -252,10 +268,7 @@ http {
         }
 
 """
-  nginx_blocks = "".join(
-    _nginx_upstream_and_location(model_id) for model_id in sorted(models_with_ports)
-  )
-  nginx_bottom = "    }\n}\n"
-  nginx_conf = nginx_top + nginx_blocks + nginx_bottom
-
-  return compose_yaml, nginx_conf
+  ids = sorted(model_ids)
+  upstreams = "".join(_nginx_upstream(model_id) for model_id in ids)
+  locations = "".join(_nginx_location(model_id) for model_id in ids)
+  return nginx_top + upstreams + server_top + locations + "    }\n}\n"
