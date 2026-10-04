@@ -318,3 +318,32 @@ def report_reference_transformers(featurizer_ids, reference_library):
     for m, version, url in missing:
       console.print(f"      [red]✖[/] [bold]{m}[/] ({version}) → [dim]{url}[/]")
     raise SystemExit(1)
+
+
+def report_rank_references(featurizer_ids):
+  """Say which featurizers have no rank reference in ``data/`` yet, before anything is computed.
+
+  Those that pre-screening keeps for training will be computed on their model server and saved into
+  ``data/rank_reference`` (``install.sh`` normally downloads them there with eosvc). The size given
+  is the uncompressed upper bound (width x library size x float32). Fetches lazy-qsar's reference
+  list, since a stored matrix is only valid for its library.
+  """
+  from zairachem.base.vars import RANK_REFERENCE_DIR
+  from zairachem.describe.descriptors import rank_reference as rr
+
+  if rr.reference_smiles() is None:
+    echo(
+      "lazy-qsar's rank reference list is unavailable; models will train without rank.",
+      kind="warning",
+    )
+    return
+  missing = [m for m in featurizer_ids if not rr.stored(m, ersilia_model_version(m))]
+  if not missing:
+    echo(f"Rank references found in {RANK_REFERENCE_DIR} for all featurizers.")
+    return
+  echo(
+    f"No rank reference in {RANK_REFERENCE_DIR} for {', '.join(missing)}: any of them that is "
+    f"trained is computed and saved there (up to {rr.format_bytes(rr.estimate_bytes(missing))}). "
+    "`eosvc download --path data/rank_reference` fetches the published ones.",
+    kind="warning",
+  )

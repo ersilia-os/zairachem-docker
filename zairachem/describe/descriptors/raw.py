@@ -12,8 +12,6 @@ from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
   RAW_DESC_FILENAME,
   ERSILIA_DATA_FILENAME,
-  RANK_REFERENCE_SMILES_FILENAME,
-  RANK_REFERENCE_RAW_FILENAME,
 )
 
 
@@ -53,18 +51,8 @@ class DescribeMonitor(LiveTableMonitor):
     """Progress callback wired into ``BinaryStreamClient._progress_cb``.
 
     Handles ``("plan", n_cached, n_compute)`` (sourcing split) and ``("batch", done, total)``
-    (drives both the ``batch k/n`` substep and the Progress bar/percentage). The rank-reference pass
-    that follows reports ``("reference_plan", ...)`` / ``("reference_batch", ...)``: it drives the
-    substep and bar only, so the Source column keeps describing the run's own compounds.
+    (drives both the ``batch k/n`` substep and the Progress bar/percentage).
     """
-    if kind == "reference_plan":
-      self.set_substep(model_id, "rank reference")
-      return
-    if kind == "reference_batch":
-      done, total = args
-      self.update_fields(model_id, frac=(done / total if total else None))
-      self.set_substep(model_id, f"rank reference {done}/{total}")
-      return
     if kind == "plan":
       n_cached, n_compute = args
       parts = []
@@ -92,28 +80,11 @@ class RawDescriptors(ZairaBase):
     self.workers = workers
     if self.is_predict():
       self.trained_path = self.get_trained_dir()
-      self.rank_reference_csv = None
-    else:
-      self.rank_reference_csv = self._write_rank_reference()
 
   def _process_ersilia_inputs(self):
     df = pd.read_csv(self.input_csv)
     df = df["smiles"]
     df.to_csv(self.input_csv_ersilia, index=False)
-
-  def _write_rank_reference(self):
-    """Write lazy-qsar's rank-reference molecules to the inputs folder, in lazy-qsar's row order.
-
-    Fit-only. lazy-qsar's ``rank`` is a position against this fixed library, and the descriptor-matrix
-    entry point never sees molecules, so each featurizer computes the library here and estimate hands
-    the matrix to ``fit``. The list is downloaded once by lazy-qsar and cached in its home directory.
-    """
-    from lazyqsar.reference import reference_smiles
-
-    path = os.path.join(self.path, DATA_SUBFOLDER, RANK_REFERENCE_SMILES_FILENAME)
-    if not os.path.exists(path):
-      pd.DataFrame({"smiles": reference_smiles()}).to_csv(path, index=False)
-    return path
 
   def eos_ids(self):
     # Preserve config order and dedup deterministically (set() order varies per process,
@@ -160,38 +131,6 @@ class RawDescriptors(ZairaBase):
       Hdf5Data(res).save(output_h5)
     else:
       raise Exception(f"No descriptor data returned for model {eos_id}")
-    if self.rank_reference_csv is not None:
-      self._run_eos_rank_reference(eos_id, show_progress, progress_cb)
-
-  def _run_eos_rank_reference(self, eos_id, show_progress, progress_cb):
-    """Featurize the rank-reference library with ``eos_id``, next to the run's raw descriptors.
-
-    Same client and store as the run's own compounds, so a store-backed run computes the library once
-    per featurizer and reads it back afterwards. Provenance is recorded under its own kind so it does
-    not inflate the run's per-model counts.
-    """
-    client = BinaryStreamClient(
-      path=self.path,
-      csv_path=self.rank_reference_csv,
-      model_id=eos_id,
-      url=get_model_url(eos_id),
-      project_name=os.path.basename(self.path),
-    )
-    client._provenance_kind = "rank_reference"
-    client._show_progress = show_progress
-    if progress_cb is not None:
-      client._progress_cb = lambda model_id, kind, *args: progress_cb(
-        model_id, f"reference_{kind}", *args
-      )
-      client._show_progress = False
-    output_h5 = os.path.join(
-      os.path.dirname(self.output_h5_filename(eos_id)), RANK_REFERENCE_RAW_FILENAME
-    )
-    res = client.run(output_h5=output_h5, isaura_batch_size=self.batch_size)
-    if not res.get("h5_file"):
-      if res.get("data") is None:
-        raise Exception(f"No rank-reference descriptors returned for model {eos_id}")
-      Hdf5Data(res).save(output_h5)
 
   def _prewarm_versions(self, eos_ids):
     """Resolve every featurizer's version once and persist ``parameters.json`` a SINGLE time, before

@@ -18,9 +18,23 @@ class EstimatorPipeline(ZairaBase):
     assert os.path.exists(self.output_dir)
     self.params = self._load_params()
 
+  def _rank_references(self):
+    """Prepare lazy-qsar's rank reference for the descriptors this fit trains (after screening).
+
+    Classification fits only: the regression estimator is a stub, and predict reads the reference
+    from the trained model itself.
+    """
+    if self.is_predict() or self.params.get("task") != "classification":
+      return
+    from zairachem.base.utils.descriptors import effective_descriptors
+    from zairachem.describe.descriptors import rank_reference
+
+    rank_reference.prepare(self.path, effective_descriptors(self.path), batch_size=self.batch_size)
+
   def _lazyqsar_estimator_pipeline(self):
     step = PipelineStep("lazy-qsar", self.output_dir)
     if not step.is_done():
+      self._rank_references()
       logger.info(f"[estimator] Running lazyqsar pipeline with batch_size={self.batch_size}")
       p = LazyQsarAutoMLPipeline(path=self.path, batch_size=self.batch_size)
       p.run()

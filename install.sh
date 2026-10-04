@@ -387,6 +387,19 @@ install_zairachem() {
 }
 
 # ---------------------------------------------------------------------------
+# Rank-reference descriptors (eosvc, into data/rank_reference)
+# ---------------------------------------------------------------------------
+fetch_rank_reference() {
+  # lazy-qsar ranks every prediction against a fixed 50,000-molecule library; each default featurizer's
+  # descriptors for it are published with eosvc (~1.6 GB). Not fatal: a fit computes a missing one.
+  export EVC_REPO_NAME="zairachem-docker"
+  run_step_soft "Downloading rank-reference descriptors (~1.6 GB)" \
+    "eosvc download --path data/rank_reference" \
+    zenv eosvc download --path data/rank_reference \
+    || warn "Download failed; fits will compute the rank references they need instead."
+}
+
+# ---------------------------------------------------------------------------
 # Docker base images
 # ---------------------------------------------------------------------------
 ensure_image() {
@@ -557,6 +570,7 @@ main() {
   section "Preflight";            print_preflight
   section "Python environment";   setup_environment
   section "Install ZairaChem";    install_zairachem
+  section "Rank references";      fetch_rank_reference
   section "Docker base images";   pull_base_images
   section "Ersilia models";       fetch_models
   section "Finish";               start_isaura_engine; final_summary
