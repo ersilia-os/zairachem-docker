@@ -10,7 +10,7 @@ from zairachem.base.utils.utils import install_docker_compose
 from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
-from zairachem.base.generate_config import generate_compose_and_nginx
+from zairachem.base.generate_config import generate_compose_and_nginx, generate_nginx_conf
 from zairachem.base.vars import (
   NETWORK_NAME,
   METADATA_SUBFOLDER,
@@ -69,6 +69,9 @@ class Describer(ZairaBase):
       compose, nginx_conf = generate_compose_and_nginx(self._get_models_ports())
       Path(compose_yml_file).write_text(compose)
       Path(nginx_config_file).write_text(nginx_conf)
+    # The gateway config does not depend on ports, so it is always regenerated: a config written by an
+    # older ZairaChem (upstreams inside `server`, which nginx rejects) is replaced rather than kept.
+    Path(nginx_config_file).write_text(generate_nginx_conf(self.models))
 
   def setup_model_servers(self):
     self.create_config_files()

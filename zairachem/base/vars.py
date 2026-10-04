@@ -51,6 +51,11 @@ TREATED_DESC_FILENAME = "treated.h5"
 RANK_REFERENCE_SMILES_FILENAME = "rank_reference.csv"
 RANK_REFERENCE_RAW_FILENAME = "rank_reference_raw.h5"
 RANK_REFERENCE_TREATED_FILENAME = "rank_reference.h5"
+# Rank-reference matrices (describe/descriptors/rank_reference.py): one per featurizer/version under
+# "data/rank_reference/<REFERENCE_ID>_n<n>/" at the root of this repository, which is an eosvc repo
+# (access.json). install.sh downloads them with `eosvc download --path data/rank_reference`.
+REPO_DIR = str(Path(__file__).resolve().parents[2])
+RANK_REFERENCE_DIR = os.path.join(REPO_DIR, "data", "rank_reference")
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 

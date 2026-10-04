@@ -70,6 +70,15 @@ Run `zairachem <command> --help` for the authoritative, always-current options.
 | `--evaluate` | off | Held-out validation (classification only). Bare = all schemas (random, scaffold, scaffold_det, butina); or a subset, e.g. `--evaluate scaffold,random`. |
 | `--repeats` | `3` | Held-out repeats per schema when `--evaluate` is set (total folds = 1 + 3 × repeats). |
 
+### Rank references
+
+lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each
+descriptor a fit trains needs that library featurized with it. ZairaChem reads these matrices from
+`data/rank_reference/` in this repository, which `install.sh` fills with
+`eosvc download --path data/rank_reference` (~1.6 GB for the six default featurizers). A trained
+descriptor with no matrix there (e.g. a custom featurizer) has it computed on its model server and
+saved into `data/rank_reference/`, so later fits reuse it.
+
 ### `predict` — predict with a trained model
 
 Same core options as `fit` (`-i`, `-m`, `-s`, `--override`, `-b`, `--workers`, `--skip-report`,

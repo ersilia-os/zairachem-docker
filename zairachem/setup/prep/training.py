@@ -5,6 +5,7 @@ from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.preflight import (
   require_docker_and_base,
   report_model_images,
+  report_rank_references,
   report_reference_transformers,
   validate_model_roles,
 )
@@ -445,6 +446,7 @@ class TrainSetup(BaseSetup):
     report_reference_transformers(
       self.featurizer_ids, self.params.get("reference_library", DEFAULT_REFERENCE_LIBRARY)
     )
+    report_rank_references(self.featurizer_ids)
     # Coverage/version checks always inspect the central lake (the migration source), not the
     # run's own read/write project.
     check_isaura_version_consistency(

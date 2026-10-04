@@ -11,7 +11,14 @@ parent's) without disturbing the shared, symlinked ``descriptors/``.
 import json
 import os
 
-from zairachem.base.vars import DESCRIPTORS_SUBFOLDER, METADATA_SUBFOLDER, SELECTED_EOS_FILENAME
+from zairachem.base.utils.matrices import remove_h5
+from zairachem.base.vars import (
+  DESCRIPTORS_SUBFOLDER,
+  METADATA_SUBFOLDER,
+  RANK_REFERENCE_RAW_FILENAME,
+  RANK_REFERENCE_TREATED_FILENAME,
+  SELECTED_EOS_FILENAME,
+)
 
 
 def effective_descriptors(path):
@@ -33,3 +40,25 @@ def effective_descriptors(path):
       return list(json.load(f))
   with open(os.path.join(path, DESCRIPTORS_SUBFOLDER, "done_eos.json")) as f:
     return list(json.load(f))
+
+
+def drop_rank_references(path):
+  """Delete every descriptor's rank-reference matrices once nothing will fit against them again.
+
+  A fitted lazy-qsar model keeps only the knots it scored the reference into, so the matrices are
+  dead weight after the last fit -- the estimate step, or the held-out folds when ``--evaluate`` is
+  set. Each is 50,000 rows per featurizer, so they are removed even when intermediate data is kept.
+
+  Parameters
+  ----------
+  path : str
+    A run directory. A no-op where there are none (predict runs, or already dropped).
+  """
+  base = os.path.join(path, DESCRIPTORS_SUBFOLDER)
+  if not os.path.isdir(base):
+    return
+  for eos_id in os.listdir(base):
+    eos_dir = os.path.join(base, eos_id)
+    if os.path.isdir(eos_dir):
+      for fname in (RANK_REFERENCE_RAW_FILENAME, RANK_REFERENCE_TREATED_FILENAME):
+        remove_h5(os.path.join(eos_dir, fname))

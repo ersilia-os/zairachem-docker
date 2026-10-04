@@ -1,4 +1,4 @@
-import h5py, json, joblib, os
+import h5py, json, joblib, os, shutil
 import numpy as np
 from typing import Iterator, Tuple, List
 from contextlib import contextmanager
@@ -176,6 +176,15 @@ def open_h5(path: str):
     return Hdf5(path)
   logger.debug(f"[open_h5] No H5 data found at {path}")
   return None
+
+
+def remove_h5(path: str):
+  """Delete whatever ``open_h5(path)`` would read: the chunked store folder and/or the plain file."""
+  store = ChunkedH5Store(path)
+  if os.path.isdir(store.dir):
+    shutil.rmtree(store.dir)
+  if os.path.exists(path):
+    os.remove(path)
 
 
 class ChunkedH5Store:
