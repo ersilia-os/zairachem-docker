@@ -1,6 +1,8 @@
 import os
+
 from loguru import logger
 from rich.logging import RichHandler
+
 from zairachem.base.vars import BASE_DIR, LOGGING_FILE
 
 ROTATION = "10 MB"

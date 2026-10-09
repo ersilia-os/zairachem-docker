@@ -1,6 +1,7 @@
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
-from .pool import Bagger
+
 from .assemble import BaggerAssembler
+from .pool import Bagger
 
 
 class BaggerPipeline:

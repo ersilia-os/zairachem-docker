@@ -1,7 +1,13 @@
-import h5py, json, joblib, os, shutil
-import numpy as np
-from typing import Iterator, Tuple, List
+import json
+import os
+import shutil
 from contextlib import contextmanager
+from typing import Iterator, List, Tuple
+
+import h5py
+import joblib
+import numpy as np
+
 from zairachem.base.utils.logging import logger
 
 SNIFF_N = 100000

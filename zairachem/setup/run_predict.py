@@ -1,8 +1,8 @@
 import os
 
-from zairachem.setup.prep.prediction import PredictSetup
 from zairachem.base.utils.console import echo
-from zairachem.base.utils.progress import tracker, summarize_setup
+from zairachem.base.utils.progress import summarize_setup, tracker
+from zairachem.setup.prep.prediction import PredictSetup
 
 
 def run(

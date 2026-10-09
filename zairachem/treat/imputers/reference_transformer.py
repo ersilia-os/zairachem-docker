@@ -9,7 +9,9 @@ At fit time the transformer is downloaded and a compact gzipped copy is saved un
 that saved copy is reused, so predict reproduces the exact same scaling without any network access.
 """
 
-import gzip, json, os
+import gzip
+import json
+import os
 
 import requests
 

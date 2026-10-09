@@ -1,16 +1,16 @@
-import os
-import pandas as pd
 import collections
-from rdkit import Chem
+import os
 
-from zairachem.report import BaseTable
-from zairachem.report.fetcher import ResultsFetcher
+import pandas as pd
+from rdkit import Chem
 
 from zairachem.base.vars import (
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
   REPORT_SUBFOLDER,
 )
+from zairachem.report import BaseTable
+from zairachem.report.fetcher import ResultsFetcher
 
 
 class PerformanceTable(BaseTable, ResultsFetcher):

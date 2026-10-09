@@ -5,7 +5,8 @@ Self-gated: does nothing unless this is a fit run with ``--evaluate`` (``params[
 production model (trained on all rows) is untouched.
 """
 
-import json, os
+import json
+import os
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.console import echo
@@ -50,9 +51,9 @@ class HoldoutValidationPipeline(ZairaBase):
       return
     # Imported lazily: these pull in the estimator/pool/report stacks, kept out of the import path of
     # a plain fit that never evaluates.
-    from zairachem.report.fetcher import ResultsFetcher
     from zairachem.holdout.engine import run_one_fold
     from zairachem.holdout.io import write_validation_outputs
+    from zairachem.report.fetcher import ResultsFetcher
 
     with open(splits_path) as f:
       folds = json.load(f)

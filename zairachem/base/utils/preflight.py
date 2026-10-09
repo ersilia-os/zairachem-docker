@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo
 from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
-from zairachem.base.vars import ORG, REDIS_IMAGE, NGINX_IMAGE
+from zairachem.base.vars import NGINX_IMAGE, ORG, REDIS_IMAGE
 
 #: Base/infrastructure images the model-serving stack needs, beyond the per-model images.
 BASE_IMAGES = [REDIS_IMAGE, NGINX_IMAGE]

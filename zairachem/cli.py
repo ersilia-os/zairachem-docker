@@ -1,24 +1,25 @@
-import os
-import random
-import socket
-import subprocess
 import importlib.util
-from urllib.parse import urlparse
-import numpy as np
-import rich_click as click
-import rich_click.rich_click as rc
-from click.core import ParameterSource
-from zairachem.base.utils.logging import logger
-from zairachem.base.utils.rich_help import StatusGroupMixin
-from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE, NGINX_IMAGE
 
 # Heavy pipeline classes (Describer, EstimatorPipeline, Reporter, run_fit, ...) pull in
 # matplotlib, lazyqsar, xgboost and onnx. They are imported lazily inside the commands that
 # use them so that `zairachem --help` and argument parsing stay fast.
-
 # Silence matplotlib's "Matplotlib is building the font cache; this may take a moment." notice,
 # which it logs on first import — set here (earliest entry point) before any matplotlib import.
 import logging as _logging
+import os
+import random
+import socket
+import subprocess
+from urllib.parse import urlparse
+
+import numpy as np
+import rich_click as click
+import rich_click.rich_click as rc
+from click.core import ParameterSource
+
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.rich_help import StatusGroupMixin
+from zairachem.base.vars import NGINX_IMAGE, RANDOM_SEED, REDIS_IMAGE
 
 _logging.getLogger("matplotlib").setLevel(_logging.ERROR)
 
@@ -71,7 +72,6 @@ def process_group(
   # The shared `tracker` (begun in fit/predict) shows which step is running; start()/complete()
   # are no-ops if the tracker was not begun (e.g. standalone step commands).
   from zairachem.base.utils.progress import SUMMARIES, final_summary_panel, tracker
-
   from zairachem.describe.descriptors.describe import Describer
 
   logger.configure()
@@ -81,8 +81,8 @@ def process_group(
 
   # Projections are an independent 2-D embedding shown as-is in the report (NOT a transformation of
   # the descriptors) — their own step, run while the model containers from Describe are still up.
-  from zairachem.treat.imputers.manifolds import Manifolds
   from zairachem.base.utils.isaura_report import report_data_provenance
+  from zairachem.treat.imputers.manifolds import Manifolds
 
   logger.configure()
   tracker.start("projections")
@@ -108,8 +108,9 @@ def process_group(
   ScreenPipeline(path=output_dir, batch_size=batch_size).run()
   tracker.complete("screen", SUMMARIES["screen"](output_dir))
 
-  from zairachem.estimate.estimators.pipe import EstimatorPipeline
   import time
+
+  from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
   logger.configure()
   tracker.start("estimate")
@@ -757,8 +758,8 @@ def _activate_step(model_dir, *step_names):
 )
 @click.option("--workers", "describe_workers", default=None, type=int, help=_DESCRIBE_WORKERS_HELP)
 def describe_cmd(model_dir, batch_size, describe_workers):
-  from zairachem.describe.descriptors.describe import Describer
   from zairachem.base.utils.isaura_report import report_data_provenance
+  from zairachem.describe.descriptors.describe import Describer
 
   logger.configure()
   logger.debug("[#ff69b4]Running the descriptor computation pipeline[/]")

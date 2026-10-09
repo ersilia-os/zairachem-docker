@@ -1,14 +1,15 @@
 import os
-import pandas as pd
-import numpy as np
 
-from ..base import BasePooler
-from .bagger import BaggerRegressor, BaggerClassifier
+import numpy as np
+import pandas as pd
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import POOL_SUBFOLDER
+
+from ..base import BasePooler
+from .bagger import BaggerClassifier, BaggerRegressor
 
 
 class Fitter(BasePooler):

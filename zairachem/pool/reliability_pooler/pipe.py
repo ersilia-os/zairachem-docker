@@ -1,6 +1,7 @@
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
-from .pool import ReliabilityPooler
+
 from .assemble import ReliabilityPoolerAssembler
+from .pool import ReliabilityPooler
 
 
 class ReliabilityPoolerPipeline:

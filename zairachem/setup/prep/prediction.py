@@ -1,43 +1,42 @@
 import json
-import os, shutil
-from zairachem.setup.prep import (
-  ParametersFile,
-  SingleFileForPrediction,
-  ChemblStandardize,
-  SingleTasksForPrediction,
-  DataMergerForPrediction,
-  SetupCleaner,
-  SetupChecker,
-)
+import os
+import shutil
 
 from zairachem.base import params_path
-from zairachem.base.utils.logging import logger
-from zairachem.base.utils.console import summary_panel
-from zairachem.base.utils.preflight import require_docker_and_base, report_model_images
-from zairachem.base.utils.console import echo
-from zairachem.base.utils.utils import write_smiles_list
+from zairachem.base.utils.console import echo, summary_panel
 from zairachem.base.utils.isaura_report import (
-  report_store_availability,
   check_isaura_version_consistency,
   create_and_migrate_project,
   project_exists,
+  report_store_availability,
 )
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.pipeline import PipelineStep, SessionFile
+from zairachem.base.utils.preflight import report_model_images, require_docker_and_base
+from zairachem.base.utils.utils import write_smiles_list
 from zairachem.base.vars import (
-  DATA_SUBFOLDER,
   DATA_FILENAME,
-  INPUT_SCHEMA_FILENAME,
-  METADATA_SUBFOLDER,
-  RESULTS_SUBFOLDER,
-  TRANSFORMERS_SUBFOLDER,
+  DATA_SUBFOLDER,
+  DEFAULT_ISAURA_BUCKET,
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
+  INPUT_SCHEMA_FILENAME,
+  METADATA_SUBFOLDER,
+  OUTPUT_FILENAME,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
-  OUTPUT_FILENAME,
-  DEFAULT_ISAURA_BUCKET,
+  RESULTS_SUBFOLDER,
+  TRANSFORMERS_SUBFOLDER,
 )
-
-from zairachem.base.utils.pipeline import PipelineStep, SessionFile
+from zairachem.setup.prep import (
+  ChemblStandardize,
+  DataMergerForPrediction,
+  ParametersFile,
+  SetupChecker,
+  SetupCleaner,
+  SingleFileForPrediction,
+  SingleTasksForPrediction,
+)
 from zairachem.setup.prep.base import BaseSetup, format_store_summary
 
 

@@ -1,35 +1,38 @@
-import collections, json, os
-import pandas as pd
+import collections
+import json
+import os
+
 import numpy as np
+import pandas as pd
 from sklearn.metrics import (
-  roc_curve,
+  accuracy_score,
   auc,
+  balanced_accuracy_score,
+  confusion_matrix,
+  f1_score,
+  matthews_corrcoef,
   precision_recall_curve,
   precision_score,
   recall_score,
-  f1_score,
-  accuracy_score,
-  balanced_accuracy_score,
-  matthews_corrcoef,
-  confusion_matrix,
+  roc_curve,
 )
 
-from zairachem.report.utils import ResultsIterator
-from zairachem.estimate.tools.ghost.ghost import GhostLight
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
-  MAPPING_FILENAME,
-  SMILES_COLUMN,
-  INPUT_SCHEMA_FILENAME,
-  RAW_INPUT_FILENAME,
-  MAPPING_ORIGINAL_COLUMN,
-  MAPPING_DEDUPE_COLUMN,
   DATA_FILENAME,
   DATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
+  INPUT_SCHEMA_FILENAME,
+  MAPPING_DEDUPE_COLUMN,
+  MAPPING_FILENAME,
+  MAPPING_ORIGINAL_COLUMN,
   POOL_SUBFOLDER,
+  RAW_INPUT_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
+  SMILES_COLUMN,
 )
+from zairachem.estimate.tools.ghost.ghost import GhostLight
+from zairachem.report.utils import ResultsIterator
 
 RAW_INPUT_FILENAME += ".csv"
 

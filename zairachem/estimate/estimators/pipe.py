@@ -1,9 +1,9 @@
 import os
 
 from zairachem.base import ZairaBase
-from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.estimate.estimators.evaluate import SimpleEvaluator
 from zairachem.estimate.estimators.lazy_qsar.pipe import LazyQsarAutoMLPipeline
 

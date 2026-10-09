@@ -4,6 +4,10 @@ target-version = "py310"
 
 lint.select = [
   "F",  # Pyflakes
+  "E4",  # import-statement style (E401 multiple imports, E402 import not at top)
+  "E9",  # syntax errors
+  "I",  # isort: sorted imports
+  "W",  # pycodestyle warnings
   "W6",
   "E71",
   "E72",
@@ -44,3 +48,6 @@ exclude = [
   "test/external/mlperf_resnet",
   "test/external/mlperf_unet3d",
 ]
+
+[lint.isort]
+combine-as-imports = true

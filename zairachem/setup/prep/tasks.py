@@ -1,23 +1,27 @@
 import os
+from collections import OrderedDict
+
+import joblib
 import numpy as np
 import pandas as pd
-from collections import OrderedDict
-import joblib
-from zairachem.base.vars import (
-  COMPOUNDS_FILENAME,
-  COMPOUND_IDENTIFIER_COLUMN,
-  PARAMETERS_FILE,
-  SMILES_COLUMN,
-  VALUES_FILENAME,
-  VALUES_COLUMN,
-  TASKS_FILENAME,
-)
-from .files import ParametersFile
-from zairachem.base.vars import MIN_CLASS, DATA_SUBFOLDER, METADATA_SUBFOLDER
+from sklearn.preprocessing import PowerTransformer, QuantileTransformer
+
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
+from zairachem.base.vars import (
+  COMPOUND_IDENTIFIER_COLUMN,
+  COMPOUNDS_FILENAME,
+  DATA_SUBFOLDER,
+  METADATA_SUBFOLDER,
+  MIN_CLASS,
+  PARAMETERS_FILE,
+  SMILES_COLUMN,
+  TASKS_FILENAME,
+  VALUES_COLUMN,
+  VALUES_FILENAME,
+)
 
-from sklearn.preprocessing import PowerTransformer, QuantileTransformer
+from .files import ParametersFile
 
 
 class ExpectedTaskType(ZairaBase):

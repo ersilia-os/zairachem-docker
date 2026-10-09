@@ -10,29 +10,32 @@ Output (row-aligned to ``data/data.csv``), both consumed by the report:
   * ``data/projections.json``     — manifest: ``[{"name","title","x","y"}, …]``.
 """
 
-import csv, json, os
+import csv
+import json
+import os
+
 import numpy as np
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 
-from zairachem.describe.descriptors.utils import get_model_url
-from zairachem.describe.descriptors.raw import DescribeMonitor
 from zairachem.base.utils.isaura_report import quiet_isaura_reads
-from zairachem.treat.imputers import DescriptorBase
-from zairachem.base.utils.utils import fetch_schema_from_github
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.progress import STEP_COLORS
 from zairachem.base.utils.pipeline import PipelineStep
+from zairachem.base.utils.progress import STEP_COLORS
+from zairachem.base.utils.utils import fetch_schema_from_github
 from zairachem.base.vars import (
   DATA_SUBFOLDER,
+  DEFAULT_ISAURA_BATCH_SIZE,
+  ERSILIA_DATA_FILENAME,
   METADATA_SUBFOLDER,
   PARAMETERS_FILE,
-  ERSILIA_DATA_FILENAME,
   PROJECTIONS_FILENAME,
   PROJECTIONS_MANIFEST_FILENAME,
-  DEFAULT_ISAURA_BATCH_SIZE,
 )
+from zairachem.describe.descriptors.raw import DescribeMonitor
+from zairachem.describe.descriptors.utils import get_model_url
+from zairachem.treat.imputers import DescriptorBase
 
 
 class ProjectionMonitor(DescribeMonitor):

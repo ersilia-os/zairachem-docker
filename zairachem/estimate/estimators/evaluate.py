@@ -1,17 +1,20 @@
-import collections, json, os
-import pandas as pd
+import collections
+import json
+import os
 
-from sklearn.metrics import roc_auc_score, r2_score
+import pandas as pd
+from sklearn.metrics import r2_score, roc_auc_score
+
 from zairachem.base import ZairaBase
 from zairachem.base.utils.results import ResultsIterator
 from zairachem.base.vars import (
   DATA_FILENAME,
   DATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
+  INPUT_SCHEMA_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
   SIMPLE_EVALUATION_FILENAME,
   SIMPLE_EVALUATION_VALIDATION_FILENAME,
-  INPUT_SCHEMA_FILENAME,
 )
 
 

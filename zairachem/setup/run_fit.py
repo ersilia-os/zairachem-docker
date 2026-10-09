@@ -1,9 +1,9 @@
 import os
 
-from zairachem.setup.prep.training import TrainSetup
-from zairachem.setup.prep import PipelineStep
 from zairachem.base.utils.console import echo
-from zairachem.base.utils.progress import tracker, summarize_setup
+from zairachem.base.utils.progress import summarize_setup, tracker
+from zairachem.setup.prep import PipelineStep
+from zairachem.setup.prep.training import TrainSetup
 
 
 def run(

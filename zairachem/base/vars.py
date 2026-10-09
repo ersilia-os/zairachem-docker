@@ -1,4 +1,5 @@
-import os, socket
+import os
+import socket
 from pathlib import Path
 
 

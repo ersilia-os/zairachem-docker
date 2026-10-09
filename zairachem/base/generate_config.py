@@ -1,5 +1,6 @@
 import re
-from zairachem.base.vars import REDIS_IMAGE, NGINX_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
+
+from zairachem.base.vars import NETWORK_NAME, NGINX_HOST_PORT, NGINX_IMAGE, REDIS_IMAGE
 
 
 def _sanitize(name):

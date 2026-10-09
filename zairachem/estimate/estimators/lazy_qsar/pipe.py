@@ -1,6 +1,6 @@
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
-from zairachem.estimate.estimators.lazy_qsar.estimate import Estimator
 from zairachem.estimate.estimators.lazy_qsar.assemble import OutcomeAssembler
+from zairachem.estimate.estimators.lazy_qsar.estimate import Estimator
 
 
 class LazyQsarAutoMLPipeline(object):

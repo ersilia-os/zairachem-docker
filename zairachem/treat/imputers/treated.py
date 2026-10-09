@@ -1,13 +1,32 @@
-import gc, json, os
-import h5py
+import gc
+import json
+import os
 from concurrent.futures import ThreadPoolExecutor
+
+import h5py
 import numpy as np
 import pandas as pd
-
 from eosframes.scale import transform as eosframes_transform
 
 from zairachem.base import params_path
 from zairachem.base.utils.concurrency import io_workers
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.matrices import (
+  DEFAULT_CHUNK_SIZE,
+  ChunkedH5Store,
+  Data,
+  Hdf5,
+  open_h5,
+)
+from zairachem.base.utils.model_version import ersilia_model_version
+from zairachem.base.utils.progress import STEP_COLORS, LiveTableMonitor
+from zairachem.base.vars import (
+  DEFAULT_REFERENCE_LIBRARY,
+  DESCRIPTORS_SUBFOLDER,
+  RAW_DESC_FILENAME,
+  TRANSFORMERS_SUBFOLDER,
+  TREATED_DESC_FILENAME,
+)
 from zairachem.treat.imputers import DescriptorBase
 from zairachem.treat.imputers.reference_transformer import (
   fetch_reference_transformer,
@@ -15,23 +34,6 @@ from zairachem.treat.imputers.reference_transformer import (
   local_transformer_name,
   save_local_transformer,
   validate_transformer,
-)
-from zairachem.base.utils.matrices import (
-  Data,
-  Hdf5,
-  ChunkedH5Store,
-  open_h5,
-  DEFAULT_CHUNK_SIZE,
-)
-from zairachem.base.utils.logging import logger
-from zairachem.base.utils.model_version import ersilia_model_version
-from zairachem.base.utils.progress import LiveTableMonitor, STEP_COLORS
-from zairachem.base.vars import (
-  DEFAULT_REFERENCE_LIBRARY,
-  DESCRIPTORS_SUBFOLDER,
-  RAW_DESC_FILENAME,
-  TREATED_DESC_FILENAME,
-  TRANSFORMERS_SUBFOLDER,
 )
 
 # Scaled output dtype. "float32" preserves the eosframes-scaled values (NaNs imputed away).

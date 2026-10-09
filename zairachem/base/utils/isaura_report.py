@@ -14,9 +14,9 @@ from urllib.parse import urlparse
 
 from zairachem.base.utils.console import active_color, console, echo
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.utils import get_bucket_records
 from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.utils.progress import LiveTableMonitor
+from zairachem.base.utils.utils import get_bucket_records
 from zairachem.base.vars import DEFAULT_ISAURA_BUCKET
 
 

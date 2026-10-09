@@ -1,6 +1,7 @@
 """Fold-aware estimator: trains on a fold's train slice and writes into the fold workspace."""
 
 import os
+
 import numpy as np
 
 from zairachem.base.vars import ESTIMATORS_SUBFOLDER

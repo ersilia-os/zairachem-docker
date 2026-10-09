@@ -27,12 +27,14 @@ from zairachem.base.vars import (
   REPORT_SUBFOLDER,
   SESSION_FILE,
 )
-from zairachem.report import CELL_CM as _CELL_CM
-from zairachem.report import GRID_COLS as _GRID_COLS
-from zairachem.report import GRID_ROWS as _GRID_ROWS
-from zairachem.report import colors as _colors
-from zairachem.report import colors
-from zairachem.report import perf
+from zairachem.report import (
+  CELL_CM as _CELL_CM,
+  GRID_COLS as _GRID_COLS,
+  GRID_ROWS as _GRID_ROWS,
+  colors,
+  colors as _colors,
+  perf,
+)
 
 # Plots grouped into sections (anchor, heading, description, member stems). Unlisted → "More".
 _CATEGORIES = [

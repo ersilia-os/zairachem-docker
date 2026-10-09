@@ -1,9 +1,9 @@
 import os
 
 from zairachem.base import ZairaBase
-from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.pool.bagger.pipe import BaggerPipeline
 from zairachem.pool.reliability_pooler.pipe import ReliabilityPoolerPipeline
 

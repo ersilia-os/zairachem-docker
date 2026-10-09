@@ -1,10 +1,16 @@
-import contextlib, h5py, os, re, subprocess
-import numpy as np
+import contextlib
+import os
+import re
+import subprocess
 from pathlib import Path
 from typing import Optional
-from zairachem.base.vars import BASE_DIR
-from zairachem.base.utils.terminal import run_command
+
+import h5py
+import numpy as np
+
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.terminal import run_command
+from zairachem.base.vars import BASE_DIR
 
 try:
   import yaml

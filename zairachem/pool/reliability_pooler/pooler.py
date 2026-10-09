@@ -12,6 +12,7 @@ signals degrade gracefully (see ``WeightMatrixBuilder.build``).
 """
 
 import os
+
 import joblib
 import numpy as np
 
