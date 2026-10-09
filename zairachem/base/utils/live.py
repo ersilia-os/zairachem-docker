@@ -115,6 +115,7 @@ class LiveProgressBar:
 
   @contextlib.contextmanager
   def live(self):
+    """Context manager that shows the live table; falls back to plain output when not on a terminal."""
     if not console.is_terminal:
       self._plain, self._live = True, None
       try:
@@ -165,6 +166,7 @@ class SetupProgress:
     return self
 
   def add_task(self, description, total=0):
+    """Start the progress task and return a token to pass to :meth:`update`."""
     # show_bar=False: the Setup sub-steps (validate/standardize SMILES, consistency checks, merge)
     # show just a dim percentage + the operation name — no bar glyph, per request.
     self._bar = LiveProgressBar(
@@ -181,6 +183,7 @@ class SetupProgress:
     return 0  # single-task token; these setup loops only ever track one task at a time
 
   def update(self, task, advance=0, description=None):
+    """Advance the task and optionally change its description."""
     if self._bar is None:
       return
     if description:
@@ -270,6 +273,7 @@ class LiveTableMonitor:
   # --- state transitions (all lock-guarded) ---
 
   def start(self, item_id):
+    """Mark an item as running."""
     with self._lock:
       self._active = item_id
       s = self.state.get(item_id)
@@ -284,6 +288,7 @@ class LiveTableMonitor:
     self._refresh()
 
   def set_substep(self, item_id, text):
+    """Show a short sub-step text next to a running item."""
     if not text:
       return
     with self._lock:
@@ -316,6 +321,7 @@ class LiveTableMonitor:
     self._refresh()
 
   def finish(self, item_id, ok=True):
+    """Mark an item as done, or as skipped when ``ok`` is False."""
     with self._lock:
       s = self.state.get(item_id)
       if s is not None:

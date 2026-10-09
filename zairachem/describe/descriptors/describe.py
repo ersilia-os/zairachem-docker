@@ -31,6 +31,21 @@ install_file = base_file_path / "install_compose.sh"
 
 
 class Describer(ZairaBase):
+  """Featurize the run's molecules with the selected Ersilia models.
+
+  Starts one Docker model server per descriptor (and projection) model, then streams the compounds
+  through each into ``descriptors/<model>/raw.h5``.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  batch_size : int, optional
+    Rows per request to a model server.
+  workers : int, optional
+    Number of models featurized concurrently.
+  """
+
   def __init__(self, path, batch_size=None, workers=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -59,6 +74,7 @@ class Describer(ZairaBase):
     return featurizers + data["projection_ids"]
 
   def create_config_files(self):
+    """Write the docker-compose file for this run's model servers, reusing it while it covers every model."""
     all_service_exists = service_exists(compose_yml_file, self.models)
 
     if isinstance(all_service_exists, bool) and not all_service_exists:
@@ -75,6 +91,7 @@ class Describer(ZairaBase):
     Path(nginx_config_file).write_text(generate_nginx_conf(self.models))
 
   def setup_model_servers(self):
+    """Start the model servers described by the compose file."""
     self.create_config_files()
     _ensure_network(NETWORK_NAME)
     _recreate_container_if_exists()
@@ -93,6 +110,7 @@ class Describer(ZairaBase):
       self.logger.info("Descriptors already done — skipping.")
 
   def run(self):
+    """Start the model servers and compute the raw descriptors, skipping them if already done."""
     self.setup_model_servers()
     write_service_file(ALL_FEATURIZER)
     self.reset_time()

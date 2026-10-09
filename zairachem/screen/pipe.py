@@ -36,6 +36,16 @@ SCREEN_REPEATS = 3
 
 
 class ScreenPipeline(ZairaBase):
+  """Pre-screen the descriptors and keep the best ``max_descriptors`` for training.
+
+  Parameters
+  ----------
+  path : str, optional
+    Run folder.
+  batch_size : int, optional
+    Unused; accepted for symmetry with the other pipeline steps.
+  """
+
   def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -46,6 +56,10 @@ class ScreenPipeline(ZairaBase):
       return list(json.load(f))
 
   def run(self):
+    """Score each descriptor on held-out folds and write the selection.
+
+    A no-op at predict, for regression, or when ``max_descriptors`` is not set.
+    """
     k = self.params.get("max_descriptors")
     if self.is_predict() or self.params.get("task") != "classification" or not k:
       return

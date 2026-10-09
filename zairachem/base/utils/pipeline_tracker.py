@@ -94,6 +94,7 @@ class PipelineTracker:
 
   @property
   def color(self):
+    """Color of the active step (cyan when none is active)."""
     return STEP_COLORS.get(self._current, "cyan") if self._current else "cyan"
 
   def start(self, key):

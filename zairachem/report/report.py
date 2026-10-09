@@ -164,6 +164,18 @@ _FIT_ONLY = {
 
 
 class Reporter(ZairaBase):
+  """Write the result tables and the report (plots and HTML page) of a run.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  plot_name : str, optional
+    Render only this plot.
+  make_plots : bool
+    When False, write the tables only (``--no-report``).
+  """
+
   def __init__(self, path, plot_name=None, make_plots=True):
     ZairaBase.__init__(self)
     self.path = path
@@ -298,6 +310,7 @@ class Reporter(ZairaBase):
     write_html_report(self.path)
 
   def run_all(self):
+    """Write the tables and, unless disabled, the plots and the HTML report."""
     # Always: the prediction + performance tables (cheap; they ARE the results).
     self._output_table()
     self._performance_table()
@@ -308,6 +321,7 @@ class Reporter(ZairaBase):
     self._html_report()
 
   def run(self):
+    """Build the report, skipping it if already done."""
     step = PipelineStep("report", self.output_dir)
     if not step.is_done():
       self.run_all()

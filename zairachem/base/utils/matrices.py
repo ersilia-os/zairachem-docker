@@ -17,6 +17,8 @@ _CHUNK_PREFIX = "chunk_"
 
 
 class Data(object):
+  """In-memory descriptor matrix: row inputs, values and feature names."""
+
   def __init__(self):
     self._is_sparse = None
 
@@ -24,6 +26,7 @@ class Data(object):
     return ["f{0}".format(i) for i in range(n)]
 
   def set(self, inputs, values, features):
+    """Set the inputs, values and feature names (generic names are made up when ``features`` is None)."""
     self._inputs = inputs
     self._values = values
     if features is None:
@@ -32,24 +35,31 @@ class Data(object):
       self._features = features
 
   def inputs(self):
+    """Return the row inputs (SMILES)."""
     return self._inputs
 
   def values(self):
+    """Return the value matrix."""
     return self._values
 
   def features(self):
+    """Return the feature names."""
     return self._features
 
   def is_sparse(self):
+    """Return whether the matrix was flagged sparse."""
     return self._is_sparse
 
   def save(self, file_name):
+    """Pickle this object to ``file_name``."""
     joblib.dump(self, file_name)
 
   def load(self, file_name):
+    """Load a pickled :class:`Data` from ``file_name``."""
     return joblib.load(file_name)
 
   def save_info(self, file_name):
+    """Write the matrix dimensions to ``file_name`` as JSON."""
     info = {
       "inputs": int(len(self._inputs)),
       "features": int(len(self._features)),
@@ -61,6 +71,8 @@ class Data(object):
 
 
 class Hdf5(object):
+  """Single-file HDF5 descriptor matrix with ``Values``, ``Inputs`` and ``Features`` datasets."""
+
   def __init__(self, file_name):
     self.file_name = file_name
 
@@ -73,20 +85,25 @@ class Hdf5(object):
       f.close()
 
   def shape(self):
+    """Return the ``(rows, features)`` shape of the stored matrix."""
     with self._open("r") as f:
       return f["Values"].shape
 
   def n_rows(self):
+    """Return the number of rows."""
     return self.shape()[0]
 
   def n_features(self):
+    """Return the number of features."""
     return self.shape()[1]
 
   def values(self):
+    """Read the whole matrix into memory."""
     with self._open("r") as f:
       return f["Values"][:]
 
   def iter_values(self, chunk_size=DEFAULT_CHUNK_SIZE) -> Iterator[np.ndarray]:
+    """Yield the matrix in row chunks of ``chunk_size``."""
     with self._open("r") as f:
       ds = f["Values"]
       n = ds.shape[0]
@@ -98,6 +115,7 @@ class Hdf5(object):
   def iter_values_with_indices(
     self, chunk_size=DEFAULT_CHUNK_SIZE
   ) -> Iterator[Tuple[int, int, np.ndarray]]:
+    """Yield ``(start, end, chunk)`` for each row chunk of ``chunk_size``."""
     with self._open("r") as f:
       ds = f["Values"]
       n = ds.shape[0]
@@ -109,6 +127,7 @@ class Hdf5(object):
   def iter_all(
     self, chunk_size=DEFAULT_CHUNK_SIZE
   ) -> Iterator[Tuple[int, int, np.ndarray, List[str]]]:
+    """Yield ``(start, end, chunk, inputs)`` for each row chunk of ``chunk_size``."""
     with self._open("r") as f:
       ds_v = f["Values"]
       ds_i = f["Inputs"]
@@ -121,10 +140,12 @@ class Hdf5(object):
         yield start, end, values, inputs
 
   def inputs(self):
+    """Return the row inputs (SMILES)."""
     with self._open("r") as f:
       return [x.decode("utf-8") for x in f["Inputs"][:]]
 
   def features(self):
+    """Return the feature names."""
     with self._open("r") as f:
       return [x.decode("utf-8") for x in f["Features"][:]]
 
@@ -134,6 +155,7 @@ class Hdf5(object):
     return V.ravel()
 
   def is_sparse(self):
+    """Return True when more than 80% of a sample of the values are zero."""
     V = self._sniff_ravel()
     n_zeroes = np.sum(V == 0)
     if n_zeroes / len(V) > 0.8:
@@ -141,6 +163,7 @@ class Hdf5(object):
     return False
 
   def load(self):
+    """Read the file into a :class:`Data`."""
     data = Data()
     data.set(
       inputs=self.inputs(),
@@ -151,12 +174,14 @@ class Hdf5(object):
     return data
 
   def save(self, data):
+    """Write a :class:`Data` to the file, replacing its contents."""
     with self._open("w") as f:
       f.create_dataset("Values", data=data.values())
       f.create_dataset("Inputs", data=np.array(data.inputs(), h5py.string_dtype()))
       f.create_dataset("Features", data=np.array(data.features(), h5py.string_dtype()))
 
   def append(self, values, inputs):
+    """Append rows (``values`` and their ``inputs``) to the file, creating it on first use."""
     n_new = values.shape[0]
     if n_new == 0:
       return
@@ -173,6 +198,7 @@ class Hdf5(object):
 
 
 def open_h5(path: str):
+  """Open the descriptor matrix at ``path`` as a chunked store or a plain H5 file; None when absent."""
   store = ChunkedH5Store(path)
   if store.exists():
     logger.debug(f"[open_h5] Using chunked store at {store.dir}")
@@ -194,6 +220,14 @@ def remove_h5(path: str):
 
 
 class ChunkedH5Store:
+  """Descriptor matrix stored as a folder of HDF5 chunk files, so a run never needs it all in memory.
+
+  Parameters
+  ----------
+  base_path : str
+    Path of the matrix; a ``.h5`` name maps to the sibling ``_chunks`` folder.
+  """
+
   def __init__(self, base_path: str):
     if base_path.endswith(".h5"):
       self.dir = base_path.rsplit(".h5", 1)[0] + "_chunks"
@@ -218,25 +252,32 @@ class ChunkedH5Store:
       json.dump(meta, f, indent=2)
 
   def exists(self) -> bool:
+    """Return whether the store exists and holds at least one chunk."""
     return os.path.exists(self._meta_path) and self._read_meta()["n_chunks"] > 0
 
   def n_chunks(self) -> int:
+    """Return the number of chunk files."""
     return self._read_meta()["n_chunks"]
 
   def n_rows(self) -> int:
+    """Return the total number of rows."""
     return self._read_meta()["total_rows"]
 
   def n_features(self) -> int:
+    """Return the number of features."""
     return self._read_meta()["n_features"]
 
   def features(self) -> List[str]:
+    """Return the feature names."""
     return self._read_meta()["features"]
 
   def shape(self) -> Tuple[int, int]:
+    """Return the ``(rows, features)`` shape."""
     meta = self._read_meta()
     return (meta["total_rows"], meta["n_features"])
 
   def create(self, n_features: int, features: List[str]):
+    """Create an empty store for ``n_features`` features."""
     os.makedirs(self.dir, exist_ok=True)
     meta = {"n_chunks": 0, "total_rows": 0, "n_features": n_features, "features": features}
     self._write_meta(meta)
@@ -244,6 +285,7 @@ class ChunkedH5Store:
     logger.info(f"[h5store:create] {self.dir} features={n_features}")
 
   def save_chunk(self, values: np.ndarray, inputs: List[str]):
+    """Append a chunk of rows and their inputs as a new chunk file."""
     n_new = values.shape[0]
     if n_new == 0:
       return
@@ -264,11 +306,13 @@ class ChunkedH5Store:
     return [self._chunk_path(i) for i in range(meta["n_chunks"])]
 
   def iter_values(self, chunk_size=None) -> Iterator[np.ndarray]:
+    """Yield the values chunk by chunk (as written)."""
     for path in self._sorted_chunk_paths():
       with h5py.File(path, "r") as f:
         yield f["Values"][:]
 
   def iter_values_with_indices(self, chunk_size=None) -> Iterator[Tuple[int, int, np.ndarray]]:
+    """Yield ``(start, end, chunk)`` for each stored chunk."""
     offset = 0
     for path in self._sorted_chunk_paths():
       with h5py.File(path, "r") as f:
@@ -278,6 +322,7 @@ class ChunkedH5Store:
       offset = end
 
   def iter_all(self, chunk_size=None) -> Iterator[Tuple[int, int, np.ndarray, List[str]]]:
+    """Yield ``(start, end, chunk, inputs)`` for each stored chunk."""
     offset = 0
     for path in self._sorted_chunk_paths():
       with h5py.File(path, "r") as f:
@@ -288,12 +333,14 @@ class ChunkedH5Store:
       offset = end
 
   def values(self) -> np.ndarray:
+    """Read every chunk into one array."""
     parts = list(self.iter_values())
     if not parts:
       return np.empty((0, 0))
     return np.concatenate(parts, axis=0)
 
   def inputs(self) -> List[str]:
+    """Return the row inputs, reading only the ``Inputs`` datasets."""
     # Read ONLY the Inputs dataset from each chunk — never touch Values, so collecting the input ids
     # doesn't pull the entire descriptor matrix into memory.
     all_inputs = []
@@ -303,6 +350,7 @@ class ChunkedH5Store:
     return all_inputs
 
   def is_sparse(self) -> bool:
+    """Return True when most of a sample of the values are zero."""
     count = 0
     zeros = 0
     for vals in self.iter_values():
@@ -317,6 +365,7 @@ class ChunkedH5Store:
     return zeros / count > 0.8
 
   def load(self) -> "Data":
+    """Read the store into a :class:`Data`."""
     data = Data()
     data.set(
       inputs=self.inputs(),

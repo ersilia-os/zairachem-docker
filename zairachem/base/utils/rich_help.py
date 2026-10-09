@@ -127,6 +127,7 @@ class StatusGroupMixin:
   shared first-column width so their help text lines up at any terminal width."""
 
   def format_options(self, ctx, formatter):
+    """Render the options and command panels with one shared first-column width."""
     from rich_click.rich_help_rendering import get_rich_commands, get_rich_options
 
     global _shared_width

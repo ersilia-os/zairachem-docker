@@ -20,6 +20,20 @@ def _append_to_commands_log(text: str):
 
 
 def run_command(cmd, quiet=None):
+  """Run a command, log it to ``commands.log``, and return its result.
+
+  Parameters
+  ----------
+  cmd : str or list
+    A shell string, or an argument list (path-like items are converted to strings).
+  quiet : bool, optional
+    Unused; a failing command is always logged as an error.
+
+  Returns
+  -------
+  collections.namedtuple
+    ``(returncode, stdout, stderr)`` with the output stripped.
+  """
   shell = isinstance(cmd, str)
   if shell:
     run_cmd = cmd

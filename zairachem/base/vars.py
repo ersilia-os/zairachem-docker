@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 def get_free_ports(n):
+  """Return ``n`` distinct free local TCP ports (released on return, so a later bind can still race)."""
   ports = []
   sockets = []
   try:

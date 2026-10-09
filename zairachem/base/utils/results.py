@@ -12,6 +12,8 @@ from zairachem.base.vars import ESTIMATORS_SUBFOLDER
 
 
 class ResultsIterator(ZairaBase):
+  """Iterate over the per-descriptor results folders of a run."""
+
   def __init__(self, path):
     ZairaBase.__init__(self)
     self.path = path
@@ -24,6 +26,7 @@ class ResultsIterator(ZairaBase):
     return effective_descriptors(self.path)
 
   def iter_relpaths(self):
+    """Yield ``[estimator_family, descriptor]`` for each selected descriptor found under the estimators folder."""
     estimators_folder = os.path.join(self.path, ESTIMATORS_SUBFOLDER)
     model_ids = self._read_model_ids()
     rpaths = []

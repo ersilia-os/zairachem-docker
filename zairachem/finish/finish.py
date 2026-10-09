@@ -34,6 +34,16 @@ CLEAN_TARGET_PREDICT = "predict"
 
 
 class Cleaner(ZairaBase):
+  """Delete the descriptor matrices of a run once the results are written.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  target : str
+    Which directories to clean (``all``: the run and, at predict, the trained model; ``model``: the trained model; ``predict``: the prediction output).
+  """
+
   def __init__(self, path, target=CLEAN_TARGET_ALL):
     ZairaBase.__init__(self)
     self.path = path
@@ -67,6 +77,7 @@ class Cleaner(ZairaBase):
     self._clean_descriptors_by_subfolder(path, DESCRIPTORS_SUBFOLDER)
 
   def run(self):
+    """Remove the descriptors from the directories selected by ``target``."""
     if self.target == CLEAN_TARGET_ALL:
       self.logger.debug("Cleaning descriptors from output directory")
       self._clean_descriptors(self.output_dir)
@@ -89,6 +100,16 @@ class Cleaner(ZairaBase):
 
 
 class Anonymizer(ZairaBase):
+  """Strip identifying data from the outputs of a run.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  target : str
+    Which directories to anonymize (``all``: the run and, at predict, the trained model; ``model``: the trained model; ``predict``: the prediction output).
+  """
+
   def __init__(self, path, target=CLEAN_TARGET_ALL):
     ZairaBase.__init__(self)
     self.path = path
@@ -223,6 +244,7 @@ class Anonymizer(ZairaBase):
     self._clear_report(path)
 
   def run(self):
+    """Anonymize the directories selected by ``target``."""
     if self.target == CLEAN_TARGET_ALL:
       self._anonymize_path(self.output_dir)
       if self._is_predict and self.trained_dir != self.output_dir:
@@ -243,6 +265,18 @@ class Anonymizer(ZairaBase):
 
 
 class Finisher(ZairaBase):
+  """Write the final results of a run and clean up.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  anonymize : bool
+    Anonymize the outputs.
+  keep_intermediate_data : bool
+    Keep the intermediate descriptor data instead of deleting it.
+  """
+
   def __init__(self, path, anonymize=False, keep_intermediate_data=False):
     ZairaBase.__init__(self)
     self.path = path
@@ -330,6 +364,7 @@ class Finisher(ZairaBase):
     )
 
   def run_all(self):
+    """Write the prediction and summary tables, then anonymize and clean up as requested."""
     self.logger.debug("Finishing")
     self._predictions_file()
     self._output_table_file()
@@ -344,6 +379,7 @@ class Finisher(ZairaBase):
       self._clean_intermediate_data()
 
   def run(self):
+    """Finish the run, skipping it if already done."""
     step = PipelineStep("finish", self.path)
     if not step.is_done():
       self.run_all()

@@ -49,31 +49,41 @@ def read_session(path):
 
 
 def write_session(path, data):
+  """Write the run's ``session.json``."""
   with open(os.path.join(session_dir(path), SESSION_FILE), "w") as f:
     json.dump(data, f, indent=4)
 
 
 class ZairaBase(object):
+  """Base class of the pipeline steps: logging, run-session access and run parameters.
+
+  Subclasses set ``self.path`` to the run folder before using the session helpers.
+  """
+
   def __init__(self):
     self.logger = logger
 
   def get_output_dir(self):
+    """Return the run root, the folder that holds ``session.json``."""
     # The run root (folder holding session.json) — resolved from self.path, no global lookup.
     return session_dir(self.path)
 
   def reset_time(self, path=None):
+    """Restart the run's stopwatch (stored in ``session.json``)."""
     path = path or self.path
     session = read_session(path)
     session["time_stamp"] = int(time())
     write_session(path, session)
 
   def update_elapsed_time(self, path=None):
+    """Add the time since the last reset to the run's elapsed time."""
     path = path or self.path
     session = read_session(path)
     session["elapsed_time"] = session["elapsed_time"] + (int(time()) - session["time_stamp"])
     write_session(path, session)
 
   def get_trained_dir(self):
+    """Return the trained model folder (the run itself at fit, a different folder at predict)."""
     # The trained model dir: equals the run root at fit, differs at predict. Recorded per-run.
     return read_session(self.path)["model_dir"]
 
@@ -83,9 +93,11 @@ class ZairaBase(object):
       return json.load(f)
 
   def is_predict(self):
+    """Return True when the run is a prediction."""
     return read_session(self.path)["mode"] == "predict"
 
   def is_train(self):
+    """Return True when the run is a fit."""
     return not self.is_predict()
 
   def _dummy_indices(self, path):
@@ -95,11 +107,13 @@ class ZairaBase(object):
     return idxs
 
   def get_train_indices(self, path):
+    """Return the row indices used for training (every row, when no split is defined)."""
     self.logger.debug("Training set is the full dataset. Interpret with caution!")
     idxs = self._dummy_indices(path)
     return idxs
 
   def get_validation_indices(self, path):
+    """Return the row indices used for validation (every row, when no split is defined)."""
     self.logger.debug("Validation set is equivalent to the training set. Interpret with caution!")
     idxs = self._dummy_indices(path)
     return idxs
