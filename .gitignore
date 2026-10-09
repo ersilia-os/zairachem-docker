@@ -111,10 +111,10 @@ ipython_config.py
 #Pipfile.lock
 
 # poetry
-#   ZairaChem installs via `pip install -e .` (see install.sh) and has no poetry-based CI, so the
-#   lock file is not consumed by any install path. Committing it only fed Dependabot the full
-#   transitive tree (noise). Reproducibility for the deps that matter comes from the exact pins in
-#   pyproject.toml's [tool.poetry.dependencies]. Regenerate locally with `poetry lock` if desired.
+#   ZairaChem installs via `pip install -e .` (see install.sh), which never reads this file, and
+#   committing it only fed Dependabot the full transitive tree (noise). Reproducibility comes from
+#   the exact pins in pyproject.toml plus constraints.txt (scripts/make_constraints.py), which
+#   install.sh passes to `pip install -c`.
 poetry.lock
 
 # pdm

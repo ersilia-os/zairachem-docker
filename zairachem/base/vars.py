@@ -26,7 +26,7 @@ if not os.path.exists(BASE_DIR):
 LOGGING_FILE = "console.log"
 SESSION_FILE = "session.json"
 ORG = "ersiliaos"
-REDIS_IMAGE = "redis:latest"
+REDIS_IMAGE = "redis:7.4.2"
 DEFAULT_ISAURA_BUCKET = "isaura-public"
 NETWORK_NAME = "ersilia_network"
 GITHUB_ORG = "ersilia-os"

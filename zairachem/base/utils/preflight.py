@@ -47,7 +47,7 @@ def require_docker_and_base():
   """Hard-gate the run on Docker + base images, before any work happens.
 
   Requires the Docker daemon to be running and the base/infrastructure images
-  (``redis:latest``) to be present locally. Raises ``SystemExit(1)`` with an
+  (``redis:7.4.2``) to be present locally. Raises ``SystemExit(1)`` with an
   informative message otherwise. Never fetches images. Model images are checked separately, at
   the end of setup, by :func:`report_model_images`.
   """
