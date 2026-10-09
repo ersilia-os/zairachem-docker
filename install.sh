@@ -375,14 +375,17 @@ decide_isaura() {
 
 install_zairachem() {
   decide_isaura
+  # Resolve to the versions ZairaChem was tested with (regenerate: scripts/make_constraints.py).
+  local pin=()
+  [ -f constraints.txt ] && pin=(-c constraints.txt)
   run_step "Upgrading pip" "pip install --upgrade pip" \
     "${PIP_PREFIX[@]}" install --upgrade pip
   if [ "$INSTALL_ISAURA" = true ]; then
     run_step "Installing ZairaChem + isaura" "pip install -e .[isaura]" \
-      "${PIP_PREFIX[@]}" install -e ".[isaura]"
+      "${PIP_PREFIX[@]}" install ${pin[@]+"${pin[@]}"} -e ".[isaura]"
   else
     run_step "Installing ZairaChem" "pip install -e ." \
-      "${PIP_PREFIX[@]}" install -e .
+      "${PIP_PREFIX[@]}" install ${pin[@]+"${pin[@]}"} -e .
   fi
 }
 
@@ -418,7 +421,7 @@ pull_base_images() {
   if [ "$DOCKER_RUNNING" != true ]; then
     warn "Docker not running — skipping base images (redis, nginx)."; return 0
   fi
-  ensure_image "redis:latest"
+  ensure_image "redis:7.4.2"
   ensure_image "nginx:alpine"
 }
 
