@@ -29,6 +29,7 @@ class Imputer(ZairaBase):
       step.update()
 
   def run(self):
+    """Treat the raw descriptors (scale and impute) and save them as ``treated.h5``."""
     self.reset_time()
     self._treated_descriptions()
     self.update_elapsed_time()

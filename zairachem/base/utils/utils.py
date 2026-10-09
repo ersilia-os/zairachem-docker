@@ -42,6 +42,7 @@ def write_smiles_list(data_dir, smiles):
 
 
 def install_docker_compose(install_file):
+  """Run ``install_file`` to install docker-compose when it is not on the PATH; exit if that fails."""
   if shutil.which("docker-compose") is None:
     logger.warning("docker‑compose not found; running installer…")
     try:
@@ -156,5 +157,6 @@ def post(data, url):
 
 
 def get_bucket_records(bucket):
+  """Return the isaura inspection records of the models stored in ``bucket``."""
   insp = IsauraInspect(model_id="_", model_version="_", cloud=False)
   return insp.inspect_models(bucket, prefix_filter="")

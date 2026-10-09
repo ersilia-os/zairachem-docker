@@ -96,6 +96,23 @@ def _run_steps(
   no_report=False,
   describe_workers=None,
 ):
+  """Run the pipeline steps that follow setup, in order, on a prepared run folder.
+
+  Parameters
+  ----------
+  output_dir : str
+    Run folder produced by setup.
+  anonymize : bool
+    Anonymize the outputs when finishing.
+  batch_size : int, optional
+    Rows per chunk for large datasets.
+  keep_intermediate_data : bool
+    Keep the intermediate descriptor data that the finish step would otherwise delete.
+  no_report : bool
+    Write the result tables only, skipping the plots and the HTML report.
+  describe_workers : int, optional
+    Number of descriptor models featurized concurrently.
+  """
   # ``output_dir`` is the run folder; it is passed explicitly to every step (no global session
   # lookup). Each pipeline class is imported right before its step runs, so heavy dependencies load
   # only when that step executes (matplotlib for reporting, lazyqsar/xgboost/onnx for estimation) —
@@ -292,6 +309,25 @@ def common_options(
   include_eos: bool = False,
   require_model: bool = False,
 ):
+  """Build the click decorator that adds the options shared by the pipeline commands.
+
+  Parameters
+  ----------
+  require_input : bool
+    Make ``--input-file`` required.
+  include_task : bool
+    Add the ``--classification/--regression`` option.
+  include_eos : bool
+    Add the ``--featurizer-ids`` and ``--projection-ids`` options.
+  require_model : bool
+    Make ``--model-dir`` required.
+
+  Returns
+  -------
+  callable
+    Decorator to apply to a click command.
+  """
+
   def _decorator(func):
     options = [
       click.option(
@@ -559,6 +595,7 @@ def fit(
   evaluate_repeats,
   max_descriptors,
 ):
+  """Train a QSAR model from a labelled CSV, then run every pipeline step."""
   from zairachem.setup.run_fit import run as run_fit
 
   logger.configure()
@@ -694,6 +731,7 @@ def predict(
   keep_intermediate_data,
   no_report,
 ):
+  """Predict activities for new molecules with a trained model."""
   from zairachem.setup.run_predict import run as run_predict
 
   logger.configure()
@@ -743,6 +781,7 @@ def setup_cmd(
   projection_ids,
   store,
 ):
+  """Standardize and prepare the input molecules (the first pipeline step)."""
   from zairachem.setup.run_fit import run as run_fit
 
   logger.configure()
@@ -795,6 +834,7 @@ def _activate_step(model_dir, *step_names):
 )
 @click.option("--workers", "describe_workers", default=None, type=int, help=_DESCRIBE_WORKERS_HELP)
 def describe_cmd(model_dir, batch_size, describe_workers):
+  """Compute the descriptors of an already prepared run folder."""
   from zairachem.base.utils.isaura_report import report_data_provenance
   from zairachem.describe.descriptors.describe import Describer
 
@@ -819,6 +859,7 @@ def describe_cmd(model_dir, batch_size, describe_workers):
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
 def treat_cmd(model_dir, batch_size):
+  """Treat (scale and impute) the computed descriptors."""
   from zairachem.treat.imputers.impute import Imputer
 
   logger.configure()
@@ -837,6 +878,7 @@ def treat_cmd(model_dir, batch_size):
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
 def estimate_cmd(model_dir, batch_size):
+  """Fit the per-descriptor estimators."""
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
   # lazyqsar (pulled in by the estimator) wipes loguru sinks at import; re-assert ours.
@@ -857,6 +899,7 @@ def estimate_cmd(model_dir, batch_size):
   help="Rows per chunk when processing large datasets (default: 10000).",
 )
 def pool_cmd(model_dir, batch_size):
+  """Pool the per-descriptor predictions into the final prediction."""
   from zairachem.pool.pipe import PoolerPipeline
 
   logger.configure()
@@ -878,6 +921,7 @@ def pool_cmd(model_dir, batch_size):
   help="Skip the plots and the HTML report; still write the prediction and performance tables.",
 )
 def report_cmd(model_dir, plot_name, no_report):
+  """Render the report plots and tables."""
   from zairachem.report.report import Reporter
 
   logger.configure()
@@ -901,6 +945,7 @@ def report_cmd(model_dir, plot_name, no_report):
   "cleaned. The fitted transformers are always kept.",
 )
 def finish_cmd(model_dir, anonymize, keep_intermediate_data):
+  """Finish the run: write the final tables and clean up intermediate data."""
   from zairachem.finish.finish import Finisher
 
   logger.configure()
@@ -914,6 +959,7 @@ def finish_cmd(model_dir, anonymize, keep_intermediate_data):
 
 
 def main():
+  """Entry point of the ``zairachem`` command: seed the RNGs and run the CLI."""
   # Baseline log sinks. Heavy pipeline modules are imported lazily inside each command/step to
   # keep startup fast and load each step's dependencies only when it runs; several of those
   # imports wipe loguru's handlers, so logger.configure() is re-asserted after each lazy import.

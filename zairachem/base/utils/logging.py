@@ -23,6 +23,12 @@ logger.level("SUCCESS", color="<black><bold><bg green>")
 
 
 class Logger:
+  """Process-wide logger that writes to the console and to ``console.log``.
+
+  Wraps the shared loguru logger; call :meth:`configure` after importing third-party packages that
+  remove its handlers.
+  """
+
   def __init__(self):
     self.logger = logger
     self._console = None
@@ -34,6 +40,7 @@ class Logger:
     self.configure()
 
   def configure(self):
+    """Re-attach the console and file sinks to the shared loguru logger."""
     # Re-assert our sinks on the shared, process-global loguru logger. Third-party
     # packages (e.g. lazyqsar, isaura) call logger.remove() at import time, which wipes
     # ALL handlers — including ours — leaving zairachem silent. Call this after imports
@@ -81,30 +88,38 @@ class Logger:
       )
 
   def set_verbosity(self, verbose):
+    """Set console verbosity: quiet (warnings and errors) by default, full debug stream when verbose."""
     # Store the choice and re-assert sinks so the new console level takes effect (and is kept
     # by later configure() calls). Quiet (default) = WARNING+; verbose = full DEBUG stream.
     self._verbose = bool(verbose)
     self.configure()
 
   def debug(self, text):
+    """Log a debug message."""
     self.logger.debug(text)
 
   def info(self, text):
+    """Log an info message."""
     self.logger.info(text)
 
   def warning(self, text):
+    """Log a warning."""
     self.logger.warning(text)
 
   def error(self, text):
+    """Log an error."""
     self.logger.error(text)
 
   def critical(self, text):
+    """Log a critical error."""
     self.logger.critical(text)
 
   def success(self, text):
+    """Log a success message."""
     self.logger.success(text)
 
   def exception(self, text):
+    """Log an error together with the traceback of the active exception."""
     # Log an error together with the active exception's full traceback.
     self.logger.opt(exception=True).error(text)
 

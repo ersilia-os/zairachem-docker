@@ -7,6 +7,8 @@ from zairachem.base.vars import SESSION_FILE
 
 
 class SessionFile(ZairaBase):
+  """Reader and writer of a run's ``session.json``."""
+
   def __init__(self, output_dir):
     if not os.path.exists(output_dir):
       os.makedirs(output_dir, exist_ok=True)
@@ -31,6 +33,7 @@ class SessionFile(ZairaBase):
     return info
 
   def open_session(self, mode, output_dir, model_dir=None):
+    """Create the session file with the run mode, folders and host information."""
     self.mode = mode
     self.output_dir = os.path.abspath(output_dir)
     if model_dir is None:
@@ -50,6 +53,8 @@ class SessionFile(ZairaBase):
 
 
 class PipelineStep(ZairaBase):
+  """Completion marker of one pipeline step, stored in the run's ``session.json``."""
+
   def __init__(self, name, output_dir):
     ZairaBase.__init__(self)
     self.name = name
@@ -85,12 +90,14 @@ class PipelineStep(ZairaBase):
     return rec
 
   def update(self):
+    """Mark the step as done and record a CPU/RAM snapshot."""
     data = self._read_session()
     data["steps"] += [self.name]
     data.setdefault("step_log", []).append(self._telemetry())
     self._write_session(data)
 
   def is_done(self):
+    """Return True when the step is marked done."""
     data = self._read_session()
     if data is None:
       return False

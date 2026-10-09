@@ -22,6 +22,18 @@ from zairachem.holdout.monitor import EvaluateMonitor, _fmt_duration
 
 
 class HoldoutValidationPipeline(ZairaBase):
+  """Held-out validation (``--evaluate``): refit the model on each fold and score its held-out slice.
+
+  Parameters
+  ----------
+  path : str, optional
+    Run folder.
+  batch_size : int, optional
+    Rows per chunk when reading the descriptor matrices.
+  est_seconds : float, optional
+    Wall-clock of the training step, used to estimate the time per fold.
+  """
+
   def __init__(self, path=None, batch_size=None, est_seconds=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -40,6 +52,10 @@ class HoldoutValidationPipeline(ZairaBase):
     return effective_descriptors(self.path)
 
   def run(self):
+    """Run every fold defined at setup and write the validation outputs.
+
+    A no-op for predict runs, without ``--evaluate``, or when the step is already done.
+    """
     if self.is_predict() or not self.params.get("evaluate"):
       return
     step = PipelineStep("holdout", self.path)

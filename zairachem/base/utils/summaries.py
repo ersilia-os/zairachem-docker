@@ -177,6 +177,7 @@ def _featurizers(output_dir):
 
 
 def summarize_setup(output_dir=None):
+  """Summarize the setup step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -191,6 +192,7 @@ def summarize_setup(output_dir=None):
 
 
 def summarize_describe(output_dir=None):
+  """Summarize the describe step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -207,6 +209,7 @@ def summarize_describe(output_dir=None):
 
 
 def summarize_projections(output_dir=None):
+  """Summarize the projections step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -216,6 +219,7 @@ def summarize_projections(output_dir=None):
 
 
 def summarize_treat(output_dir=None):
+  """Summarize the treat step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -252,6 +256,7 @@ def _cv_headline(cv):
 
 
 def summarize_estimate(output_dir=None):
+  """Summarize the estimate step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -269,6 +274,7 @@ def summarize_estimate(output_dir=None):
 
 
 def summarize_pool(output_dir=None):
+  """Summarize the pool step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -284,6 +290,7 @@ def summarize_pool(output_dir=None):
 
 
 def summarize_screen(output_dir=None):
+  """Summarize the screen step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -306,6 +313,7 @@ def summarize_screen(output_dir=None):
 
 
 def summarize_holdout(output_dir=None):
+  """Summarize held-out validation (folds scored and failed, scaffold AUROC); empty string when missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -336,6 +344,7 @@ def summarize_holdout(output_dir=None):
 
 
 def summarize_report(output_dir=None):
+  """Summarize the report step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -344,6 +353,7 @@ def summarize_report(output_dir=None):
 
 
 def summarize_finish(output_dir=None):
+  """Summarize the finish step for the pipeline panel; empty string when its outputs are missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""

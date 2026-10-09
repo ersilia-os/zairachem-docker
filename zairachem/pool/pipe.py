@@ -9,6 +9,16 @@ from zairachem.pool.reliability_pooler.pipe import ReliabilityPoolerPipeline
 
 
 class PoolerPipeline(ZairaBase):
+  """Combine the per-descriptor predictions into the final pooled prediction.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  batch_size : int, optional
+    Rows per chunk when reading the per-descriptor results.
+  """
+
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -19,6 +29,7 @@ class PoolerPipeline(ZairaBase):
     self.descriptors = self.get_descriptors()
 
   def get_descriptors(self):
+    """Return the descriptors the pooled model uses (the screened selection when there is one)."""
     self.logger.debug("Getting individual descriptors")
     from zairachem.base.utils.descriptors import effective_descriptors
 
@@ -42,4 +53,5 @@ class PoolerPipeline(ZairaBase):
       self.logger.info("Pooling already done — skipping.")
 
   def run(self):
+    """Pool the per-descriptor predictions, skipping the step if already done."""
     self._pool_pipeline()

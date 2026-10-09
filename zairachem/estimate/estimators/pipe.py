@@ -9,6 +9,16 @@ from zairachem.estimate.estimators.lazy_qsar.pipe import LazyQsarAutoMLPipeline
 
 
 class EstimatorPipeline(ZairaBase):
+  """Train one lazy-qsar estimator per descriptor and write their per-row signals.
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  batch_size : int, optional
+    Rows per chunk when reading the descriptor matrices.
+  """
+
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.logger = logger
@@ -50,5 +60,6 @@ class EstimatorPipeline(ZairaBase):
       logger.info("Estimation already done — skipping.")
 
   def run(self):
+    """Fit the estimators, then run the simple evaluation."""
     self._lazyqsar_estimator_pipeline()
     self._simple_evaluation()

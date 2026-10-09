@@ -48,6 +48,16 @@ class ProjectionMonitor(DescribeMonitor):
 
 
 class Manifolds(DescriptorBase):
+  """Compute the 2-D projections shown in the report (molecular weight vs logP, plus Ersilia projection models).
+
+  Parameters
+  ----------
+  path : str
+    Run folder.
+  batch_size : int, optional
+    Rows per request to a projection model server.
+  """
+
   def __init__(self, path, batch_size=None):
     DescriptorBase.__init__(self, path)
     self.input_file = os.path.join(self.path, DATA_SUBFOLDER, ERSILIA_DATA_FILENAME)
@@ -191,6 +201,7 @@ class Manifolds(DescriptorBase):
       json.dump(manifest, f, indent=2)
 
   def run(self):
+    """Compute and save the projections, skipping them if already done."""
     step = PipelineStep("manifolds", self.path)
     if step.is_done():
       logger.info("[manifolds] Projections already computed — skipping.")
