@@ -556,7 +556,7 @@ def _hitlist_table_html(report_dir, top_n=25):
     if has_ad:
       cells.append(f"<td>{_fmt_num(r['ad'])}</td>")
     body.append(f"<tr>{''.join(cells)}</tr>")
-  note = f"<p class='muted'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
+  note = f"<p style='color:#6e7781;font-size:13px'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
   return (
     note + "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -631,9 +631,22 @@ def _validation_table_html(report_dir):
     "<th>Split schema</th><th>Folds</th><th>Active:inactive (test)</th>"
     "<th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
   )
+  note = ""
+  try:
+    with open(os.path.join(report_dir, "holdout_summary.json")) as f:
+      summary = json.load(f)
+    failed = int(summary.get("n_folds_failed") or 0)
+    if failed:
+      total = summary.get("n_folds_defined", len(rows) + failed)
+      note = (
+        f"<p style='color:#6e7781;font-size:13px'>{failed} of {total} held-out folds failed and are not included "
+        "above.</p>"
+      )
+  except Exception:
+    pass
   return (
     "<div class='table-wrap'><table class='metrics'>"
-    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+    f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>{note}"
   )
 
 

@@ -320,8 +320,16 @@ def summarize_holdout(output_dir=None):
   except Exception:
     return ""
   n = summary.get("n_folds_run", 0)
+  failed = summary.get("n_folds_failed", 0)
+  if failed:
+    total = summary.get("n_folds_defined", n + failed)
+    if not n:
+      return f"0/{total} folds (all failed)"
+    n_text = f"{n}/{total} folds ({failed} failed)"
+  else:
+    n_text = _plurals(n, "fold")
   scaffold = (summary.get("strategies", {}).get("scaffold", {}).get("auroc", {}) or {}).get("mean")
-  parts = [_plurals(n, "fold")]
+  parts = [n_text]
   if scaffold is not None:
     parts.append(f"scaffold AUROC {scaffold:.2f}")
   return " · ".join(parts)

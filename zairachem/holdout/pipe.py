@@ -5,7 +5,7 @@ Self-gated: does nothing unless this is a fit run with ``--evaluate`` (``params[
 production model (trained on all rows) is untouched.
 """
 
-import json, os
+import json, os, traceback
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.console import echo
@@ -77,6 +77,7 @@ class HoldoutValidationPipeline(ZairaBase):
       list(folds), color=STEP_COLORS.get("holdout", "bright_blue"), est_seconds=self.est_seconds
     )
     records = []
+    failures = []
     # Inside monitor.live() the table is the only console surface; per-fold detail goes to the log
     # file at debug level so it never corrupts the live region.
     with monitor.live():
@@ -101,7 +102,29 @@ class HoldoutValidationPipeline(ZairaBase):
           records.append(rec)
           monitor.finish(fold_name, ok=True)
         except Exception as e:
-          logger.debug(f"[evaluate] Fold {fold_name} failed ({e}); skipping.")
+          # Full traceback to the log file only: inside the live table the console must stay clean.
+          logger.debug(f"[evaluate] Fold {fold_name} failed:\n{traceback.format_exc()}")
+          failures.append({
+            "fold": fold_name,
+            "strategy": spec["strategy"],
+            "error": f"{type(e).__name__}: {e}",
+          })
           monitor.finish(fold_name, ok=False)
-    write_validation_outputs(self.path, folds, records)
-    step.update()
+    write_validation_outputs(self.path, folds, records, failures=failures)
+    if failures:
+      names = ", ".join(f["fold"] for f in failures)
+      first = failures[0]["error"]
+      if records:
+        echo(
+          f"{len(failures)} of {n} held-out folds failed ({names}); metrics cover the other "
+          f"{len(records)}. First error: {first}. Details: report/holdout_summary.json",
+          kind="warning",
+        )
+      else:
+        echo(
+          f"All {n} held-out folds failed; validation was not completed and will be retried on "
+          f"re-run. First error: {first}. Details: report/holdout_summary.json",
+          kind="error",
+        )
+    if records:
+      step.update()
