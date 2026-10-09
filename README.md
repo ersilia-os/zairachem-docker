@@ -90,4 +90,8 @@ Same core options as `fit` (`-i`, `-m`, `-s`, `--override`, `-b`, `--workers`, `
 
 ## About the Ersilia Open Source Initiative
 
-ZairaChem is a project of the [Ersilia Open Source Initiative](https://ersilia.io) done in collaboration with the [H3D Centre](https://h3d.uct.ac.za/) in Cape Town, South Africa.
+The [Ersilia Open Source Initiative](https://ersilia.io) is a tech-nonprofit organization fueling sustainable research in the Global South. Ersilia's main asset is the [Ersilia Model Hub](https://github.com/ersilia-os/ersilia), an open-source repository of AI/ML models for antimicrobial drug discovery.
+
+ZairaChem is developed in collaboration with the [H3D Centre](https://h3d.uct.ac.za/) in Cape Town, South Africa.
+
+![Ersilia Logo](assets/Ersilia_Brand.png)
