@@ -7,12 +7,16 @@
 #  which is included in the file LICENSE, found at the root
 #  of the source tree.
 
-import math, os, rdkit
+import math
+import os
+
+import rdkit
 from rdkit import Chem
-from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem import rdMolTransforms
-from zairachem.setup.tools.chembl_structure.exclude_flag import exclude_flag
+from rdkit.Chem.MolStandardize import rdMolStandardize
+
 from zairachem.base.utils.logging import logger
+from zairachem.setup.tools.chembl_structure.exclude_flag import exclude_flag
 
 rdkversion = rdkit.__version__.split(".")
 if rdkversion < ["2019", "09", "2"]:

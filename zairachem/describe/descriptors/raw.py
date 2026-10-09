@@ -1,18 +1,21 @@
-import json, os
-import pandas as pd
+import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
+
 from zairachem.base import ZairaBase
 from zairachem.base.utils.isaura_report import quiet_isaura_reads
-from zairachem.base.utils.progress import LiveTableMonitor, STEP_COLORS, _bar
+from zairachem.base.utils.progress import STEP_COLORS, LiveTableMonitor, _bar
+from zairachem.base.vars import (
+  DATA_FILENAME,
+  DATA_SUBFOLDER,
+  DESCRIPTORS_SUBFOLDER,
+  ERSILIA_DATA_FILENAME,
+  RAW_DESC_FILENAME,
+)
 from zairachem.describe.descriptors.api import BinaryStreamClient
 from zairachem.describe.descriptors.utils import Hdf5Data, get_model_url
-from zairachem.base.vars import (
-  DATA_SUBFOLDER,
-  DATA_FILENAME,
-  DESCRIPTORS_SUBFOLDER,
-  RAW_DESC_FILENAME,
-  ERSILIA_DATA_FILENAME,
-)
 
 
 class DescribeMonitor(LiveTableMonitor):

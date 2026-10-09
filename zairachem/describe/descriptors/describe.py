@@ -19,6 +19,25 @@ from zairachem.base.vars import (
 )
 from pathlib import Path
 
+from zairachem.base import ZairaBase
+from zairachem.base.generate_config import generate_compose_and_nginx, generate_nginx_conf
+from zairachem.base.utils.pipeline import PipelineStep
+from zairachem.base.utils.terminal import run_command
+from zairachem.base.utils.utils import install_docker_compose
+from zairachem.base.vars import (
+  ALL_FEATURIZER,
+  METADATA_SUBFOLDER,
+  NETWORK_NAME,
+  PARAMETERS_FILE,
+  get_free_ports,
+)
+from zairachem.describe.descriptors.raw import RawDescriptors
+from zairachem.describe.descriptors.utils import (
+  _ensure_network,
+  _recreate_container_if_exists,
+  service_exists,
+  write_service_file,
+)
 
 cwd = Path(__file__).parent.parent
 base_file_path = cwd / "files"

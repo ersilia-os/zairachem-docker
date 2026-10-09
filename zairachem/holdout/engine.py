@@ -7,17 +7,20 @@ prediction on molecules the fold never trained on. Descriptors are read from the
 no featurization is repeated.
 """
 
-import json, os, joblib
+import json
+import os
+
+import joblib
 import numpy as np
 
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import ESTIMATORS_SUBFOLDER, POOL_SUBFOLDER, Y_HAT_FILE
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.lazy_qsar.assemble import IndividualOutcomeAssembler
-from zairachem.pool.base import BasePooler
-from zairachem.pool.reliability_pooler.pooler import ReliabilityClassifierPooler
 from zairachem.holdout.indices import HoldoutFitter
 from zairachem.holdout.workspace import build_fold_workspace
+from zairachem.pool.base import BasePooler
+from zairachem.pool.reliability_pooler.pooler import ReliabilityClassifierPooler
 
 
 def _slice(matrix, idx):

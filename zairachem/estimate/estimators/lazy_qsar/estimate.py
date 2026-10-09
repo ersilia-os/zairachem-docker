@@ -1,6 +1,13 @@
-import collections, contextlib, joblib, json, os, gc
+import collections
+import contextlib
+import gc
+import json
+import os
+
+import joblib
 import numpy as np
 from lazyqsar.agnostic import LazyClassifier
+
 from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
 
 # lazy-qsar prints a rich directory tree of the saved model folder on every ``save()`` — it is the
@@ -20,8 +27,8 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   Y_HAT_FILE,
 )
-from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
+from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
 
 def _rank_or_warn(ranks, model_id, stage):

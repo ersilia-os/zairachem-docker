@@ -11,6 +11,7 @@ Pure functions (matrices + labels + folds in, scores/selection out).
 """
 
 import os
+
 import numpy as np
 
 from zairachem.base.utils.logging import logger

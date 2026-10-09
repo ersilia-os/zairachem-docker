@@ -1,77 +1,75 @@
 import os
 
-from zairachem.report.table import OutputTable, PerformanceTable
-
+from zairachem.base import ZairaBase
+from zairachem.base.utils.pipeline import PipelineStep
+from zairachem.base.utils.progress import STEP_COLORS, LiveProgressBar
+from zairachem.report.fetcher import ResultsFetcher
 from zairachem.report.plots import (
   ActivesInactivesPlot,
-  ConfusionPlot,
-  RocCurvePlot,
-  OofScoreProbaPlot,
-  OofScoreLogitPlot,
-  OofScoreRankPlot,
-  OofScoreLiftPlot,
-  OofScoreRawPlot,
-  OofScoreProbaPointsPlot,
-  OofScoreLogitPointsPlot,
-  OofScoreRankPointsPlot,
-  OofScoreLiftPointsPlot,
-  OofScoreRawPointsPlot,
-  ProjectionMergedPlot,
-  ProjectionClassPlot,
-  ProjectionProbaPlot,
-  PredictedScoreHistogramPlot,
-  ScoreRankCurvePlot,
-  DescriptorConsensusPlot,
   AdCoveragePlot,
+  CalibrationCurvePlot,
+  ClassDonutPlot,
+  ClassWafflePlot,
+  ConfusionBreakdownPlot,
+  ConfusionPlot,
+  ConfusionPrecisionPlot,
+  CvAuprPlot,
+  CvAurocPlot,
+  CvBalancedAccuracyPlot,
+  CvCutoffPlot,
+  CvF1Plot,
+  CvMccPlot,
+  CvPrecisionPlot,
+  CvPrPlot,
+  CvRecallPlot,
+  CvRocPlot,
+  DescriptorConsensusPlot,
+  DescriptorCorrelationPlot,
+  EnrichmentCurvePlot,
+  EnrichmentFactorCurvePlot,
+  HeldoutCalibrationByStrategyPlot,
+  HeldoutConfusionByStrategyPlot,
+  HeldoutEnrichmentFactorByStrategyPlot,
+  HeldoutMetricBarsPlot,
+  HeldoutPrByStrategyPlot,
+  HeldoutRocByStrategyPlot,
+  HeldOutValidationPlot,
+  IndividualEstimatorsR2Plot,
+  NormalizedConfusionPlot,
+  OofScoreLiftPlot,
+  OofScoreLiftPointsPlot,
+  OofScoreLogitPlot,
+  OofScoreLogitPointsPlot,
+  OofScoreProbaPlot,
+  OofScoreProbaPointsPlot,
+  OofScoreRankPlot,
+  OofScoreRankPointsPlot,
+  OofScoreRawPlot,
+  OofScoreRawPointsPlot,
+  PerModelTimingPlot,
+  PhaseTimeDonutPlot,
+  PrCurvePlot,
+  PredictedPropertyLogpPlot,
+  PredictedPropertyMwPlot,
+  PredictedScoreHistogramPlot,
+  ProjectionClassPlot,
+  ProjectionMergedPlot,
+  ProjectionProbaPlot,
+  PropertyLogpPlot,
+  PropertyMwPlot,
+  ProvenanceBarPlot,
   RankDistributionPlot,
   RegressionPlotRaw,
   RegressionPlotTransf,
-  Transformation,
-  IndividualEstimatorsR2Plot,
-  CvAurocPlot,
-  CvAuprPlot,
-  CvMccPlot,
-  CvF1Plot,
-  CvBalancedAccuracyPlot,
-  CvPrecisionPlot,
-  CvRecallPlot,
-  CvCutoffPlot,
-  CvRocPlot,
-  CvPrPlot,
-  PrCurvePlot,
-  EnrichmentCurvePlot,
-  EnrichmentFactorCurvePlot,
-  ThresholdSweepPlot,
-  CalibrationCurvePlot,
-  NormalizedConfusionPlot,
-  ConfusionPrecisionPlot,
-  ConfusionBreakdownPlot,
-  DescriptorCorrelationPlot,
-  TopKOverlapCurvePlot,
-  PropertyMwPlot,
-  PropertyLogpPlot,
-  PredictedPropertyMwPlot,
-  PredictedPropertyLogpPlot,
-  ClassDonutPlot,
-  ClassWafflePlot,
-  StepTimingPlot,
-  PhaseTimeDonutPlot,
   ResourceTimelinePlot,
-  ProvenanceBarPlot,
-  PerModelTimingPlot,
-  HeldOutValidationPlot,
-  HeldoutRocByStrategyPlot,
-  HeldoutPrByStrategyPlot,
-  HeldoutCalibrationByStrategyPlot,
-  HeldoutEnrichmentFactorByStrategyPlot,
-  HeldoutMetricBarsPlot,
-  HeldoutConfusionByStrategyPlot,
+  RocCurvePlot,
+  ScoreRankCurvePlot,
+  StepTimingPlot,
+  ThresholdSweepPlot,
+  TopKOverlapCurvePlot,
+  Transformation,
 )
-from zairachem.report.fetcher import ResultsFetcher
-
-from zairachem.base import ZairaBase
-from zairachem.base.utils.pipeline import PipelineStep
-from zairachem.base.utils.progress import LiveProgressBar, STEP_COLORS
+from zairachem.report.table import OutputTable, PerformanceTable
 
 # Fixed (skip-name, plot-class) figures, in render order. Projection figures are appended dynamically
 # (one per discovered projection) because their count depends on the run's manifest.
@@ -225,6 +223,7 @@ class Reporter(ZairaBase):
     current figure is re-rendered right after, so this only removes stale ones."""
     import contextlib
     import glob
+
     from zairachem.base.vars import REPORT_SUBFOLDER
 
     report_dir = os.path.join(self.path, REPORT_SUBFOLDER)
@@ -279,6 +278,7 @@ class Reporter(ZairaBase):
   def _write_figure_cells(self, cells_map):
     """Persist ``{stem: [rows, cols]}`` for the HTML size badges (overwritten each render)."""
     import json
+
     from zairachem.base.vars import REPORT_SUBFOLDER
 
     report_dir = os.path.join(self.path, REPORT_SUBFOLDER)

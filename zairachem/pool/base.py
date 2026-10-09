@@ -1,7 +1,11 @@
-import json, os, gc, joblib
+import gc
+import json
+import os
+from typing import Iterator, Tuple
+
+import joblib
 import numpy as np
 import pandas as pd
-from typing import Iterator, Tuple
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
@@ -9,16 +13,16 @@ from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.utils.results import ResultsIterator
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
-  PARAMETERS_FILE,
-  SMILES_COLUMN,
-  DATA_SUBFOLDER,
-  METADATA_SUBFOLDER,
   DATA_FILENAME,
+  DATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
-  POOL_SUBFOLDER,
-  RESULTS_UNMAPPED_FILENAME,
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
+  METADATA_SUBFOLDER,
+  PARAMETERS_FILE,
+  POOL_SUBFOLDER,
+  RESULTS_UNMAPPED_FILENAME,
+  SMILES_COLUMN,
 )
 
 

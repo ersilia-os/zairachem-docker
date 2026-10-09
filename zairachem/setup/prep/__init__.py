@@ -1,11 +1,11 @@
+from zairachem.base.utils.pipeline import PipelineStep, SessionFile
+
+from .check import SetupChecker
+from .clean import SetupCleaner
 from .files import ModelIdsFile, ParametersFile, SingleFile, SingleFileForPrediction
+from .merge import DataMerger, DataMergerForPrediction
 from .standardize import ChemblStandardize
 from .tasks import SingleTasks, SingleTasksForPrediction
-from .merge import DataMerger, DataMergerForPrediction
-from .clean import SetupCleaner
-from .check import SetupChecker
-
-from zairachem.base.utils.pipeline import PipelineStep, SessionFile
 
 __all__ = [
   "ModelIdsFile",

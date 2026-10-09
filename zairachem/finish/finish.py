@@ -1,27 +1,30 @@
-import glob, os, shutil
+import glob
+import os
+import shutil
+
 import pandas as pd
 
+from zairachem.base import ZairaBase
+from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.vars import (
+  DATA_FILENAME,
+  DATA_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
-  POOL_SUBFOLDER,
+  ERSILIA_DATA_FILENAME,
   ESTIMATORS_SUBFOLDER,
-  MODEL_SUBFOLDER,
   FOLDS_SUBFOLDER,
-  REPORT_SUBFOLDER,
-  RESULTS_SUBFOLDER,
+  MODEL_SUBFOLDER,
   OUTPUT_FILENAME,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
-  DATA_SUBFOLDER,
-  DATA_FILENAME,
+  POOL_SUBFOLDER,
   RAW_INPUT_FILENAME,
-  ERSILIA_DATA_FILENAME,
-  SMILES_LIST_FILENAME,
+  REPORT_SUBFOLDER,
   RESULTS_MAPPED_FILENAME,
+  RESULTS_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
+  SMILES_LIST_FILENAME,
 )
-from zairachem.base import ZairaBase
-from zairachem.base.utils.pipeline import PipelineStep
 
 # Anonymization scope constants. Cleaner and Anonymizer still use these internally; the public
 # clean/flush flags and the --clean-target option were removed (Finisher is anonymize-only).

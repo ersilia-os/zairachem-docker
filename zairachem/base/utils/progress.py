@@ -28,11 +28,11 @@ from zairachem.base.utils.pipeline_tracker import (
   tracker,
 )
 from zairachem.base.utils.summaries import (
+  _LIVE_TABLE_STEPS,
+  _PREDICT_STEP_DESC,
   SUMMARIES,
   _detail_rows,
   _is_predict,
-  _LIVE_TABLE_STEPS,
-  _PREDICT_STEP_DESC,
   _resolve_output_dir,
   final_summary_panel,
   summarize_describe,

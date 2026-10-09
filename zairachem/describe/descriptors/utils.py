@@ -1,8 +1,10 @@
 import contextlib, h5py, os, re, subprocess
 import numpy as np
 from typing import Optional
-from zairachem.base.vars import BASE_DIR
-from zairachem.base.utils.terminal import run_command
+
+import h5py
+import numpy as np
+
 from zairachem.base.utils.logging import logger
 from zairachem.describe.descriptors import compose
 

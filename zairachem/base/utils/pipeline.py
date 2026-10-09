@@ -1,4 +1,5 @@
-import json, os
+import json
+import os
 from time import time
 
 from zairachem.base import ZairaBase

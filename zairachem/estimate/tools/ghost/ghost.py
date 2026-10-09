@@ -1,11 +1,12 @@
-import sys
 import os
+import sys
+
 import numpy as np
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(ROOT)
 
-import ghostml
+import ghostml  # noqa: E402 (needs ROOT on sys.path first)
 
 
 class GhostLight(object):

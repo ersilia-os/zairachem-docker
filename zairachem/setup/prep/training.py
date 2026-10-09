@@ -1,55 +1,56 @@
-import json, os, shutil
+import json
+import os
+import shutil
 
 from zairachem.base import params_path
-from zairachem.base.utils.console import summary_panel
-from zairachem.base.utils.preflight import (
-  require_docker_and_base,
-  report_model_images,
-  report_rank_references,
-  report_reference_transformers,
-  validate_model_roles,
-)
-from zairachem.base.utils.console import echo
-from zairachem.base.utils.logging import logger
-from zairachem.base.utils.utils import write_smiles_list
+from zairachem.base.utils.console import echo, summary_panel
 from zairachem.base.utils.isaura_report import (
-  report_store_availability,
   check_isaura_version_consistency,
   create_and_migrate_project,
   project_exists,
+  report_store_availability,
 )
-from zairachem.setup.prep import (
-  ModelIdsFile,
-  SingleFile,
-  ChemblStandardize,
-  SingleTasks,
-  DataMerger,
-  SetupCleaner,
-  SetupChecker,
-  PipelineStep,
-  SessionFile,
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.preflight import (
+  report_model_images,
+  report_rank_references,
+  report_reference_transformers,
+  require_docker_and_base,
+  validate_model_roles,
 )
-from zairachem.setup.prep.base import BaseSetup, format_store_summary
+from zairachem.base.utils.utils import write_smiles_list
 from zairachem.base.vars import (
-  DEFAULT_FEATURIZERS,
-  DEFAULT_PROJECTIONS,
-  MAX_FEATURIZERS,
-  MAX_PROJECTIONS,
-  DEFAULT_REFERENCE_LIBRARY,
-  DATA_SUBFOLDER,
   DATA_FILENAME,
-  METADATA_SUBFOLDER,
-  RESULTS_SUBFOLDER,
-  TRANSFORMERS_SUBFOLDER,
-  INPUT_SCHEMA_FILENAME,
+  DATA_SUBFOLDER,
+  DEFAULT_FEATURIZERS,
   DEFAULT_ISAURA_BUCKET,
+  DEFAULT_PROJECTIONS,
+  DEFAULT_REFERENCE_LIBRARY,
   DESCRIPTORS_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
+  INPUT_SCHEMA_FILENAME,
+  MAX_FEATURIZERS,
+  MAX_PROJECTIONS,
+  METADATA_SUBFOLDER,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
+  RESULTS_SUBFOLDER,
   SMILES_COLUMN,
   SPLITS_FILENAME,
+  TRANSFORMERS_SUBFOLDER,
 )
+from zairachem.setup.prep import (
+  ChemblStandardize,
+  DataMerger,
+  ModelIdsFile,
+  PipelineStep,
+  SessionFile,
+  SetupChecker,
+  SetupCleaner,
+  SingleFile,
+  SingleTasks,
+)
+from zairachem.setup.prep.base import BaseSetup, format_store_summary
 
 
 def _check_model_count(ids, cap, kind, flag):
@@ -292,6 +293,7 @@ class TrainSetup(BaseSetup):
     if step.is_done():
       return
     import pandas as pd
+
     from zairachem.holdout.splits import build_fold_definitions
 
     data_dir = os.path.join(self.output_dir, DATA_SUBFOLDER)

@@ -1,18 +1,7 @@
 import os
-import pandas as pd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from zairachem.base.utils.progress import SetupProgress
-from zairachem.base.vars import (
-  SMILES_COLUMN,
-  COMPOUNDS_FILENAME,
-  COMPOUND_IDENTIFIER_COLUMN,
-  STANDARD_SMILES_COLUMN,
-)
-from zairachem.setup.tools.chembl_structure.standardizer import (
-  standardize_molblock_from_smiles,
-)
-from zairachem.base.utils.logging import logger
+import pandas as pd
 
 # Single source of truth for quieting RDKit's C++ app logs (e.g. "Skipping unrecognized collection
 # type … MDLV30/STEABS" emitted while parsing V3000 molblocks during standardization) — pure noise
@@ -20,6 +9,18 @@ from zairachem.base.utils.logging import logger
 # context that standardizes: fit, predict, and the ProcessPoolExecutor workers (all import this
 # module).
 from rdkit import RDLogger
+
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.progress import SetupProgress
+from zairachem.base.vars import (
+  COMPOUND_IDENTIFIER_COLUMN,
+  COMPOUNDS_FILENAME,
+  SMILES_COLUMN,
+  STANDARD_SMILES_COLUMN,
+)
+from zairachem.setup.tools.chembl_structure.standardizer import (
+  standardize_molblock_from_smiles,
+)
 
 RDLogger.logger().setLevel(RDLogger.CRITICAL)
 

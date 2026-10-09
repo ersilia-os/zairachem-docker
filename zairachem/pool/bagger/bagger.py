@@ -1,11 +1,12 @@
-import os
-import numpy as np
-import joblib
 import collections
-from sklearn.linear_model import LogisticRegressionCV, LinearRegression
+import os
+
+import joblib
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.preprocessing import RobustScaler, PowerTransformer
-from sklearn.metrics import roc_curve, auc, r2_score
+from sklearn.linear_model import LinearRegression, LogisticRegressionCV
+from sklearn.metrics import auc, r2_score, roc_curve
+from sklearn.preprocessing import PowerTransformer, RobustScaler
 
 
 class WeightSchemes(object):

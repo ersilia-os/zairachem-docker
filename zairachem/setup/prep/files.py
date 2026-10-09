@@ -1,25 +1,28 @@
-import collections, json, os, re
+import collections
+import json
+import os
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from rdkit import Chem
-from zairachem.base.utils.progress import SetupProgress
 
-
-from zairachem.setup.prep.schema import InputSchema
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
-  DATA_SUBFOLDER,
-  COMPOUNDS_FILENAME,
-  VALUES_FILENAME,
-  MAPPING_FILENAME,
-  INPUT_SCHEMA_FILENAME,
-  MAPPING_ORIGINAL_COLUMN,
-  MAPPING_DEDUPE_COLUMN,
   COMPOUND_IDENTIFIER_COLUMN,
+  COMPOUNDS_FILENAME,
+  DATA_SUBFOLDER,
+  INPUT_SCHEMA_FILENAME,
+  MAPPING_DEDUPE_COLUMN,
+  MAPPING_FILENAME,
+  MAPPING_ORIGINAL_COLUMN,
   SMILES_COLUMN,
   VALUES_COLUMN,
+  VALUES_FILENAME,
 )
+from zairachem.setup.prep.schema import InputSchema
 
 DEDUPE_BATCH_SIZE = 5000
 DEDUPE_MAX_WORKERS = None

@@ -1,14 +1,18 @@
-import collections, joblib, os
+import collections
+import os
+
+import joblib
 import pandas as pd
+
 from zairachem.base import ZairaBase
 from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
-  Y_HAT_FILE,
-  RESULTS_UNMAPPED_FILENAME,
   RESULTS_MAPPED_FILENAME,
+  RESULTS_UNMAPPED_FILENAME,
+  Y_HAT_FILE,
 )
-from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.base import BaseOutcomeAssembler
+from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
 
 class IndividualOutcomeAssembler(BaseOutcomeAssembler):

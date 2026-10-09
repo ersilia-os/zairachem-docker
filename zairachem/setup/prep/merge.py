@@ -1,15 +1,17 @@
 import os
+
 import pandas as pd
+
+from zairachem.base.utils.logging import logger
 from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
-  STANDARD_COMPOUNDS_FILENAME,
-  TASKS_FILENAME,
-  DATA_FILENAME,
   COMPOUND_IDENTIFIER_COLUMN,
+  DATA_FILENAME,
   SMILES_COLUMN,
+  STANDARD_COMPOUNDS_FILENAME,
   STANDARD_SMILES_COLUMN,
+  TASKS_FILENAME,
 )
-from zairachem.base.utils.logging import logger
 
 
 class DataMerger(object):

@@ -1,29 +1,27 @@
+import logging
 import os
-import numpy as np
-from matplotlib.patches import Rectangle
 
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from matplotlib.patches import Rectangle
 from sklearn import metrics
 from sklearn.metrics import (
   auc,
-  roc_curve,
-  r2_score,
-  mean_absolute_error,
-  precision_recall_curve,
   average_precision_score,
-  precision_score,
-  recall_score,
+  balanced_accuracy_score,
   f1_score,
   matthews_corrcoef,
-  balanced_accuracy_score,
+  mean_absolute_error,
+  precision_recall_curve,
+  precision_score,
+  r2_score,
+  recall_score,
+  roc_curve,
 )
 
-import seaborn as sns
-import pandas as pd
-
-from zairachem.report import BasePlot
+from zairachem.report import BasePlot, perf
 from zairachem.report.fetcher import ResultsFetcher
-from zairachem.report import perf
-import logging
 
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
@@ -32,17 +30,17 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 # stylia's NPG ArticleColors), shared with perf.py and the HTML dashboard so nothing drifts. The
 # color-keyed ``named_colors`` (named_colors.red etc.) and ``category_palette`` keep the names the
 # plot call sites already use.
+from zairachem.base.vars import (  # noqa: E402
+  REPORT_SUBFOLDER,
+  VALIDATION_PREDICTIONS_FILENAME,
+  VALIDATION_TABLE_FILENAME,
+)
 from zairachem.report.colors import (  # noqa: E402
   category_palette,
   descriptor_colors_rgb,
   named_colors,
   phase_color_rgb as _phase_color,
   rgb as _color,
-)
-from zairachem.base.vars import (  # noqa: E402
-  REPORT_SUBFOLDER,
-  VALIDATION_PREDICTIONS_FILENAME,
-  VALIDATION_TABLE_FILENAME,
 )
 
 

@@ -17,7 +17,7 @@ from rich.panel import Panel
 
 from zairachem.base.utils.console import console, detail, rule, set_active_color
 from zairachem.base.utils.live import _resource_caption
-from zairachem.base.utils.summaries import _detail_rows, _is_predict, _PREDICT_STEP_DESC
+from zairachem.base.utils.summaries import _PREDICT_STEP_DESC, _detail_rows, _is_predict
 
 #: Ordered pipeline steps as (key, label, description). No emojis — the checklist uses glyphs only.
 PIPELINE_STEPS = [

@@ -1,25 +1,28 @@
-import csv, json, os
+import csv
+import json
+import os
 import random
+
 import pandas as pd
-from rdkit import DataStructs
-from rdkit import Chem
+from rdkit import Chem, DataStructs
+
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.progress import SetupProgress
+from zairachem.base.vars import (
+  COMPOUND_IDENTIFIER_COLUMN,
+  DATA_FILENAME,
+  DATA_SUBFOLDER,
+  INPUT_SCHEMA_FILENAME,
+  MAPPING_DEDUPE_COLUMN,
+  MAPPING_FILENAME,
+  MAPPING_ORIGINAL_COLUMN,
+  RAW_INPUT_FILENAME,
+  SMILES_COLUMN,
+  VALUES_COLUMN,
+)
 from zairachem.setup.tools.chembl_structure.standardizer import (
   standardize_molblock_from_smiles,
 )
-from zairachem.base.utils.progress import SetupProgress
-from zairachem.base.vars import (
-  INPUT_SCHEMA_FILENAME,
-  RAW_INPUT_FILENAME,
-  MAPPING_FILENAME,
-  COMPOUND_IDENTIFIER_COLUMN,
-  MAPPING_ORIGINAL_COLUMN,
-  MAPPING_DEDUPE_COLUMN,
-  VALUES_COLUMN,
-  SMILES_COLUMN,
-  DATA_SUBFOLDER,
-  DATA_FILENAME,
-)
-from zairachem.base.utils.logging import logger
 
 MAX_CHECK_SAMPLES = 10000
 
@@ -113,7 +116,7 @@ class SetupChecker(object):
         progress.update(task, advance=1)
     logger.info(f"[check] Found {discrepancies:,} discrepancies in {n_total:,} checked molecules")
     if discrepancies < n_total * 0.25:
-        logger.warning("Number of discrepencies >25%")
+      logger.warning("Number of discrepencies >25%")
 
   def check_activity(self):
     self._get_input_schema()

@@ -1,14 +1,15 @@
 import os
+
 import pandas as pd
 
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   COMPOUNDS_FILENAME,
+  DATA_FILENAME,
   STANDARD_COMPOUNDS_FILENAME,
   TASKS_FILENAME,
   VALUES_FILENAME,
-  DATA_FILENAME,
 )
-from zairachem.base.utils.logging import logger
 
 
 class SetupCleaner(object):

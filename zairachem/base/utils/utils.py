@@ -1,5 +1,12 @@
-import csv, shutil, subprocess, requests, sys, time
+import csv
+import shutil
+import subprocess
+import sys
+import time
 from io import StringIO
+
+import requests
+
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.terminal import run_command
 from zairachem.base.vars import (

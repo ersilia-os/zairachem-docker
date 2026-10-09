@@ -1,35 +1,36 @@
 import contextlib
 import csv
-import json
+import gc
 import hashlib
+import json
 import os
+import re
 import threading
 import time
-import gc
-import requests
-import re
-import pandas as pd
-import numpy as np
-from zairachem.base.utils.logging import logger
-from zairachem.base.utils.console import console, echo
-from zairachem.base import ZairaBase
-from zairachem.base.utils.utils import (
-  fetch_schema_from_github,
-)
-from zairachem.base.utils.model_version import ersilia_model_version
-from zairachem.base.vars import METADATA_SUBFOLDER, PARAMETERS_FILE
 from urllib.parse import urlparse
+
+import numpy as np
+import pandas as pd
+import requests
 from rich.progress import (
+  BarColumn,
+  MofNCompleteColumn,
   Progress,
   SpinnerColumn,
-  TextColumn,
-  BarColumn,
   TaskProgressColumn,
-  MofNCompleteColumn,
+  TextColumn,
   TimeElapsedColumn,
   TimeRemainingColumn,
 )
 
+from zairachem.base import ZairaBase
+from zairachem.base.utils.console import console, echo
+from zairachem.base.utils.logging import logger
+from zairachem.base.utils.model_version import ersilia_model_version
+from zairachem.base.utils.utils import (
+  fetch_schema_from_github,
+)
+from zairachem.base.vars import METADATA_SUBFOLDER, PARAMETERS_FILE
 
 # isaura is an OPTIONAL dependency — only needed when a run requests a --store. We import the
 # classes zairachem uses directly against the CURRENT isaura API; there is deliberately no

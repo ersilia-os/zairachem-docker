@@ -1,16 +1,17 @@
-import os
 import json
+import os
+
 import joblib
 import numpy as np
 import pandas as pd
-
-from ..base import BasePooler
-from .pooler import ReliabilityClassifierPooler
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.vars import POOL_SUBFOLDER
+
+from ..base import BasePooler
+from .pooler import ReliabilityClassifierPooler
 
 #: Summary written by the pooler and rendered under the Pool step banner (see progress.py).
 SUMMARY_FILENAME = "reliability_summary.json"

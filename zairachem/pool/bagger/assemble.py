@@ -1,16 +1,17 @@
 import os
+
 import joblib
 import numpy as np
 import pandas as pd
 
-from ..base import BaseOutcomeAssembler
-
 from zairachem.base.vars import (
   DATA_SUBFOLDER,
   POOL_SUBFOLDER,
-  RESULTS_UNMAPPED_FILENAME,
   RESULTS_MAPPED_FILENAME,
+  RESULTS_UNMAPPED_FILENAME,
 )
+
+from ..base import BaseOutcomeAssembler
 
 
 class BaggerAssembler(BaseOutcomeAssembler):

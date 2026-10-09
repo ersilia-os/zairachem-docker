@@ -18,13 +18,14 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+import pickle
 import unittest
 
 import numpy as np
-import pickle
-import ghost
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn import metrics
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+
+import ghost
 
 
 class TestGHOST(unittest.TestCase):

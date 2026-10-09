@@ -1,5 +1,6 @@
-import numpy as np
 import collections
+
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
 from sklearn.ensemble import RandomForestRegressor

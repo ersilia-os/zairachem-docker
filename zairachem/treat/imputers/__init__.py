@@ -1,4 +1,6 @@
-import json, os
+import json
+import os
+
 from zairachem.base import ZairaBase
 from zairachem.base.vars import DESCRIPTORS_SUBFOLDER
 

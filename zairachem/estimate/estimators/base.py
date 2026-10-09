@@ -1,24 +1,26 @@
-import json, os
-import pandas as pd
+import json
+import os
+from typing import Iterator, Optional, Tuple
+
 import numpy as np
-from typing import Iterator, Tuple, Optional
+import pandas as pd
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import open_h5, DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE, open_h5
 from zairachem.base.vars import (
+  COMPOUND_IDENTIFIER_COLUMN,
+  DATA_FILENAME,
+  DATA_SUBFOLDER,
+  DESCRIPTORS_SUBFOLDER,
+  ESTIMATORS_SUBFOLDER,
   INPUT_SCHEMA_FILENAME,
   MAPPING_FILENAME,
-  COMPOUND_IDENTIFIER_COLUMN,
-  PARAMETERS_FILE,
-  SMILES_COLUMN,
-  DATA_SUBFOLDER,
   METADATA_SUBFOLDER,
-  DATA_FILENAME,
-  ESTIMATORS_SUBFOLDER,
-  DESCRIPTORS_SUBFOLDER,
+  PARAMETERS_FILE,
   RANK_REFERENCE_TREATED_FILENAME,
   RAW_DESC_FILENAME,
+  SMILES_COLUMN,
   TREATED_DESC_FILENAME,
 )
 
