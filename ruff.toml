@@ -41,12 +41,8 @@ line-length = 100
 exclude = [
   "docs/",
   "models/",
-  "tests/",
   "examples/",
   "extra/",
-  "tinygrad/runtime/autogen",
-  "test/external/mlperf_resnet",
-  "test/external/mlperf_unet3d",
 ]
 
 [lint.isort]

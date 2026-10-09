@@ -8,7 +8,7 @@ IMPROVEMENTS.md
 
 .DS_Store
 dev/
-tests
+zairachem/describe/files/configs/
 # eosvc-managed data (rank-reference matrices): `eosvc download/upload --path data`
 data/**
 # Written by eosvc when it resolves this repo; derived from access.json, not authored.
