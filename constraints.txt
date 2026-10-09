@@ -54,7 +54,7 @@ requests==2.34.2
 rich==14.1.0
 rich-click==1.8.9
 ruff==0.15.18
-s3transfer==0.19.0
+s3transfer==0.19.2
 scikit-learn==1.9.1
 scipy==1.17.1
 seaborn==0.13.2
