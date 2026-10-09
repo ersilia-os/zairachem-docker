@@ -109,10 +109,10 @@ class Fitter(BaseEstimatorIndividual):
       # Per-row signals scattered back to original row order. ``preds`` is the calibrated
       # probability (OOF for training rows where available — honest, not resubstitution); ``ranks``
       # is lazy-qsar's position against its rank reference library (0.50 = top 10%, 0.65 = top 1%);
-      # ``ads`` is the applicability-domain score. The training set is currently the whole dataset
-      # (get_train_indices returns all rows), so X_train holds every row and we predict straight
-      # from it in batches; if a real train/test split is ever introduced (train_order no longer
-      # covers all rows) we fall back to a chunked re-read.
+      # ``ads`` is the applicability-domain score. The training rows are always filled from X_train
+      # (OOF probabilities, plus ranks and AD predicted in batches) so a fold that trains on a subset
+      # is fitted on the same kind of signals as the shipped model; rows outside the training set
+      # (the held-out slice of a fold) are predicted from the model in a chunked re-read.
       n_samples = shape[0]
       preds = np.empty(n_samples, dtype=np.float32)
       preds_raw = np.full(n_samples, np.nan, dtype=np.float32)  # uncalibrated OOF (report raw lens)
@@ -128,42 +128,45 @@ class Fitter(BaseEstimatorIndividual):
       oof_proba, _ = self._safe_pooled_oof(model, X_train, y_train)
       use_oof = oof_proba is not None and len(oof_proba) == train_order_arr.size
       if not use_oof:
-        logger.info(
+        logger.warning(
           f"[lazyqsar:fit] {self.model_id}: OOF unavailable, using resubstitution for pooler input"
         )
+      self._record_oof_used(descriptor_dir, use_oof)
       # Uncalibrated (raw) pooled OOF — for the report's raw score lens. Independent of use_oof; simply
       # absent (NaN → dropped) when raw OOF can't be reconstructed.
       oof_raw, _ = self._safe_pooled_oof_raw(model, X_train, y_train)
       use_raw = oof_raw is not None and len(oof_raw) == train_order_arr.size
-      if covers_all:
-        if use_oof:
-          preds[train_order_arr] = np.asarray(oof_proba, dtype=np.float32)
-        else:
-          preds[train_order_arr] = self._batched(
-            lambda xb: model.predict_proba(X=xb)[:, 1], X_train
-          )
-        if use_raw:
-          preds_raw[train_order_arr] = np.asarray(oof_raw, dtype=np.float32)
-        ranks[train_order_arr] = self._batched(
-          lambda xb: model.predict_rank(X=xb)[:, 1], X_train, default=np.nan
-        )
-        if ad_model is not None:
-          ads[train_order_arr] = self._batched(
-            lambda xb: ad_model.score(xb), X_train, default=np.nan
-          )
+      if use_oof:
+        preds[train_order_arr] = np.asarray(oof_proba, dtype=np.float32)
+      else:
+        preds[train_order_arr] = self._batched(lambda xb: model.predict_proba(X=xb)[:, 1], X_train)
+      if use_raw:
+        preds_raw[train_order_arr] = np.asarray(oof_raw, dtype=np.float32)
+      ranks[train_order_arr] = self._batched(
+        lambda xb: model.predict_rank(X=xb)[:, 1], X_train, default=np.nan
+      )
+      if ad_model is not None:
+        ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
       del X_train
       gc.collect()
       model_folder = os.path.join(self.trained_path, self.model_id, t)
       model.save(model_folder)
       logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
       if not covers_all:
+        # Only the rows the model never saw: training rows already carry their OOF signals above.
+        is_train = np.zeros(n_samples, dtype=bool)
+        is_train[train_order_arr] = True
         for start, end, chunk in self._iter_X():
-          preds[start:end] = model.predict_proba(X=chunk)[:, 1]
-          with contextlib.suppress(Exception):
-            ranks[start:end] = model.predict_rank(X=chunk)[:, 1]
-          if ad_model is not None:
+          idx = np.flatnonzero(~is_train[start:end])
+          if idx.size:
+            rows = chunk[idx]
+            idx = idx + start
+            preds[idx] = model.predict_proba(X=rows)[:, 1]
             with contextlib.suppress(Exception):
-              ads[start:end] = ad_model.score(chunk)
+              ranks[idx] = model.predict_rank(X=rows)[:, 1]
+            if ad_model is not None:
+              with contextlib.suppress(Exception):
+                ads[idx] = ad_model.score(rows)
           del chunk
           gc.collect()
       # Rank→error reliability curve, built from the training rows' (rank, prediction, label).
@@ -185,6 +188,19 @@ class Fitter(BaseEstimatorIndividual):
     self.update_elapsed_time()
     gc.collect()
     return tasks
+
+  @staticmethod
+  def _record_oof_used(descriptor_dir, oof_used):
+    """Record in ``cv_report.json`` whether the pooler input is out-of-fold (else resubstitution)."""
+    path = os.path.join(descriptor_dir, "cv_report.json")
+    try:
+      with open(path) as f:
+        report = json.load(f)
+      report["oof_used"] = bool(oof_used)
+      with open(path, "w") as f:
+        json.dump(report, f, indent=2)
+    except Exception as e:
+      logger.debug(f"[lazyqsar:fit] could not record oof_used in {path}: {e}")
 
   def _write_cv_report(self, model, X_train, y_train, descriptor_dir):
     """Persist lazy-qsar's internal cross-validation results for this descriptor.
