@@ -1,12 +1,4 @@
 import importlib.util
-from urllib.parse import urlparse
-import numpy as np
-import rich_click as click
-import rich_click.rich_click as rc
-from click.core import ParameterSource
-from zairachem.base.utils.logging import logger
-from zairachem.base.utils.rich_help import StatusGroupMixin
-from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE
 
 # Heavy pipeline classes (Describer, EstimatorPipeline, Reporter, run_fit, ...) pull in
 # matplotlib, lazyqsar, xgboost and onnx. They are imported lazily inside the commands that
@@ -27,7 +19,7 @@ from click.core import ParameterSource
 
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.rich_help import StatusGroupMixin
-from zairachem.base.vars import NGINX_IMAGE, RANDOM_SEED, REDIS_IMAGE
+from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE
 
 _logging.getLogger("matplotlib").setLevel(_logging.ERROR)
 

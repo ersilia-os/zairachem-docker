@@ -1,5 +1,6 @@
 import re
-from zairachem.base.vars import REDIS_IMAGE, NETWORK_NAME
+
+from zairachem.base.vars import NETWORK_NAME, REDIS_IMAGE
 
 
 def _sanitize(name):
