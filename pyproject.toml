@@ -37,6 +37,13 @@ isaura = ["isaura"]
 [tool.poetry.scripts]
 zairachem = "zairachem.cli:main"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "9.1.1"
+ruff   = "0.15.18"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [build-system]
 requires    = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
