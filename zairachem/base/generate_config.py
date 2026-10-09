@@ -1,5 +1,5 @@
 import re
-from zairachem.base.vars import REDIS_IMAGE, NGINX_IMAGE, NETWORK_NAME, NGINX_HOST_PORT
+from zairachem.base.vars import REDIS_IMAGE, NETWORK_NAME
 
 
 def _sanitize(name):
@@ -17,59 +17,13 @@ def _service_block(model_id, host_port, network_name):
       REDIS_PORT: "6379"
       REDIS_URI: "redis://redis:6379"
       REDIS_EXPIRATION: "604800"
-    restart: unless-stopped
     ports:
-      - "{host_port}:80"
+      - "127.0.0.1:{host_port}:80"
     networks:
       - {network_name}
     depends_on:
       redis:
         condition: service_healthy
-"""
-
-
-def _nginx_upstream(model_id):
-  # `upstream` is only valid directly under `http`, so these go before the `server` block.
-  service_name = f"{_sanitize(model_id)}_api"
-  return f"""    upstream {service_name} {{
-        server {service_name}:80;
-        keepalive 64;
-    }}
-
-"""
-
-
-def _nginx_location(model_id):
-  service_name = f"{_sanitize(model_id)}_api"
-  public_path = f"/{model_id}/"
-  return f"""        location {public_path} {{
-            proxy_http_version 1.1;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $connection_upgrade;
-            proxy_connect_timeout 30s;
-            proxy_send_timeout 120s;
-            proxy_read_timeout 300s;
-            proxy_buffering on;
-            proxy_buffers 32 16k;
-            proxy_busy_buffers_size 64k;
-            proxy_max_temp_file_size 0;
-            proxy_next_upstream error timeout http_500 http_502 http_503 http_504;
-            proxy_cache api_cache;
-            proxy_cache_revalidate on;
-            proxy_cache_use_stale error timeout http_500 http_502 http_503 http_504 updating;
-            proxy_cache_bypass $http_cache_control $http_pragma;
-            proxy_no_cache $http_cache_control $http_pragma;
-            proxy_cache_valid 200 301 302 10m;
-            proxy_cache_valid 404 1m;
-            add_header X-Cache-Status $upstream_cache_status always;
-            limit_req zone=perip burst=20 nodelay;
-            limit_conn perip_conn 40;
-            proxy_pass http://{service_name}/;
-        }}
 """
 
 
@@ -106,27 +60,28 @@ def _networks_block(
 """
 
 
-def generate_compose_and_nginx(
+def generate_compose(
   models_with_ports,
-  nginx_host_port=NGINX_HOST_PORT,
   network_name=NETWORK_NAME,
   *,
   docker_network_name=None,
   ipam_subnet=None,
   external=False,
 ):
+  """The docker-compose YAML for one run: a redis cache plus one API service per model.
+
+  Redis is stateless (no volume), so it disappears with the run's compose project.
+  """
   header = "services:\n"
 
   redis = f"""  redis:
       image: {REDIS_IMAGE}
       command:
         - redis-server
-        - --appendonly
-        - "yes"
-        - --appendfsync
-        - everysec
         - --save
         - ""
+        - --appendonly
+        - "no"
         - --maxmemory
         - 4gb
         - --maxmemory-policy
@@ -140,26 +95,8 @@ def generate_compose_and_nginx(
         # redis answers `ping` almost immediately once up; 5×5s is ample headroom. (Was 20, i.e. up to
         # ~100s, which let a slow/missing redis stall every model service's `depends_on` for minutes.)
         retries: 5
-      volumes:
-        - redis_data:/data
       networks:
         - {network_name}
-"""
-
-  nginx = f"""  nginx:
-    image: {NGINX_IMAGE}
-    depends_on:
-"""
-  for mid in sorted(models_with_ports):
-    nginx += f"      - {_sanitize(mid)}_api\n"
-  nginx += f"""    ports:
-      - "{nginx_host_port}:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - nginx_cache:/var/cache/nginx
-    restart: unless-stopped
-    networks:
-      - {network_name}
 """
 
   services = "".join(
@@ -175,100 +112,4 @@ def generate_compose_and_nginx(
     external=external,
   )
 
-  volumes = """volumes:
-  redis_data:
-  nginx_cache:
-"""
-
-  compose_yaml = header + redis + nginx + services + networks + volumes
-
-  return compose_yaml, generate_nginx_conf(models_with_ports)
-
-
-def generate_nginx_conf(model_ids):
-  """The nginx gateway config for ``model_ids``: one upstream + one ``/<model_id>/`` route each.
-
-  Independent of the host ports (nginx reaches each service on the Docker network), so it can be
-  rewritten on every run without touching the compose file.
-  """
-  nginx_top = """worker_processes auto;
-
-events {
-    worker_connections 4096;
-    multi_accept on;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    sendfile        on;
-    tcp_nopush      on;
-    tcp_nodelay     on;
-    server_tokens   off;
-
-    log_format main_json escape=json
-      '{'
-        '"time_local":"$time_local",'
-        '"remote_addr":"$remote_addr",'
-        '"request":"$request",'
-        '"status":$status,'
-        '"bytes_sent":$bytes_sent,'
-        '"request_time":$request_time,'
-        '"upstream_response_time":"$upstream_response_time",'
-        '"upstream_addr":"$upstream_addr",'
-        '"cache":"$upstream_cache_status"'
-      '}';
-    access_log /var/log/nginx/access.log main_json;
-
-    gzip on;
-    gzip_comp_level 5;
-    gzip_min_length 1024;
-    gzip_vary on;
-    gzip_proxied any;
-    gzip_types
-        text/plain
-        text/css
-        text/xml
-        text/javascript
-        application/json
-        application/javascript
-        application/xml
-        application/xhtml+xml
-        application/rss+xml
-        font/woff
-        font/woff2;
-
-    proxy_cache_path /var/cache/nginx/api
-        levels=1:2
-        keys_zone=api_cache:20m
-        max_size=1g
-        inactive=10m
-        use_temp_path=off;
-
-    limit_req_zone $binary_remote_addr zone=perip:10m rate=10r/s;
-    limit_conn_zone $binary_remote_addr zone=perip_conn:10m;
-
-    map $http_upgrade $connection_upgrade {
-        default upgrade;
-        ''      close;
-    }
-
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
-
-"""
-  server_top = """    server {
-        listen 80;
-        server_name _;
-
-        location = / {
-            return 200 'Ersilia API gateway is up. Try one of the /<model_id>/ paths.\\n';
-            add_header Content-Type text/plain;
-        }
-
-"""
-  ids = sorted(model_ids)
-  upstreams = "".join(_nginx_upstream(model_id) for model_id in ids)
-  locations = "".join(_nginx_location(model_id) for model_id in ids)
-  return nginx_top + upstreams + server_top + locations + "    }\n}\n"
+  return header + redis + services + networks

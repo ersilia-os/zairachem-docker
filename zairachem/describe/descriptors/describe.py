@@ -1,16 +1,15 @@
 import json, os
 from zairachem.describe.descriptors.raw import RawDescriptors
+from zairachem.describe.descriptors import compose
 from zairachem.describe.descriptors.utils import (
   service_exists,
   write_service_file,
   _ensure_network,
-  _recreate_container_if_exists,
 )
 from zairachem.base.utils.utils import install_docker_compose
-from zairachem.base.utils.terminal import run_command
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
-from zairachem.base.generate_config import generate_compose_and_nginx, generate_nginx_conf
+from zairachem.base.generate_config import generate_compose
 from zairachem.base.vars import (
   NETWORK_NAME,
   METADATA_SUBFOLDER,
@@ -23,9 +22,6 @@ from pathlib import Path
 
 cwd = Path(__file__).parent.parent
 base_file_path = cwd / "files"
-base_config_path = base_file_path / "configs"
-nginx_config_file = base_config_path / "nginx.conf"
-compose_yml_file = base_config_path / "docker-compose.yml"
 install_file = base_file_path / "install_compose.sh"
 
 
@@ -58,30 +54,27 @@ class Describer(ZairaBase):
     return featurizers + data["projection_ids"]
 
   def create_config_files(self):
+    """Write the run's compose file, reusing it while it still covers every model."""
+    compose_yml_file = compose.compose_file(self.path)
     all_service_exists = service_exists(compose_yml_file, self.models)
 
     if isinstance(all_service_exists, bool) and not all_service_exists:
-      os.remove(compose_yml_file)
-      os.remove(nginx_config_file)
+      compose_yml_file.unlink(missing_ok=True)
 
-    if not os.path.exists(compose_yml_file) or not os.path.exists(nginx_config_file):
-      os.makedirs(base_config_path, exist_ok=True)
-      compose, nginx_conf = generate_compose_and_nginx(self._get_models_ports())
-      Path(compose_yml_file).write_text(compose)
-      Path(nginx_config_file).write_text(nginx_conf)
-    # The gateway config does not depend on ports, so it is always regenerated: a config written by an
-    # older ZairaChem (upstreams inside `server`, which nginx rejects) is replaced rather than kept.
-    Path(nginx_config_file).write_text(generate_nginx_conf(self.models))
+    if not compose_yml_file.exists():
+      compose_yml_file.parent.mkdir(parents=True, exist_ok=True)
+      compose_yml_file.write_text(generate_compose(self._get_models_ports()))
 
   def setup_model_servers(self):
     self.create_config_files()
     _ensure_network(NETWORK_NAME)
-    _recreate_container_if_exists()
-    install_docker_compose(install_file)
-    try:
-      run_command(["docker-compose", "-f", os.fspath(compose_yml_file), "up", "-d"], quiet=True)
-    except Exception as e:
-      self.logger.warning(f"[describe] docker-compose up failed: {e}")
+    if compose.compose_cmd() is None:
+      install_docker_compose(install_file)
+      compose.compose_cmd.cache_clear()
+    if not compose.up(self.path):
+      raise RuntimeError(
+        "Could not start the model servers; see ~/zairachem/commands.log for the compose output."
+      )
 
   def _raw_descriptions(self):
     step = PipelineStep("raw_descriptions", self.output_dir)

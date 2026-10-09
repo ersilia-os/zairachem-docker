@@ -10,7 +10,7 @@ import rich_click.rich_click as rc
 from click.core import ParameterSource
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.rich_help import StatusGroupMixin
-from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE, NGINX_IMAGE
+from zairachem.base.vars import RANDOM_SEED, REDIS_IMAGE
 
 # Heavy pipeline classes (Describer, EstimatorPipeline, Reporter, run_fit, ...) pull in
 # matplotlib, lazyqsar, xgboost and onnx. They are imported lazily inside the commands that
@@ -56,6 +56,38 @@ rc.COMMAND_GROUPS = {
 
 
 def process_group(
+  output_dir,
+  anonymize,
+  batch_size=None,
+  keep_intermediate_data=False,
+  no_report=False,
+  describe_workers=None,
+):
+  # The model servers are started by describe and used until estimate ends; they are always stopped
+  # when the run ends, including on failure, Ctrl-C and SIGTERM (turned into an interrupt below).
+  import signal
+
+  from zairachem.describe.descriptors.compose import stop_model_servers
+
+  def _interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+  previous = signal.signal(signal.SIGTERM, _interrupt)
+  try:
+    _run_steps(
+      output_dir,
+      anonymize,
+      batch_size=batch_size,
+      keep_intermediate_data=keep_intermediate_data,
+      no_report=no_report,
+      describe_workers=describe_workers,
+    )
+  finally:
+    stop_model_servers(output_dir)
+    signal.signal(signal.SIGTERM, previous)
+
+
+def _run_steps(
   output_dir,
   anonymize,
   batch_size=None,
@@ -120,6 +152,11 @@ def process_group(
   # ignores tiny values.
   estimate_seconds = time.time() - _estimate_t0
   tracker.complete("estimate", SUMMARIES["estimate"](output_dir))
+
+  # Nothing after estimate talks to a model server: free the containers before holdout and report.
+  from zairachem.describe.descriptors.compose import stop_model_servers
+
+  stop_model_servers(output_dir)
 
   from zairachem.pool.pipe import PoolerPipeline
 
@@ -382,7 +419,7 @@ def _docker_image_present(image):
 
 def _docker_status_line():
   # Docker is required: ZairaChem serves the Ersilia models as Docker images. When the daemon
-  # is up, also report whether the base images (redis, nginx) are pulled.
+  # is up, also report whether the base images (redis) are pulled.
   if not _docker_running():
     return (
       "[red]●[/] [bold]Docker[/]: [red]not running[/] [dim](required — start Docker Desktop)[/]"
@@ -393,7 +430,7 @@ def _docker_status_line():
 
   return (
     "[green]●[/] [bold]Docker[/]: [green]running[/] "
-    f"[dim]· base images:[/] redis {mark(REDIS_IMAGE)} nginx {mark(NGINX_IMAGE)}"
+    f"[dim]· base images:[/] redis {mark(REDIS_IMAGE)}"
   )
 
 

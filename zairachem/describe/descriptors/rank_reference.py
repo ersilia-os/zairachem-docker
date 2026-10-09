@@ -196,13 +196,13 @@ def _resolve_raw(path, eos_id, version, csv, raw_path, batch_size):
     logger.info(f"[rank_reference] {eos_id} read from {hit}")
     link_into_run(hit, raw_path)
     return "data"
-  url = get_model_url(eos_id)
+  url = get_model_url(eos_id, path)
   if url is None:
     from zairachem.describe.descriptors.describe import Describer
 
     logger.info(f"[rank_reference] {eos_id} server is down; starting the model servers")
     Describer(path=path).setup_model_servers()
-    url = get_model_url(eos_id)
+    url = get_model_url(eos_id, path)
   logger.info(f"[rank_reference] {eos_id} computing the 50,000 reference molecules")
   client = BinaryStreamClient(
     path=path, csv_path=csv, model_id=eos_id, url=url, project_name=os.path.basename(path)

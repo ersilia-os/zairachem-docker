@@ -1,17 +1,15 @@
 import contextlib, h5py, os, re, subprocess
 import numpy as np
-from pathlib import Path
 from typing import Optional
 from zairachem.base.vars import BASE_DIR
 from zairachem.base.utils.terminal import run_command
 from zairachem.base.utils.logging import logger
+from zairachem.describe.descriptors import compose
 
 try:
   import yaml
 except Exception:
   yaml = None
-
-compose_file = Path(__file__).parent.parent / "files" / "configs" / "docker-compose.yml"
 
 
 class Hdf5Data:
@@ -75,46 +73,40 @@ def _parse_cli_port(out: str) -> Optional[int]:
   return None
 
 
-def _via_cli(service: str) -> Optional[int]:
-  compose_path = os.fspath(compose_file)
+def _via_cli(service: str, path) -> Optional[int]:
+  args = compose.compose_args(path)
+  if args is None:
+    return None
+  cmd = [*args, "port", service, "80"]
 
-  cmds = [
-    ["docker", "compose", "-f", compose_path, "port", service, "80"],
-    ["docker-compose", "-f", compose_path, "port", service, "80"],
-  ]
+  logger.debug(f"Resolving port for service '{service}' with: {' '.join(cmd)}")
 
-  logger.debug(f"Resolving port for service '{service}' using compose file: {compose_path}")
+  try:
+    out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
+    logger.debug(f"Command output: '{out}'")
 
-  for cmd in cmds:
-    logger.debug(f"Trying command: {' '.join(cmd)}")
+    port = _parse_cli_port(out)
+    if port is not None:
+      logger.info(f"Resolved '{service}' → port {port}")
+      return port
 
-    try:
-      out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
-      logger.debug(f"Command output: '{out}'")
+    logger.warning(f"No usable port found in output for '{service}': '{out}'")
 
-      port = _parse_cli_port(out)
-      if port is not None:
-        logger.info(f"Resolved '{service}' → port {port}")
-        return port
+  except subprocess.CalledProcessError as e:
+    logger.error(
+      f"Command failed: {' '.join(cmd)} | Return code: {e.returncode} | Output: {e.output.strip()}"
+    )
 
-      logger.warning(f"No usable port found in output for '{service}': '{out}'")
+  except Exception as e:
+    logger.exception(f"Unexpected error running command: {' '.join(cmd)} | Error: {e}")
 
-    except subprocess.CalledProcessError as e:
-      logger.error(
-        f"Command failed: {' '.join(cmd)} | Return code: {e.returncode} | Output: {e.output.strip()}"
-      )
-
-    except Exception as e:
-      logger.exception(f"Unexpected error running command: {' '.join(cmd)} | Error: {e}")
-
-  logger.error(
-    f"Failed to resolve port for service '{service}' after trying {len(cmds)} command variations."
-  )
+  logger.error(f"Failed to resolve port for service '{service}'.")
   return None
 
 
-def _via_yaml(service: str) -> Optional[int]:
-  if yaml is None:
+def _via_yaml(service: str, path) -> Optional[int]:
+  compose_file = compose.compose_file(path)
+  if yaml is None or not compose_file.exists():
     return None
   with open(compose_file, "r", encoding="utf-8") as f:
     data = yaml.safe_load(f) or {}
@@ -142,13 +134,14 @@ def _via_yaml(service: str) -> Optional[int]:
   return None
 
 
-def get_model_host_port(model_id: str) -> Optional[int]:
+def get_model_host_port(model_id: str, path) -> Optional[int]:
   service = _service_name(model_id)
-  return _via_cli(service) or _via_yaml(service)
+  return _via_cli(service, path) or _via_yaml(service, path)
 
 
-def get_model_url(model_id: str, host: str = "localhost") -> Optional[str]:
-  port = get_model_host_port(model_id)
+def get_model_url(model_id: str, path, host: str = "localhost") -> Optional[str]:
+  """URL of ``model_id``'s server in the run folder ``path``, or None when it is not up."""
+  port = get_model_host_port(model_id, path)
   return f"http://{host}:{port}/run" if port else None
 
 
@@ -163,21 +156,3 @@ def _ensure_network(name):
   out = subprocess.check_output(["docker", "network", "ls", "--format", "{{.Name}}"], text=True)
   if not re.search(rf"(?m)^{re.escape(name)}$", out):
     raise RuntimeError(f"docker network '{name}' not found")
-
-
-def _recreate_container_if_exists():
-  # Probe quietly: a missing 'redis' container is the normal case and must not be logged as an
-  # error (run_command logs every non-zero exit), so check existence with a silent subprocess.
-  try:
-    exists = (
-      subprocess.run(
-        ["docker", "container", "inspect", "redis"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-      ).returncode
-      == 0
-    )
-  except OSError:
-    exists = False
-  if exists:
-    run_command(["docker", "rm", "-f", "redis"], quiet=True)
