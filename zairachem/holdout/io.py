@@ -32,7 +32,7 @@ def _stats(values):
   }
 
 
-def write_validation_outputs(model_dir, folds, records):
+def write_validation_outputs(model_dir, folds, records, failures=None):
   """Write ``report/validation_table.csv`` (one row per fold) and ``report/holdout_summary.json``.
 
   Parameters
@@ -43,9 +43,23 @@ def write_validation_outputs(model_dir, folds, records):
     The fold definitions from ``metadata/splits.json`` (used for the total expected count).
   records : list of dict
     Per-fold metrics returned by :func:`zairachem.holdout.engine.run_one_fold`.
+  failures : list of dict, optional
+    One ``{"fold", "strategy", "error"}`` entry per fold that raised; recorded in the summary.
   """
+  failures = failures or []
   report_dir = os.path.join(model_dir, REPORT_SUBFOLDER)
   os.makedirs(report_dir, exist_ok=True)
+
+  if not records:
+    # Nothing scored: write no (empty) table/predictions, and drop any left by an earlier run so the
+    # report cannot show stale results. The summary still records what failed.
+    for name in (VALIDATION_TABLE_FILENAME, VALIDATION_PREDICTIONS_FILENAME):
+      path = os.path.join(report_dir, name)
+      if os.path.exists(path):
+        os.remove(path)
+    _write_summary(report_dir, folds, [], {}, failures)
+    logger.error(f"[evaluate] Held-out validation: 0/{len(folds)} folds scored")
+    return
 
   table_cols = ["strategy", "fold", "seed", "auroc", "aupr", "num_train", "num_test", "num_test_1"]
   with open(os.path.join(report_dir, VALIDATION_TABLE_FILENAME), "w", newline="") as f:
@@ -80,15 +94,25 @@ def write_validation_outputs(model_dir, folds, records):
       "auroc": _stats([r.get("auroc") for r in rows]),
       "aupr": _stats([r.get("aupr") for r in rows]),
     }
+  _write_summary(report_dir, folds, records, strategies, failures)
+  message = (
+    f"[evaluate] Held-out validation: {len(records)}/{len(folds)} folds scored "
+    f"→ {VALIDATION_TABLE_FILENAME}"
+  )
+  if failures:
+    logger.warning(message)
+  else:
+    logger.success(message)
+
+
+def _write_summary(report_dir, folds, records, strategies, failures):
   summary = {
     "n_folds_defined": len(folds),
     "n_folds_run": len(records),
+    "n_folds_failed": len(failures),
+    "failed_folds": failures,
     "strategies": strategies,
     "per_fold": records,
   }
   with open(os.path.join(report_dir, HOLDOUT_SUMMARY_FILENAME), "w") as f:
     json.dump(summary, f, indent=2, default=float)
-  logger.success(
-    f"[evaluate] Held-out validation: {len(records)}/{len(folds)} folds scored "
-    f"→ {VALIDATION_TABLE_FILENAME}"
-  )
