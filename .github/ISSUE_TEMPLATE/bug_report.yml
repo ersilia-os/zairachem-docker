@@ -1,0 +1,28 @@
+name: Bug report
+description: Something fails or gives a wrong result
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The `zairachem` command line, including options.
+      render: shell
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant part of `console.log` (in `~/zairachem/`) and `commands.log` for Docker errors.
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Environment
+      description: ZairaChem version, Python version, OS, Docker version.
