@@ -13,9 +13,10 @@ class HoldoutFitter(Fitter):
 
   Two behavioural overrides vs the production Fitter:
 
-  1. The training rows are the fold's ``train_idxs`` (not all rows). Because they no longer cover the
-     whole dataset, the parent's ``covers_all=False`` path predicts *every* row from the fold-trained
-     model — so the held-out predictions are produced for free alongside the train ones.
+  1. The training rows are the fold's ``train_idxs`` (not all rows). They carry the same out-of-fold
+     signals as the shipped model; because they do not cover the whole dataset, the parent's
+     ``covers_all=False`` path also predicts the remaining (held-out) rows from the fold-trained
+     model, so the held-out predictions are produced alongside the train ones.
   2. All artifacts (model, ``cv_report.json``, ``pool_signals.joblib``, …) are written under the fold
      workspace's ``model/estimators`` rather than the shared production model dir (the parent Fitter
      points ``trained_path`` at ``get_output_dir()``, which is the production run).
