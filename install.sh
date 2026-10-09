@@ -6,7 +6,7 @@
 #   1. Preflight        — check Docker, compose, conda/mamba
 #   2. Python environment — a conda env, or a python -m venv fallback
 #   3. Install ZairaChem  — pip install -e .  (plus the optional isaura extra)
-#   4. Docker base images — redis, nginx
+#   4. Docker base images — redis
 #   5. Ersilia models     — the default descriptor/projection images (optional)
 #   6. Finish             — start the isaura engine (if installed) + summary
 #
@@ -159,7 +159,7 @@ Ersilia models:
 Other:
   --isaura            Install the optional isaura descriptor-cache extra
   --no-isaura         Do not install isaura
-  --no-base-images    Do not pull the redis/nginx base images
+  --no-base-images    Do not pull the redis base image
   --verbose           Stream command output instead of using spinners
   -y, --yes           Accept all defaults (non-interactive)
   -h, --help          Show this help and exit
@@ -416,10 +416,9 @@ pull_base_images() {
     info "Skipping base images (--no-base-images)."; return 0
   fi
   if [ "$DOCKER_RUNNING" != true ]; then
-    warn "Docker not running — skipping base images (redis, nginx)."; return 0
+    warn "Docker not running — skipping base images (redis)."; return 0
   fi
   ensure_image "redis:latest"
-  ensure_image "nginx:alpine"
 }
 
 # ---------------------------------------------------------------------------

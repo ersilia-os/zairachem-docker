@@ -113,7 +113,7 @@ class Manifolds(DescriptorBase):
       project_name=os.path.basename(self.path),
       batch_size=self.batch_size,
     )
-    client.url = get_model_url(model_id)
+    client.url = get_model_url(model_id, self.path)
     client._provenance_kind = "projections"  # count toward the projector group, not featurizers
     if progress_cb is not None:
       client._progress_cb = progress_cb

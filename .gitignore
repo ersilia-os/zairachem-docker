@@ -8,7 +8,6 @@ IMPROVEMENTS.md
 
 .DS_Store
 dev/
-zairachem/describe/files/configs/
 tests
 # eosvc-managed data (rank-reference matrices): `eosvc download/upload --path data`
 data/**

@@ -100,7 +100,7 @@ class RawDescriptors(ZairaBase):
   def _resolve_workers(self, n_models):
     """How many models to featurize concurrently. Resolution order: the explicit ``--workers`` flag →
     the ``ZAIRACHEM_DESCRIBE_WORKERS`` env var → an **auto** default derived from the host's CPU count
-    (about half the cores, leaving the shared Docker VM headroom for the model servers + redis/nginx).
+    (about half the cores, leaving the shared Docker VM headroom for the model servers + redis).
     Clamped to ``[1, n_models]``."""
     from zairachem.base.utils.concurrency import cpu_count, cpu_workers
 
@@ -115,7 +115,7 @@ class RawDescriptors(ZairaBase):
       path=self.path,
       csv_path=self.input_csv_ersilia,
       model_id=eos_id,
-      url=get_model_url(eos_id),
+      url=get_model_url(eos_id, self.path),
       project_name=os.path.basename(self.path),
     )
     client._show_progress = show_progress

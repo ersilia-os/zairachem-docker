@@ -12,10 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo
 from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
-from zairachem.base.vars import ORG, REDIS_IMAGE, NGINX_IMAGE
+from zairachem.base.vars import ORG, REDIS_IMAGE
 
 #: Base/infrastructure images the model-serving stack needs, beyond the per-model images.
-BASE_IMAGES = [REDIS_IMAGE, NGINX_IMAGE]
+BASE_IMAGES = [REDIS_IMAGE]
 
 
 def _returncode(cmd, timeout=120):
@@ -47,7 +47,7 @@ def require_docker_and_base():
   """Hard-gate the run on Docker + base images, before any work happens.
 
   Requires the Docker daemon to be running and the base/infrastructure images
-  (``redis:latest``, ``nginx:alpine``) to be present locally. Raises ``SystemExit(1)`` with an
+  (``redis:latest``) to be present locally. Raises ``SystemExit(1)`` with an
   informative message otherwise. Never fetches images. Model images are checked separately, at
   the end of setup, by :func:`report_model_images`.
   """
