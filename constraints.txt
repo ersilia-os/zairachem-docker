@@ -43,7 +43,7 @@ psutil==7.0.0
 pyarrow==24.0.0
 pybloom-live==4.0.0
 pygments==2.20.0
-pyparsing==3.3.2
+pyparsing==3.3.3
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 pytz==2026.2
