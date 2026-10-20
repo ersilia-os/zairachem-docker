@@ -8,18 +8,6 @@ import joblib
 import numpy as np
 from lazyqsar.agnostic import LazyClassifier
 
-from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
-
-# lazy-qsar prints a rich directory tree of the saved model folder on every ``save()`` — it is the
-# one piece of lazy-qsar console output not gated behind its ``--verbose`` flag, and it is pure
-# noise inside our pipeline (we render our own progress). Silence just that method on the shared
-# lazy-qsar logger singleton; everything else lazy-qsar emits is already quiet by default.
-try:
-  from lazyqsar.utils.logging import logger as _lq_logger
-
-  _lq_logger.dir_tree = lambda *a, **k: None
-except Exception:
-  pass
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE, open_h5
@@ -30,6 +18,18 @@ from zairachem.base.vars import (
 )
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
+from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
+
+# lazy-qsar prints a rich directory tree of the saved model folder on every ``save()`` — it is the
+# one piece of lazy-qsar console output not gated behind its ``--verbose`` flag, and it is pure
+# noise inside our pipeline (we render our own progress). Silence just that method on the shared
+# lazy-qsar logger singleton; everything else lazy-qsar emits is already quiet by default.
+try:
+  from lazyqsar.utils.logging import logger as _lq_logger
+
+  _lq_logger.dir_tree = lambda *a, **k: None
+except (ImportError, AttributeError) as e:
+  logger.debug(f"[lazyqsar] could not silence lazy-qsar's directory tree: {e}")
 
 
 def _percentile(model, X):
@@ -621,8 +621,8 @@ class Estimator(ZairaBase):
         r = json.load(f)
       res["oof"] = r.get("oof_auc")
       res["portfolio"] = r.get("portfolio", [])
-    except Exception:
-      pass
+    except (OSError, ValueError) as e:
+      logger.debug(f"[lazyqsar] {model_id}: no CV report for the live table: {e}")
     # Pooler signals (AD / rank) live with the trained model — read from the trained dir at predict.
     sig_base = self.get_trained_dir() if self.is_predict() else out
     sig_dir = os.path.join(sig_base, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER, model_id)
@@ -630,8 +630,8 @@ class Estimator(ZairaBase):
       sig = joblib.load(os.path.join(sig_dir, "pool_signals.joblib"))
       res["ad"] = sig.get("ad_hard_cutoff") is not None
       res["rank"] = sig.get("rank_error_curve") is not None
-    except Exception:
-      pass
+    except Exception as e:  # unpickling can raise many types
+      logger.debug(f"[lazyqsar] {model_id}: no pool signals for the live table: {e}")
     return res
 
   def run(self):

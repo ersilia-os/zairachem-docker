@@ -18,6 +18,7 @@ from sklearn.metrics import (
 )
 
 from zairachem.base import ZairaBase
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   DATA_FILENAME,
   DATA_SUBFOLDER,
@@ -120,9 +121,9 @@ class ResultsFetcher(ZairaBase):
         d = os.path.join(self.trained_path, ESTIMATORS_SUBFOLDER, *rpath)
         if os.path.exists(os.path.join(d, "cv_report.json")):
           dirs[rpath[-1]] = d
-    except Exception:
+    except Exception as e:
       # No manifest yet (e.g. mid-run) — fall through to the in-pipeline glob below.
-      pass
+      logger.debug(f"[report] no results manifest, globbing CV dirs instead: {e}")
     if not dirs:
       lq = os.path.join(self.trained_path, "pipeline", "01_estimators", "lq_estimators")
       if os.path.isdir(lq):

@@ -20,6 +20,7 @@ from sklearn.metrics import (
   roc_curve,
 )
 
+from zairachem.base.utils.logging import logger
 from zairachem.report import BasePlot, perf
 from zairachem.report.fetcher import ResultsFetcher
 
@@ -411,8 +412,8 @@ def _draw_class_density(ax, x, y, color):
       sns.kdeplot(
         x=xs, y=ys, ax=ax, fill=True, color=color, levels=8, thresh=0.05, alpha=0.35, bw_adjust=1.1
       )
-  except Exception:
-    pass
+  except (ValueError, np.linalg.LinAlgError) as e:
+    logger.debug(f"[report] density surface skipped, points only: {e}")
   ax.scatter(xs, ys, color=color, s=8, alpha=alpha, edgecolors="none", zorder=5)
 
 

@@ -438,8 +438,9 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
             with IsauraChecker(project, m, version) as proj_checker:
               proj_seen = proj_checker.seen_many(present)
             present = [s for s in present if not proj_seen.get(s, [False, None])[0]]
-          except Exception:
-            pass  # can't read the project — fall back to migrating all (the writer still dedups)
+          except Exception as e:
+            # Can't read the project: fall back to migrating all (the writer still dedups).
+            logger.debug(f"[isaura] could not read project {project} for {m}: {e}")
         to_migrate[m] = (version, present)
       except Exception as e:
         logger.debug("Migration pre-check failed for %s (%s)", m, e)
@@ -515,8 +516,8 @@ def _load_provenance(output_dir):
     try:
       with open(path) as f:
         return json.load(f)
-    except Exception:
-      pass
+    except (OSError, ValueError) as e:
+      logger.debug(f"[isaura] ignoring unreadable provenance file {path}: {e}")
   return {"featurizers": {}, "projections": {}, "migrated": {}}
 
 

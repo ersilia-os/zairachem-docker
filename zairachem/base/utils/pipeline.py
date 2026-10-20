@@ -3,6 +3,7 @@ import os
 from time import time
 
 from zairachem.base import ZairaBase
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import SESSION_FILE
 
 
@@ -28,8 +29,8 @@ class SessionFile(ZairaBase):
       info["arch"] = platform.machine()
       info["system"] = f"{platform.system()} {platform.release()}".strip()
       info["python"] = platform.python_version()
-    except Exception:
-      pass
+    except Exception as e:  # psutil raises its own exception types
+      logger.debug(f"[pipeline] host info unavailable: {e}")
     return info
 
   def open_session(self, mode, output_dir, model_dir=None):
@@ -85,8 +86,8 @@ class PipelineStep(ZairaBase):
       rec["ram_used_gb"] = round(vm.used / 1e9, 2)
       rec["ram_total_gb"] = round(vm.total / 1e9, 2)
       rec["ram_pct"] = vm.percent
-    except Exception:
-      pass
+    except Exception as e:  # psutil raises its own exception types
+      logger.debug(f"[pipeline] {self.name} telemetry unavailable: {e}")
     return rec
 
   def update(self):

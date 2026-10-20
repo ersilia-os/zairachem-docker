@@ -17,6 +17,7 @@ import json
 import os
 from datetime import datetime
 
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   DATA_FILENAME,
   DATA_SUBFOLDER,
@@ -643,8 +644,8 @@ def _validation_table_html(report_dir):
         f"<p style='color:#6e7781;font-size:13px'>{failed} of {total} held-out folds failed and are not included "
         "above.</p>"
       )
-  except Exception:
-    pass
+  except (OSError, ValueError, TypeError) as e:
+    logger.debug(f"[report] no held-out fold note: {e}")
   return (
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>{note}"
@@ -858,8 +859,8 @@ def _model_titles(output_dir, params, ids):
       on_disk["model_titles"] = {**(on_disk.get("model_titles") or {}), **newly}
       with open(params_path(output_dir), "w") as f:
         json.dump(on_disk, f, indent=2)
-    except Exception:
-      pass
+    except (OSError, ValueError) as e:
+      logger.debug(f"[report] model titles not cached in params: {e}")
   return resolved
 
 

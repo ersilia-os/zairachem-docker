@@ -539,8 +539,8 @@ class BinaryStreamClient(ZairaBase):
         n_computed,
         elapsed_seconds=elapsed,
       )
-    except Exception:
-      pass
+    except Exception as e:  # provenance is a best-effort record
+      logger.debug(f"[describe] {self.model_id}: provenance not recorded: {e}")
 
   def _assemble_results(self, full, cols, dtype, output_h5, isaura_batch_size):
     n_total = full.shape[0]

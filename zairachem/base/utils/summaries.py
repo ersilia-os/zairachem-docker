@@ -9,10 +9,12 @@ tracker (which it touches lazily, only inside :func:`final_summary_panel`).
 Re-exported from :mod:`zairachem.base.utils.progress` for backwards compatibility.
 """
 
+import csv
 import json
 import os
 
 from zairachem.base.utils.console import summary_panel
+from zairachem.base.utils.logging import logger
 
 #: Steps that render a persistent live per-item table (see :class:`..live.LiveTableMonitor`). That
 #: table stays on screen as the step's record, so these steps intentionally print no separate detail
@@ -104,8 +106,8 @@ def _estimator_algorithms(output_dir):
           name = f[:-5]
           if name not in ("preprocessor", "pooler"):
             algos.add(name)
-  except Exception:
-    pass
+  except OSError as e:
+    logger.debug(f"[summary] could not list estimator algorithms: {e}")
   return sorted(algos)
 
 
@@ -141,16 +143,14 @@ def _reliability_summary(output_dir):
 
 def _pooled_metrics(output_dir):
   try:
-    import csv
-
     from zairachem.base.vars import PERFORMANCE_TABLE_FILENAME, RESULTS_SUBFOLDER
 
     with open(os.path.join(output_dir, RESULTS_SUBFOLDER, PERFORMANCE_TABLE_FILENAME)) as f:
       for row in csv.DictReader(f):
         if row.get("model") == "pooled":
           return row
-  except Exception:
-    pass
+  except (OSError, csv.Error) as e:
+    logger.debug(f"[summary] no pooled metrics: {e}")
   return None
 
 
@@ -171,8 +171,8 @@ def _featurizers(output_dir):
       eff = effective_descriptors(output_dir)
       if eff:
         return list(eff)
-    except Exception:
-      pass
+    except Exception as e:  # reads several trained-model artefacts
+      logger.debug(f"[summary] effective descriptors unavailable, reporting all: {e}")
   return all_desc
 
 
@@ -388,8 +388,8 @@ def _active_inactive(output_dir):
     if "bin" in df.columns:
       n_act = int(df["bin"].sum())
       return n_act, len(df) - n_act
-  except Exception:
-    pass
+  except (OSError, ValueError, KeyError) as e:
+    logger.debug(f"[summary] class counts unavailable: {e}")
   return None
 
 
