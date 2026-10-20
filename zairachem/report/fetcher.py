@@ -331,6 +331,8 @@ class ResultsFetcher(ZairaBase):
       out.append({
         "name": p["name"],
         "title": p.get("title", p["name"]),
+        "x": x,
+        "y": y,
         "x_label": self._humanize_axis(x),
         "y_label": self._humanize_axis(y),
         "xs": list(df[x]),

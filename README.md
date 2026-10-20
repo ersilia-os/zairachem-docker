@@ -68,6 +68,21 @@ By default `fit` uses a curated set of Ersilia descriptors (`-f` to choose your 
 with no published transformer is skipped at setup. The default Mol-JEPA (`eos9q2i`) is licensed for
 non-commercial use only; pass `-f` without it to exclude it.
 
+## Outputs
+
+`results/output.csv` has one row per molecule:
+
+| Column | Meaning |
+| --- | --- |
+| `score` | Pooled rank against 50,000 drug-like molecules (lazyqsar): 0.50 top 10%, 0.65 top 1%, 0.75 top 0.1%. |
+| `similarity` | Mean Tanimoto similarity to the 5 nearest training molecules (predict only). |
+| `spread` | Standard deviation of the per-descriptor probabilities (predict only); high means the descriptors disagree. |
+| `label` | The true value, when the input has one. |
+
+`results/output_table.csv` follows the input rows and adds the input SMILES, InChIKey, the pooled
+probability (`proba`), the 0/1 `call` (`rank` ≥ 0.65), the per-descriptor probabilities
+(`proba_<eos_id>`) and the 2-D projections.
+
 ## Rank references
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each

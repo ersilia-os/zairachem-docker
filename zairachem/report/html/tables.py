@@ -35,37 +35,37 @@ def _hitlist_table_html(report_dir, top_n=25):
     df = _pd.read_csv(path)
   except Exception:
     return ""
-  if "pred-value" not in df.columns or len(df) == 0:
+  if "proba" not in df.columns or len(df) == 0:
     return ""
   total = len(df)
-  desc_cols = [c for c in df.columns if c.startswith("lq_estimators-")]
-  has_sim = "train-similarity" in df.columns
-  top = df.sort_values("pred-value", ascending=False).head(top_n)
+  desc_cols = [c for c in df.columns if c.startswith("proba_") and c != "proba_raw"]
+  has_sim = "similarity" in df.columns
+  top = df.sort_values("proba", ascending=False).head(top_n)
   headers = ["#", "SMILES", "Score", "Call"]
-  if desc_cols or "descriptor-std" in df.columns:
-    headers.append("Descriptor std")
+  if desc_cols or "spread" in df.columns:
+    headers.append("Spread")
   if has_sim:
-    headers.append("Train similarity")
+    headers.append("Similarity")
   head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
   body = []
   for i, (_, r) in enumerate(top.iterrows(), start=1):
     try:
-      call = int(r["clf_bin"]) if "clf_bin" in top.columns else int(float(r["pred-value"]) >= 0.5)
+      call = int(r["call"]) if "call" in top.columns else int(float(r["proba"]) >= 0.5)
     except Exception:
-      call = int(float(r.get("pred-value", 0) or 0) >= 0.5)
+      call = int(float(r.get("proba", 0) or 0) >= 0.5)
     cells = [
       f"<td>{i}</td>",
-      f"<td class='smiles'>{html.escape(str(r.get('input-smiles', '')))}</td>",
-      f"<td>{_fmt_num(r['pred-value'])}</td>",
+      f"<td class='smiles'>{html.escape(str(r.get('input_smiles', '')))}</td>",
+      f"<td>{_fmt_num(r['proba'])}</td>",
       f"<td>{'active' if call == 1 else 'inactive'}</td>",
     ]
-    if "descriptor-std" in top.columns:
-      cells.append(f"<td>{_fmt_num(r['descriptor-std'])}</td>")
+    if "spread" in top.columns:
+      cells.append(f"<td>{_fmt_num(r['spread'])}</td>")
     elif desc_cols:
       spread = float(_np.nanstd(_np.asarray([r[c] for c in desc_cols], dtype=float)))
       cells.append(f"<td>{_fmt_num(spread)}</td>")
     if has_sim:
-      cells.append(f"<td>{_fmt_num(r['train-similarity'])}</td>")
+      cells.append(f"<td>{_fmt_num(r['similarity'])}</td>")
     body.append(f"<tr>{''.join(cells)}</tr>")
   note = f"<p style='color:#6e7781;font-size:13px'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
   return (

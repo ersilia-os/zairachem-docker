@@ -14,7 +14,10 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   FOLDS_SUBFOLDER,
   MODEL_SUBFOLDER,
+  OUTPUT_COLUMNS,
   OUTPUT_FILENAME,
+  OUTPUT_LABEL_COLUMN,
+  OUTPUT_SENSITIVE_COLUMNS,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
   POOL_SUBFOLDER,
@@ -129,7 +132,7 @@ class Anonymizer(ZairaBase):
   def _replace_sensitive_columns(self, file_name):
     if not os.path.exists(file_name):
       return
-    columns = ["input-smiles", "smiles", "inchikey"]
+    columns = OUTPUT_SENSITIVE_COLUMNS
     df = pd.read_csv(file_name)
     df_columns = set(list(df.columns))
     for col in columns:
@@ -345,8 +348,18 @@ class Finisher(ZairaBase):
   def _predictions_file(self):
     src = os.path.join(self.path, POOL_SUBFOLDER, RESULTS_MAPPED_FILENAME)
     dst = os.path.join(self.path, OUTPUT_FILENAME)
-    if os.path.exists(src):
-      shutil.copy(src, dst)
+    if not os.path.exists(src):
+      return
+    # The deliverable subset of the pooled results, renamed (OUTPUT_COLUMNS), plus the truth label.
+    df = pd.read_csv(src)
+    df = df[[c for c in OUTPUT_COLUMNS if c in df.columns]].rename(columns=OUTPUT_COLUMNS)
+    data_path = os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME)
+    if os.path.exists(data_path):
+      data = pd.read_csv(data_path)
+      if "bin" in data.columns:
+        labels = data.set_index("compound_id")["bin"]
+        df[OUTPUT_LABEL_COLUMN] = df["compound_id"].map(labels)
+    df.to_csv(dst, index=False)
 
   def _output_table_file(self):
     src = os.path.join(self.path, REPORT_SUBFOLDER, OUTPUT_TABLE_FILENAME)

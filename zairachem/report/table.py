@@ -5,6 +5,7 @@ import pandas as pd
 from rdkit import Chem
 
 from zairachem.base.vars import (
+  OUTPUT_DESCRIPTOR_PREFIX,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
   REPORT_SUBFOLDER,
@@ -93,9 +94,10 @@ class PerformanceTable(BaseTable, ResultsFetcher):
 class OutputTable(BaseTable, ResultsFetcher):
   """Writes ``report/output_table.csv`` — the per-compound predictions, mapped back to the input rows.
 
-  Columns: input SMILES, InChIKey, standardized SMILES, true value (if known), pooled prediction, each
-  descriptor's ensemble prediction, and the projection (x, y) pairs. All values are remapped from the
-  deduplicated run rows to the original input order via :meth:`map_to_original`."""
+  Columns: ``input_smiles``, ``inchikey``, ``smiles``, ``label``, ``proba``,
+  at predict ``call``, ``rank``, ``similarity`` and ``spread``, then ``proba_<eos>`` per descriptor
+  and both axes of every projection. All values are remapped from the deduplicated run rows to the
+  original input order via :meth:`map_to_original`."""
 
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
@@ -151,31 +153,37 @@ class OutputTable(BaseTable, ResultsFetcher):
     for col in columns:
       v = list(df[col])
       v = self.map_to_original(v)
-      yield (col, v)
+      # "lq_estimators-<eos_id>" -> "proba_<eos_id>"
+      yield (OUTPUT_DESCRIPTOR_PREFIX + col.split("-")[-1], v)
 
   def _get_manifolds_columns(self):
-    # Every projection (always at least MW-vs-LogP) contributes its x/y columns to the output table.
+    # Every projection (always at least MW-vs-LogP) contributes both axes, named after its own
+    # columns: "mw_x"/"logp_y" -> "mw"/"logp" (two different quantities), "pca_x"/"pca_y" kept as
+    # they are. Display labels are not unique per axis, so they must not name columns.
     for proj in self.get_projections():
-      for axis, vals in ((proj["x_label"], proj["xs"]), (proj["y_label"], proj["ys"])):
-        yield (f"{proj['name']}-{axis}", self.map_to_original(list(vals)))
+      x, y = proj["x"], proj["y"]
+      if x.rsplit("_", 1)[0] != y.rsplit("_", 1)[0]:
+        x, y = x.rsplit("_", 1)[0], y.rsplit("_", 1)[0]
+      yield (x, self.map_to_original(list(proj["xs"])))
+      yield (y, self.map_to_original(list(proj["ys"])))
 
   def run(self):
     """Assemble all output columns (remapped to input order) and write the output table CSV."""
     data = {}
-    data["input-smiles"] = self._get_input_smiles_column()
+    data["input_smiles"] = self._get_input_smiles_column()
     data["inchikey"] = self._get_inchikey_column()
     data["smiles"] = self._get_smiles_column()
-    data["true-value"] = self._get_true_value_column()
-    data["pred-value"] = self._get_pred_value_column()
+    data["label"] = self._get_true_value_column()
+    data["proba"] = self._get_pred_value_column()
     if self.is_predict():
-      # Predict-only enrichments (feed the hitlist): the binary call, the Tanimoto similarity to
-      # the training set, the spread of the per-descriptor probabilities and the pooled reference
-      # rank. Gated on is_predict() so a fit run's output_table.csv is unchanged.
+      # Predict-only enrichments (feed the hitlist): the binary call, the pooled reference rank,
+      # the Tanimoto similarity to the training set and the spread of the per-descriptor
+      # probabilities. Gated on is_predict() so a fit run's output_table.csv is unchanged.
       for key, getter in (
-        ("clf_bin", self.get_pred_binary_clf),
-        ("train-similarity", self.get_train_similarity),
-        ("descriptor-std", self.get_descriptor_std),
+        ("call", self.get_pred_binary_clf),
         ("rank", self.get_pred_rank_clf),
+        ("similarity", self.get_train_similarity),
+        ("spread", self.get_descriptor_std),
       ):
         try:
           vals = getter()

@@ -120,6 +120,21 @@ REPORT_SUBFOLDER = "report"
 # RESULTS_SUBFOLDER.
 OUTPUT_FILENAME = "results/output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
+# Columns of results/output.csv, from the internal pooled-results names (in this order). The
+# similarity and spread exist only at predict; `label` (the input's truth, when it has one) is added
+# from data.csv. The full output table (report/table.py) keeps proba, call and rank as well.
+OUTPUT_COLUMNS = {
+  "compound_id": "compound_id",
+  "smiles": "smiles",
+  "clf_rank": "score",
+  "train_similarity": "similarity",
+  "descriptor_std": "spread",
+}
+OUTPUT_LABEL_COLUMN = "label"
+# Prefix of the per-descriptor probability columns in the output table (proba_<eos_id>).
+OUTPUT_DESCRIPTOR_PREFIX = "proba_"
+# Columns blanked by `finish --anonymize`.
+OUTPUT_SENSITIVE_COLUMNS = ("input_smiles", "smiles", "inchikey")
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"
 # Report-only 2-D projections (row-aligned to data.csv); written by the treat/manifolds step.
 PROJECTIONS_FILENAME = "projections.csv"
