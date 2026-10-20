@@ -4,6 +4,7 @@ import rich_click as click
 from click.core import ParameterSource
 
 from zairachem.base.utils.logging import logger
+from zairachem.base.vars import DEFAULT_MAX_DESCRIPTORS
 from zairachem.cli.create_cli import cli
 from zairachem.cli.options import (
   _DESCRIBE_WORKERS_HELP,
@@ -83,9 +84,10 @@ from zairachem.cli.steps import process_group
 @click.option(
   "--max-descriptors",
   "max_descriptors",
-  default=3,
+  default=DEFAULT_MAX_DESCRIPTORS,
   type=int,
-  help="Cap the ensemble at the top-K descriptors (default: 3). They are pre-screened by mean held-out "
+  help=f"Cap the ensemble at the top-K descriptors (default: {DEFAULT_MAX_DESCRIPTORS}). They are "
+  "pre-screened by mean held-out "
   "AUROC across the chemistry-aware splits (shallow proxy model, floor 0.55) and only the top-K are "
   "fully trained — cutting training cost and yielding a leaner model. Set it ≥ the number of "
   "descriptors you provide (e.g. 10) to train them all. Classification only; the hard cap is 10.",

@@ -24,6 +24,7 @@ from zairachem.base.vars import (
   DATA_SUBFOLDER,
   DEFAULT_FEATURIZERS,
   DEFAULT_ISAURA_BUCKET,
+  DEFAULT_MAX_DESCRIPTORS,
   DEFAULT_PROJECTIONS,
   DEFAULT_REFERENCE_LIBRARY,
   DESCRIPTORS_SUBFOLDER,
@@ -93,7 +94,7 @@ class TrainSetup(BaseSetup):
     evaluate=False,
     evaluate_repeats=3,
     evaluate_schemas=None,
-    max_descriptors=3,
+    max_descriptors=DEFAULT_MAX_DESCRIPTORS,
   ):
     if output_dir is None:
       output_dir = input_file.split(".")[0]

@@ -8,7 +8,7 @@ menu — random / scaffold / Butina at 3 repeats — built here regardless of ``
 report / the held-out folds) plus ``metadata/proxy_scores.json`` for the report.
 
 Self-gated: a no-op at predict, for regression, or when there is nothing to prune
-(``max_descriptors ≥ #descriptors``). Screening is on by default (``--max-descriptors`` defaults to 3).
+(``max_descriptors ≥ #descriptors``). Screening is on by default (``--max-descriptors`` defaults to ``DEFAULT_MAX_DESCRIPTORS``, 5).
 """
 
 import json

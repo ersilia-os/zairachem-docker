@@ -169,6 +169,8 @@ DEFAULT_PROJECTIONS = ["eos1klk"]
 # container featurizing the full dataset, so more models means proportionally more compute and
 # disk; these ceilings keep a run tractable. Exceeding either cap is rejected at setup.
 MAX_FEATURIZERS = 10
+# Default --max-descriptors: the pre-screen keeps up to this many descriptors that add to the pool.
+DEFAULT_MAX_DESCRIPTORS = 5
 MAX_PROJECTIONS = 3
 ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 

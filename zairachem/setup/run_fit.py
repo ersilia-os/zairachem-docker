@@ -2,6 +2,7 @@ import os
 
 from zairachem.base.utils.console import echo
 from zairachem.base.utils.progress import summarize_setup, tracker
+from zairachem.base.vars import DEFAULT_MAX_DESCRIPTORS
 from zairachem.setup.prep import PipelineStep
 from zairachem.setup.prep.training import TrainSetup
 
@@ -18,7 +19,7 @@ def run(
   evaluate=False,
   evaluate_repeats=3,
   evaluate_schemas=None,
-  max_descriptors=3,
+  max_descriptors=DEFAULT_MAX_DESCRIPTORS,
 ):
   """Run the fit setup step, resuming an unfinished model directory when possible.
 
