@@ -42,16 +42,15 @@ _CATEGORIES = [
     "predictions",
     "Predictions",
     "What the model predicts for these molecules and where the decision cutoff falls.",
-    ["predicted-score-hist", "predicted-rank-curve"],
+    ["predicted-score-hist", "rank-distribution", "predicted-rank-curve"],
   ),
   (
     "confidence",
     "Confidence",
-    "How much to trust each prediction (descriptor agreement, applicability domain, rank reliability).",
+    "How much to trust each prediction (descriptor agreement, applicability domain).",
     [
       "descriptor-consensus",
       "ad-coverage",
-      "rank-distribution",
       "predicted-property-mw",
       "predicted-property-logp",
     ],

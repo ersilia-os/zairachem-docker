@@ -31,6 +31,7 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 # color-keyed ``named_colors`` (named_colors.red etc.) and ``category_palette`` keep the names the
 # plot call sites already use.
 from zairachem.base.vars import (  # noqa: E402
+  RANK_DECISION_CUTOFF,
   REPORT_SUBFOLDER,
   VALIDATION_PREDICTIONS_FILENAME,
   VALIDATION_TABLE_FILENAME,
@@ -827,7 +828,10 @@ class AdCoveragePlot(BasePlot):
 
 
 class RankDistributionPlot(BasePlot):
-  """Distribution of the pooler's per-compound rank-reliability quantile (predict, truth-free)."""
+  """Distribution of the pooled rank against the rank-reference library (predict, truth-free).
+
+  lazy-qsar's ``rank`` scale: 0.50 beats 90% of drug-like space, 0.65 beats 99% (the binary call,
+  dashed), 0.75 beats 99.9%."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
@@ -845,8 +849,10 @@ class RankDistributionPlot(BasePlot):
     _predict_hist(
       self.ax,
       rk,
-      xlabel="Weighted rank quantile",
-      title="Rank reliability",
+      xlabel="Rank vs. drug-like reference library",
+      title="Pooled rank",
+      xlim=(0.0, 1.0),
+      cutoff=RANK_DECISION_CUTOFF,
       color=_npg(2)[1],
     )
     self.is_available = True

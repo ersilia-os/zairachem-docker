@@ -3,7 +3,7 @@
 A port of LazyQSAR's outer multi-descriptor pooler (``lazyqsar/qsar.py::_build_weight_matrix`` and
 its logit-space combination) adapted to zairachem's pool step. It replaces the bagger's global,
 probability-space weighting with per-sample weights that blend each descriptor's global skill with
-its per-sample reliability (a rank→error curve), apply an applicability-domain (AD) hard veto, and
+its per-sample reliability (an OOF-percentile→error curve), apply an applicability-domain (AD) hard veto, and
 combine the calibrated probabilities in logit space.
 
 The math is task-neutral and pure-numpy; persistence is a single joblib dict so inference reproduces
@@ -27,7 +27,7 @@ class WeightMatrixBuilder(object):
     Parameters
     ----------
     P : (B, D) calibrated predictions per descriptor (used only for shape here).
-    R : (B, D) rank quantiles in [0, 1], or None.
+    R : (B, D) lazy-qsar OOF percentiles in [0, 1], or None.
     A : (B, D) applicability-domain scores, or None when no AD signal exists.
     base_scores : (D,) global skill per descriptor (e.g. max(0, oof_auc − 0.5)).
     rank_error_curves : list len D of (r_knots, e_knots) or None.
@@ -125,8 +125,12 @@ class ReliabilityClassifierPooler(object):
       "has_ad": has_ad,
       "eps": EPS,
     }
-    joblib.dump(self._params, self._artifact_path())
+    self.save()
     return self._combine(P, R, A, self._params)
+
+  def save(self):
+    """Persist the fitted params (re-called once the pooled rank reference is added to them)."""
+    joblib.dump(self._params, self._artifact_path())
 
   def _load(self):
     if self._params is None:

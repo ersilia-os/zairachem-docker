@@ -1,13 +1,13 @@
-"""lazy-qsar's rank reference: one descriptor matrix per featurizer, kept in this repo's ``data/``.
+"""lazy-qsar's rank reference: one descriptor matrix per featurizer, cached per user.
 
 lazy-qsar's ``rank`` is a position against a fixed library of 50,000 molecules, so every descriptor a
 fit trains needs that library featurized with it. :func:`prepare` runs at the start of the estimate
 step, after pre-screening, so only the descriptors that are actually trained need one.
 
-The matrices live in ``data/rank_reference/<REFERENCE_ID>_n<n>/<eos_id>_<version>.h5`` at the root of
-this repository, which is an eosvc repo: ``install.sh`` fills it with ``eosvc download --path
-data/rank_reference``, and maintainers publish it with ``eosvc upload``. A trained descriptor whose
-matrix is not there is computed on its model server and saved there, so later fits reuse it.
+The matrices live in ``~/zairachem/rank_reference/<REFERENCE_ID>_n<n>/<eos_id>_<version>.h5``
+(``ZAIRACHEM_HOME`` moves it). A missing one is downloaded over HTTPS from the public bucket, where
+maintainers publish them from this repository's ``data/rank_reference`` with ``eosvc upload``. One
+that is not published is computed on its model server and cached, so later fits reuse it.
 
 Every matrix has a JSON sidecar naming the reference it was computed against (lazy-qsar's reference
 id, size and manifest hash), the featurizer and version, and the file's sha256. A matrix whose
@@ -21,6 +21,7 @@ import sys
 
 import h5py
 import numpy as np
+import requests
 
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import open_h5, remove_h5
@@ -29,6 +30,7 @@ from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
   RANK_REFERENCE_DIR,
   RANK_REFERENCE_RAW_FILENAME,
+  RANK_REFERENCE_S3_BASE_URL,
   RANK_REFERENCE_SMILES_FILENAME,
   RANK_REFERENCE_TREATED_FILENAME,
   TRANSFORMERS_SUBFOLDER,
@@ -36,6 +38,7 @@ from zairachem.base.vars import (
 
 _BYTES_PER_VALUE = 4  # float32, as describe writes descriptors
 _HASH_CHUNK = 1 << 20
+_DOWNLOAD_TIMEOUT = 60
 
 
 def reference_smiles():
@@ -67,7 +70,7 @@ def reference_identity():
 
 
 def library_dir():
-  """``data/rank_reference/<REFERENCE_ID>_n<n>``: where this install's reference matrices live."""
+  """``<RANK_REFERENCE_DIR>/<REFERENCE_ID>_n<n>``: where this install's reference matrices live."""
   from lazyqsar.reference import REFERENCE_ID, default_n
 
   return os.path.join(RANK_REFERENCE_DIR, f"{REFERENCE_ID}_n{default_n()}")
@@ -89,8 +92,14 @@ def _sha256(path):
   return h.hexdigest()
 
 
+def _matches(meta, eos_id, version):
+  """Whether a sidecar describes ``(eos_id, version)`` against this install's reference library."""
+  expected = {**reference_identity(), "eos_id": eos_id, "version": version}
+  return all(meta.get(k) == v for k, v in expected.items())
+
+
 def stored(eos_id, version):
-  """The matrix in ``data/`` for ``(eos_id, version)``, or None when absent or for another library."""
+  """The cached matrix for ``(eos_id, version)``, or None when absent or for another library."""
   path = matrix_path(eos_id, version)
   if not os.path.exists(path) or not os.path.exists(_sidecar(path)):
     return None
@@ -99,15 +108,75 @@ def stored(eos_id, version):
       meta = json.load(f)
   except Exception:
     return None
-  expected = {**reference_identity(), "eos_id": eos_id, "version": version}
-  if any(meta.get(k) != v for k, v in expected.items()):
+  if not _matches(meta, eos_id, version):
     logger.info(f"[rank_reference] Ignoring {path}: computed for another reference library")
     return None
   return path
 
 
+def published_url(eos_id, version):
+  """URL of the published matrix for ``(eos_id, version)`` (its sidecar is the same with ``.json``)."""
+  rel = os.path.relpath(matrix_path(eos_id, version), RANK_REFERENCE_DIR)
+  return f"{RANK_REFERENCE_S3_BASE_URL}/{rel.replace(os.sep, '/')}"
+
+
+def published_bytes(eos_id, version):
+  """Size of the published matrix, or None when it is not published (or cannot be reached)."""
+  try:
+    r = requests.head(published_url(eos_id, version), timeout=_DOWNLOAD_TIMEOUT)
+  except requests.RequestException:
+    return None
+  return int(r.headers.get("Content-Length", 0)) if r.status_code == 200 else None
+
+
+def download(eos_id, version, on_progress=None):
+  """Download the published matrix for ``(eos_id, version)`` into the cache; its path, or None.
+
+  None when it is not published for this reference library or the download fails, so the caller
+  computes it instead. The file is checked against its sidecar's sha256 and moved into place only
+  then, so an interrupted or corrupted download never looks valid. ``on_progress(done, total)`` is
+  called with byte counts as the file arrives (``total`` is 0 when the server sends no size).
+  """
+  url = published_url(eos_id, version)
+  try:
+    r = requests.get(_sidecar(url), timeout=_DOWNLOAD_TIMEOUT)
+    if r.status_code != 200:
+      return None
+    meta = r.json()
+  except (requests.RequestException, ValueError) as e:
+    logger.info(f"[rank_reference] {eos_id} not downloadable ({e})")
+    return None
+  if not _matches(meta, eos_id, version):
+    logger.info(f"[rank_reference] Published {eos_id} is for another reference library")
+    return None
+  dest = matrix_path(eos_id, version)
+  os.makedirs(os.path.dirname(dest), exist_ok=True)
+  tmp = f"{dest}.{os.getpid()}.tmp"
+  try:
+    with requests.get(url, stream=True, timeout=_DOWNLOAD_TIMEOUT) as r:
+      r.raise_for_status()
+      total, done = int(r.headers.get("Content-Length", 0)), 0
+      with open(tmp, "wb") as f:
+        for block in r.iter_content(_HASH_CHUNK):
+          f.write(block)
+          done += len(block)
+          if on_progress is not None:
+            on_progress(done, total)
+    if _sha256(tmp) != meta.get("sha256"):
+      raise RuntimeError("sha256 mismatch")
+  except Exception as e:
+    logger.warning(f"[rank_reference] Download of {eos_id} from {url} failed: {e}")
+    if os.path.exists(tmp):
+      os.remove(tmp)
+    return None
+  os.replace(tmp, dest)
+  with open(_sidecar(dest), "w") as f:
+    json.dump(meta, f, indent=2)
+  return dest
+
+
 def write_matrix(src_h5, eos_id, version):
-  """Stream the matrix at ``src_h5`` into ``data/`` as one gzip-compressed H5, plus its sidecar.
+  """Stream the matrix at ``src_h5`` into the cache as one gzip-compressed H5, plus its sidecar.
 
   Written to a temporary name and moved into place, so a concurrent run never reads a half-written
   file and an interrupted write leaves nothing that looks valid. Returns the stored path.
@@ -183,9 +252,9 @@ def _write_reference_csv(path):
 
 
 def _resolve_raw(path, eos_id, version, csv, raw_path, batch_size):
-  """Put ``eos_id``'s raw reference matrix at ``raw_path``, from ``data/`` or its model server.
+  """Put ``eos_id``'s raw reference matrix at ``raw_path``: cached, downloaded, or computed.
 
-  A computed matrix is saved into ``data/`` for later fits. The model server is only needed then;
+  A downloaded or computed matrix is cached for later fits. The model server is only needed then;
   when it is no longer up it is started again.
   """
   from zairachem.describe.descriptors.api import BinaryStreamClient
@@ -195,7 +264,12 @@ def _resolve_raw(path, eos_id, version, csv, raw_path, batch_size):
   if hit:
     logger.info(f"[rank_reference] {eos_id} read from {hit}")
     link_into_run(hit, raw_path)
-    return "data"
+    return "cached"
+  hit = download(eos_id, version)
+  if hit:
+    logger.info(f"[rank_reference] {eos_id} downloaded to {hit}")
+    link_into_run(hit, raw_path)
+    return "downloaded"
   url = get_model_url(eos_id, path)
   if url is None:
     from zairachem.describe.descriptors.describe import Describer
@@ -214,15 +288,15 @@ def _resolve_raw(path, eos_id, version, csv, raw_path, batch_size):
       raise RuntimeError(f"No rank-reference descriptors returned for model {eos_id}")
     Hdf5Data(res).save(raw_path)
   link_into_run(write_matrix(raw_path, eos_id, version), raw_path)
-  return "computed, saved to data/"
+  return "computed and cached"
 
 
 def prepare(path, eos_ids, batch_size=None):
   """Put the treated rank reference at ``descriptors/<eos>/rank_reference.h5`` for ``eos_ids``.
 
   Fit only, for the descriptors the run trains (after pre-screening). Each one's raw reference is
-  read from ``data/`` (or computed into it), scaled with the transformer the treat step saved for
-  that featurizer, and the run's link to the raw matrix is dropped. A descriptor whose reference
+  read from the cache (downloaded or computed into it), scaled with the transformer the treat step
+  saved for that featurizer, and the run's link to the raw matrix is dropped. A descriptor whose reference
   cannot be prepared is reported and skipped: its model then trains without ``rank``.
   """
   import time

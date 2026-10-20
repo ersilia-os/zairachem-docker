@@ -12,9 +12,9 @@ from zairachem.base.utils.isaura_report import (
 )
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.preflight import (
+  prepare_rank_references,
+  prepare_reference_transformers,
   report_model_images,
-  report_rank_references,
-  report_reference_transformers,
   require_docker_and_base,
   validate_model_roles,
 )
@@ -443,12 +443,14 @@ class TrainSetup(BaseSetup):
     self._print_summary()
     validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
-    # Confirm every featurizer has a transformer in the reference library before any descriptors are
-    # computed; the treat step will apply these and cannot proceed without them.
-    report_reference_transformers(
-      self.featurizer_ids, self.params.get("reference_library", DEFAULT_REFERENCE_LIBRARY)
+    # Download every featurizer's reference-library transformer into the model before any
+    # descriptors are computed; the treat step applies these and cannot proceed without them.
+    prepare_reference_transformers(
+      self.featurizer_ids,
+      self.params.get("reference_library", DEFAULT_REFERENCE_LIBRARY),
+      self.output_dir,
     )
-    report_rank_references(self.featurizer_ids)
+    prepare_rank_references(self.featurizer_ids)
     # Coverage/version checks always inspect the central lake (the migration source), not the
     # run's own read/write project.
     check_isaura_version_consistency(

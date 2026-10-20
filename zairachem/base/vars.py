@@ -21,7 +21,10 @@ def get_free_ports(n):
   return ports
 
 
-BASE_DIR = os.path.join(str(Path.home()), "zairachem")
+# Per-user ZairaChem folder (logs, session link, rank-reference cache). ZAIRACHEM_HOME overrides it.
+BASE_DIR = os.path.expanduser(
+  os.environ.get("ZAIRACHEM_HOME", os.path.join(str(Path.home()), "zairachem"))
+)
 if not os.path.exists(BASE_DIR):
   os.makedirs(BASE_DIR)
 
@@ -51,11 +54,19 @@ TREATED_DESC_FILENAME = "treated.h5"
 RANK_REFERENCE_SMILES_FILENAME = "rank_reference.csv"
 RANK_REFERENCE_RAW_FILENAME = "rank_reference_raw.h5"
 RANK_REFERENCE_TREATED_FILENAME = "rank_reference.h5"
+# Each descriptor's scores of the treated reference (proba, OOF percentile, AD), written by estimate;
+# pool pushes them through its fitted weighting to place the pooled `rank` (clf_rank) on the library.
+RANK_REFERENCE_SIGNALS_FILENAME = "reference_signals.npz"
+# lazy-qsar's binary cutoff on the rank scale (lazyqsar.utils.ranking.DECISION_RANK: beats 99% of
+# the reference). Mirrored for the report, which must not import lazy-qsar.
+RANK_DECISION_CUTOFF = 0.65
 # Rank-reference matrices (describe/descriptors/rank_reference.py): one per featurizer/version under
-# "data/rank_reference/<REFERENCE_ID>_n<n>/" at the root of this repository, which is an eosvc repo
-# (access.json). install.sh downloads them with `eosvc download --path data/rank_reference`.
-REPO_DIR = str(Path(__file__).resolve().parents[2])
-RANK_REFERENCE_DIR = os.path.join(REPO_DIR, "data", "rank_reference")
+# "<RANK_REFERENCE_DIR>/<REFERENCE_ID>_n<n>/", downloaded on demand from the public bucket (published
+# from this repository's data/rank_reference with eosvc), or computed and cached when unpublished.
+RANK_REFERENCE_DIR = os.path.join(BASE_DIR, "rank_reference")
+RANK_REFERENCE_S3_BASE_URL = (
+  "https://eosvc-public.s3.amazonaws.com/zairachem-docker/data/rank_reference"
+)
 SIMPLE_EVALUATION_FILENAME = "evaluation.json"
 SIMPLE_EVALUATION_VALIDATION_FILENAME = "evaluation_validation_set.json"
 

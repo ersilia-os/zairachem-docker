@@ -73,11 +73,10 @@ Run `zairachem <command> --help` for the authoritative, always-current options.
 ### Rank references
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each
-descriptor a fit trains needs that library featurized with it. ZairaChem reads these matrices from
-`data/rank_reference/` in this repository, which `install.sh` fills with
-`eosvc download --path data/rank_reference` (~1.6 GB for the six default featurizers). A trained
-descriptor with no matrix there (e.g. a custom featurizer) has it computed on its model server and
-saved into `data/rank_reference/`, so later fits reuse it.
+descriptor a fit trains needs that library featurized with it. A fit downloads the published matrices
+for the descriptors it trains into `~/zairachem/rank_reference/` (up to ~1.6 GB for the six default
+featurizers; `ZAIRACHEM_HOME` moves the folder). One that is not published (e.g. a custom featurizer)
+is computed on its model server and cached there, so later fits reuse it.
 
 ### `predict` — predict with a trained model
 

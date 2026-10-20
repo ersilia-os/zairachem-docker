@@ -22,28 +22,44 @@ except Exception:
   pass
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
+from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE, open_h5
 from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
+  RANK_REFERENCE_SIGNALS_FILENAME,
   Y_HAT_FILE,
 )
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
 
+def _percentile(model, X):
+  """lazy-qsar's reliability signal: position within the model's own out-of-fold distribution.
+
+  This is what lazy-qsar's own ensemble weights descriptors by (``LazyClassifierQSAR``); the
+  reference-library ``predict_rank`` is an output, not a weight, and is built at pool level.
+  """
+  return model._oof_percentile(X=X)[:, 1]
+
+
 def _rank_or_warn(ranks, model_id, stage):
   """``ranks`` when any is finite, else None after one warning.
 
-  lazy-qsar raises on ``predict_rank`` for a model fitted without a rank reference. The per-chunk
-  calls swallow that so proba still flows, which leaves this as the one place it is reported.
+  The per-chunk calls swallow a failing ``_oof_percentile`` so proba still flows, which leaves this
+  as the one place it is reported.
   """
   if np.isfinite(ranks).any():
     return ranks
-  logger.warning(f"[lazyqsar:{stage}] {model_id}: rank unavailable; the pooler runs without it")
+  logger.warning(
+    f"[lazyqsar:{stage}] {model_id}: OOF percentile unavailable; the pooler runs without it"
+  )
   return None
 
 
 class Fitter(BaseEstimatorIndividual):
+  #: Score the rank-reference library for the pooled rank. Off for held-out folds, which only score
+  #: AUROC and would otherwise push the 50,000-molecule library through every fold's models.
+  score_reference = True
+
   def __init__(self, path, model_id, is_simple, batch_size=None, substep_cb=None):
     BaseEstimatorIndividual.__init__(
       self,
@@ -99,7 +115,8 @@ class Fitter(BaseEstimatorIndividual):
       reference_h5 = self._rank_reference_h5()
       if reference_h5 is None:
         logger.warning(
-          f"[lazyqsar:fit] {self.model_id}: no rank reference found; `rank` will be unavailable"
+          f"[lazyqsar:fit] {self.model_id}: no rank reference found; the pooled `rank` will be "
+          "unavailable"
         )
       model = LazyClassifier()
       model.fit(X=X_train, y=y_train, reference_h5_file=reference_h5)
@@ -115,8 +132,8 @@ class Fitter(BaseEstimatorIndividual):
       ad_model, ad_cutoff = self._fit_ad(X_train, descriptor_dir)
       # Per-row signals scattered back to original row order. ``preds`` is the calibrated
       # probability (OOF for training rows where available — honest, not resubstitution); ``ranks``
-      # is lazy-qsar's position against its rank reference library (0.50 = top 10%, 0.65 = top 1%);
-      # ``ads`` is the applicability-domain score. The training rows are always filled from X_train
+      # is lazy-qsar's percentile within the model's own OOF distribution (the reliability signal
+      # its ensemble weights by); ``ads`` is the applicability-domain score. The training rows are always filled from X_train
       # (OOF probabilities, plus ranks and AD predicted in batches) so a fold that trains on a subset
       # is fitted on the same kind of signals as the shipped model; rows outside the training set
       # (the held-out slice of a fold) are predicted from the model in a chunked re-read.
@@ -131,7 +148,7 @@ class Fitter(BaseEstimatorIndividual):
       )
       # Honest out-of-fold probabilities for the training rows (already computed inside fit);
       # falls back to resubstitution when OOF cannot be reconstructed (multi-batch / tiny sets).
-      self.substep_cb("out-of-fold + rank")
+      self.substep_cb("out-of-fold + percentile")
       oof_proba, _ = self._safe_pooled_oof(model, X_train, y_train)
       use_oof = oof_proba is not None and len(oof_proba) == train_order_arr.size
       if not use_oof:
@@ -149,9 +166,11 @@ class Fitter(BaseEstimatorIndividual):
         preds[train_order_arr] = self._batched(lambda xb: model.predict_proba(X=xb)[:, 1], X_train)
       if use_raw:
         preds_raw[train_order_arr] = np.asarray(oof_raw, dtype=np.float32)
-      ranks[train_order_arr] = self._batched(
-        lambda xb: model.predict_rank(X=xb)[:, 1], X_train, default=np.nan
-      )
+      oof_rank = self._safe_oof_percentile(model, X_train) if use_oof else None
+      if oof_rank is not None:
+        ranks[train_order_arr] = oof_rank
+      else:
+        ranks[train_order_arr] = self._batched(lambda xb: _percentile(model, xb), X_train, np.nan)
       if ad_model is not None:
         ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
       del X_train
@@ -170,13 +189,16 @@ class Fitter(BaseEstimatorIndividual):
             idx = idx + start
             preds[idx] = model.predict_proba(X=rows)[:, 1]
             with contextlib.suppress(Exception):
-              ranks[idx] = model.predict_rank(X=rows)[:, 1]
+              ranks[idx] = _percentile(model, rows)
             if ad_model is not None:
               with contextlib.suppress(Exception):
                 ads[idx] = ad_model.score(rows)
           del chunk
           gc.collect()
-      # Rank→error reliability curve, built from the training rows' (rank, prediction, label).
+      if self.score_reference and reference_h5 is not None:
+        self.substep_cb("rank reference")
+        self._write_reference_signals(model, ad_model, reference_h5, descriptor_dir)
+      # Percentile→error reliability curve, built from the training rows' (percentile, pred, label).
       tr = train_order_arr
       curve = self._build_rank_error_curve(ranks[tr], preds[tr], y[tr])
       self._write_pool_signals(model, curve, ad_cutoff, y, descriptor_dir)
@@ -335,6 +357,43 @@ class Fitter(BaseEstimatorIndividual):
       logger.debug(f"[lazyqsar:fit] raw OOF reconstruction failed for {self.model_id}: {e}")
       return None, None
 
+  def _safe_oof_percentile(self, model, X):
+    """OOF percentile of each training row's OOF probability (lazy-qsar ``oof_channels``), or None.
+
+    Pairs with the OOF ``preds``: the percentile of a resubstituted probability would describe a
+    different prediction from the one the pooler is fitted on.
+    """
+    try:
+      channels = model.oof_channels(X=X)
+      if channels is not None and len(channels[1]) == X.shape[0]:
+        return np.asarray(channels[1], dtype=np.float32)
+    except Exception as e:
+      logger.debug(f"[lazyqsar:fit] OOF percentile unavailable for {self.model_id}: {e}")
+    return None
+
+  def _write_reference_signals(self, model, ad_model, reference_h5, descriptor_dir):
+    """Score the rank-reference library and save ``(proba, percentile, ad)`` for the pooler.
+
+    The pooler pushes these through its fitted weighting to get the pooled probability of every
+    reference molecule, which is what the pooled ``rank`` is a position against (lazy-qsar's
+    ``build_pooled_rank_knots``). Best-effort: without the file the pooled rank is unavailable.
+    """
+    try:
+      parts = {"proba": [], "percentile": [], "ad": []}
+      for chunk in open_h5(reference_h5).iter_values(self.batch_size):
+        chunk = np.asarray(chunk, dtype=np.float32)
+        parts["proba"].append(model.predict_proba(X=chunk)[:, 1])
+        parts["percentile"].append(_percentile(model, chunk))
+        if ad_model is not None:
+          parts["ad"].append(ad_model.score(chunk))
+      out = {k: np.concatenate(v).astype(np.float32) for k, v in parts.items() if v}
+      np.savez(os.path.join(descriptor_dir, RANK_REFERENCE_SIGNALS_FILENAME), **out)
+    except Exception as e:
+      logger.warning(
+        f"[lazyqsar:fit] {self.model_id}: could not score the rank reference ({e}); "
+        "the pooled rank will be unavailable"
+      )
+
   def _batched(self, fn, X, default=None):
     """Apply ``fn`` over X in batches, returning a (n,) float32 vector.
 
@@ -374,7 +433,7 @@ class Fitter(BaseEstimatorIndividual):
 
   @staticmethod
   def _build_rank_error_curve(ranks, preds, y, n_knots=20):
-    """Port of lazy-qsar's rank→error curve: sort by rank, windowed-mean |pred−y| at ~20 knots.
+    """Port of lazy-qsar's rank→error curve: sort by OOF percentile, windowed-mean |pred−y| at ~20 knots.
 
     Returns ``(r_knots, e_knots)`` lists for interpolation, or ``None`` when too few finite rows.
     """
@@ -462,7 +521,7 @@ class Predictor(BaseEstimatorIndividual):
       for start, end, chunk in self._iter_X():
         preds[start:end] = model.predict_proba(X=chunk)[:, 1]
         with contextlib.suppress(Exception):
-          ranks[start:end] = model.predict_rank(X=chunk)[:, 1]
+          ranks[start:end] = _percentile(model, chunk)
         if ad_model is not None:
           with contextlib.suppress(Exception):
             ads[start:end] = ad_model.score(chunk)

@@ -100,13 +100,17 @@ class TreatedDescriptors(DescriptorBase):
     return os.path.join(base, TRANSFORMERS_SUBFOLDER, local_transformer_name(eos_id, version))
 
   def _get_transformer(self, eos_id):
-    """Download (fit) or load from the trained model dir (predict) the transformer for ``eos_id``.
+    """Load the transformer for ``eos_id`` from the model dir (the trained one at predict).
 
-    The local copy lives at ``<model_dir>/transformers/<eos>_<version>_transformer.json.gz``.
+    The local copy lives at ``<model_dir>/transformers/<eos>_<version>_transformer.json.gz``; setup
+    downloads it there. At fit it is downloaded here only when absent (e.g. a model set up before).
     """
     version = self._featurizer_version(eos_id)
     if self._is_predict:
       return load_local_transformer(self._transformer_path(self.trained_path, eos_id, version))
+    local = self._transformer_path(self.path, eos_id, version)
+    if os.path.exists(local):
+      return load_local_transformer(local)
     transformer = fetch_reference_transformer(
       eos_id, version, reference_library=self._reference_library
     )

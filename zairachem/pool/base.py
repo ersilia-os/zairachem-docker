@@ -21,6 +21,7 @@ from zairachem.base.vars import (
   METADATA_SUBFOLDER,
   PARAMETERS_FILE,
   POOL_SUBFOLDER,
+  RANK_REFERENCE_SIGNALS_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
   SMILES_COLUMN,
 )
@@ -152,7 +153,7 @@ class BasePooler(ZairaBase):
 
   # ---- Reliability pooler getters -------------------------------------------------------------
   # The reliability pooler reads the prediction matrix plus two optional per-sample signal
-  # matrices (rank quantile, applicability domain) and per-descriptor metadata (OOF AUC,
+  # matrices (OOF percentile, applicability domain) and per-descriptor metadata (OOF AUC,
   # rank→error curve, AD veto cutoff). Each is individually guarded so partial upstreams degrade
   # per-signal rather than all-or-nothing.
 
@@ -182,12 +183,10 @@ class BasePooler(ZairaBase):
   def _get_ad_matrix(self, df, pred_columns):
     return self._get_signal_matrix(df, pred_columns, "_ad")
 
-  def _get_descriptor_meta(self, pred_columns, task):
-    """Per-descriptor (oof_auc, rank_error_curve, ad_hard_cutoff) aligned to pred_columns.
+  def _descriptor_dirs(self, pred_columns, task):
+    """Each prediction column's trained estimator folder (None when not found), in column order.
 
-    Reads each descriptor's ``pool_signals.joblib`` (written by the estimate step). At predict time
-    these training artifacts live under the trained model dir. Missing files/keys → None entries,
-    so the pooler falls back gracefully.
+    At predict time these training artifacts live under the trained model dir.
     """
     suffix = "-clf" if task == "classification" else "-reg"
     meta_path = self.get_trained_dir() if self.is_predict() else self.path
@@ -196,9 +195,41 @@ class BasePooler(ZairaBase):
     for rpath in ResultsIterator(path=meta_path).iter_relpaths():
       prefix = "-".join(rpath)
       prefix_to_dir[prefix + suffix] = os.path.join(meta_path, ESTIMATORS_SUBFOLDER, *rpath)
+    return [prefix_to_dir.get(col) for col in pred_columns]
+
+  def _get_reference_signals(self, pred_columns, task):
+    """``(P, R, A)`` of the rank-reference library, (n_reference, D) aligned to pred_columns.
+
+    Read from each descriptor's ``reference_signals.npz`` (written by the estimate step). All or
+    nothing, as in lazy-qsar: a pooled reference missing a descriptor is pooled with different
+    weights from the queries, so it returns None when any descriptor lacks one. ``A`` is None when
+    any descriptor has no AD scores.
+    """
+    cols = {"proba": [], "percentile": [], "ad": []}
+    for d in self._descriptor_dirs(pred_columns, task):
+      fp = os.path.join(d, RANK_REFERENCE_SIGNALS_FILENAME) if d is not None else None
+      if fp is None or not os.path.exists(fp):
+        return None
+      with np.load(fp) as z:
+        for k in cols:
+          cols[k].append(z[k] if k in z.files else None)
+    if not pred_columns or len({len(p) for p in cols["proba"]}) != 1:
+      return None
+    P = np.column_stack(cols["proba"]).astype(np.float64)
+    R = np.column_stack(cols["percentile"]).astype(np.float64)
+    A = None
+    if all(a is not None for a in cols["ad"]):
+      A = np.column_stack(cols["ad"]).astype(np.float64)
+    return P, R, A
+
+  def _get_descriptor_meta(self, pred_columns, task):
+    """Per-descriptor (oof_auc, rank_error_curve, ad_hard_cutoff) aligned to pred_columns.
+
+    Reads each descriptor's ``pool_signals.joblib`` (written by the estimate step). Missing
+    files/keys → None entries, so the pooler falls back gracefully.
+    """
     oof_aucs, curves, cutoffs = [], [], []
-    for col in pred_columns:
-      d = prefix_to_dir.get(col)
+    for d in self._descriptor_dirs(pred_columns, task):
       sig = {}
       if d is not None:
         fp = os.path.join(d, "pool_signals.joblib")

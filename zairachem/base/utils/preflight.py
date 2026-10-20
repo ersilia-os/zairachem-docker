@@ -2,15 +2,18 @@
 
 ZairaChem serves Ersilia Model Hub models as local Docker images (``ersiliaos/<eos_id>``).
 Before a run we require (a) the Docker daemon to be running and (b) every required model image
-to be present locally. Either failure stops the run with an informative message — we never
-fetch anything automatically, we only show how.
+to be present locally. Either failure stops the run with an informative message — model images are
+never pulled automatically, we only show how. Setup does download the per-featurizer data files a run
+needs: the reference-library transformers and the rank-reference matrices.
 """
 
+import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo
+from zairachem.base.utils.logging import logger
 from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
 from zairachem.base.vars import ORG, REDIS_IMAGE
 
@@ -253,19 +256,27 @@ def report_model_images(featurizer_ids, projection_ids):
     raise SystemExit(1)
 
 
-def report_reference_transformers(featurizer_ids, reference_library):
-  """Print a table of reference-library transformer availability per featurizer; fail if any missing.
+def prepare_reference_transformers(featurizer_ids, reference_library, output_dir):
+  """Download each featurizer's reference-library transformer into the model; fail if any is missing.
 
   The treat step applies, for each featurizer, a transformer pre-fitted on ``reference_library`` and
   published to a public bucket. This runs at the END of setup (after the model images are confirmed)
-  so a run aborts early — before any descriptors are computed — if a transformer is missing. The
-  version checked is the same one the treat step will use (:func:`ersilia_model_version`). Never
+  and saves each one to ``<output_dir>/transformers/``, where treat and predict read it, so a run
+  aborts early — before any descriptors are computed — if a transformer is missing or malformed.
+  The version is the same one the treat step will use (:func:`ersilia_model_version`). Never
   uploads or fits anything.
   """
   from rich import box
   from rich.table import Table
 
-  from zairachem.treat.imputers.reference_transformer import transformer_exists, transformer_url
+  from zairachem.base.vars import TRANSFORMERS_SUBFOLDER
+  from zairachem.treat.imputers.reference_transformer import (
+    check_transformer,
+    fetch_reference_transformer,
+    local_transformer_name,
+    save_local_transformer,
+    transformer_url,
+  )
 
   color = active_color()
   table = Table(
@@ -282,31 +293,40 @@ def report_reference_transformers(featurizer_ids, reference_library):
   table.add_column("Transformer", style="dim")
   table.add_column("Status", justify="center")
 
-  # One HEAD request per featurizer — independent and network-bound, so check them in parallel
-  # (results gathered in featurizer order).
+  # One download per featurizer (0.5-2 MB each) — independent and network-bound, so fetch them in
+  # parallel (results gathered in featurizer order). ``error`` is None when the copy was saved.
   def _check(m):
     version = ersilia_model_version(m)
     url = transformer_url(m, version, reference_library=reference_library)
-    ok = transformer_exists(m, version, reference_library=reference_library)
-    return m, version, url, ok
+    try:
+      transformer = fetch_reference_transformer(m, version, reference_library=reference_library)
+      check_transformer(transformer, m, version)
+      save_local_transformer(
+        transformer,
+        os.path.join(output_dir, TRANSFORMERS_SUBFOLDER, local_transformer_name(m, version)),
+      )
+      error = None
+    except RuntimeError as e:
+      error = str(e)
+    return m, version, url, error
 
-  with console.status("[dim]Checking reference-library transformers…[/]", spinner="dots"):
+  with console.status("[dim]Downloading reference-library transformers…[/]", spinner="dots"):
     with ThreadPoolExecutor(max_workers=io_workers(len(featurizer_ids))) as ex:
       checked = list(ex.map(_check, featurizer_ids))
 
   missing = []
-  for m, version, url, ok in checked:
-    if ok:
-      status = "[green]✓ available[/]"
+  for m, version, url, error in checked:
+    if error is None:
+      status = "[green]✓ downloaded[/]"
     else:
-      status = "[red]✗ missing[/]"
-      missing.append((m, version, url))
+      status = "[red]✗ unavailable[/]"
+      missing.append((m, version, url, error))
     table.add_row(m, version, url.rsplit("/", 1)[-1], status)
   console.print(table)
 
   if missing:
     echo(
-      f"{len(missing)} of {len(featurizer_ids)} featurizer(s) have no transformer in reference "
+      f"{len(missing)} of {len(featurizer_ids)} featurizer(s) have no usable transformer in reference "
       f"library '{reference_library}' — ZairaChem cannot continue.",
       kind="error",
     )
@@ -315,19 +335,24 @@ def report_reference_transformers(featurizer_ids, reference_library):
       "Fit and upload the missing one(s), then re-run:",
       kind="info",
     )
-    for m, version, url in missing:
+    for m, version, url, error in missing:
       console.print(f"      [red]✖[/] [bold]{m}[/] ({version}) → [dim]{url}[/]")
+      logger.debug(f"[setup] {error}")
     raise SystemExit(1)
 
 
-def report_rank_references(featurizer_ids):
-  """Say which featurizers have no rank reference in ``data/`` yet, before anything is computed.
+_MB = 1 << 20
 
-  Those that pre-screening keeps for training will be computed on their model server and saved into
-  ``data/rank_reference`` (``install.sh`` normally downloads them there with eosvc). The size given
-  is the uncompressed upper bound (width x library size x float32). Fetches lazy-qsar's reference
-  list, since a stored matrix is only valid for its library.
+
+def prepare_rank_references(featurizer_ids):
+  """Download each featurizer's published rank reference into the cache, one progress bar each.
+
+  Cached ones are reused. The rest, if pre-screening keeps them for training, are computed on their
+  model server during estimate and cached (the size given for those is the uncompressed upper
+  bound: width x library size x float32). Fetches lazy-qsar's reference list first, since a matrix
+  is only valid for its library. Never fatal: a failed download is computed instead.
   """
+  from zairachem.base.utils.live import LiveProgressBar
   from zairachem.base.vars import RANK_REFERENCE_DIR
   from zairachem.describe.descriptors import rank_reference as rr
 
@@ -337,13 +362,35 @@ def report_rank_references(featurizer_ids):
       kind="warning",
     )
     return
-  missing = [m for m in featurizer_ids if not rr.stored(m, ersilia_model_version(m))]
-  if not missing:
-    echo(f"Rank references found in {RANK_REFERENCE_DIR} for all featurizers.")
+  versions = {m: ersilia_model_version(m) for m in featurizer_ids}
+  missing = [m for m in featurizer_ids if not rr.stored(m, versions[m])]
+  computed = []
+  for m in missing:
+    size = rr.published_bytes(m, versions[m])
+    if size is None:
+      computed.append(m)
+      continue
+    total_mb = max(1, -(-size // _MB))
+    bar = LiveProgressBar(
+      f"Rank reference {m}", total=total_mb, color=active_color(), discrete=True
+    )
+
+    def _progress(done, _total, bar=bar):
+      bar.done = min(bar.total, done // _MB)
+      bar.set_note(f"{done / _MB:,.0f}/{size / _MB:,.0f} MB")
+
+    with bar.live():
+      ok = rr.download(m, versions[m], on_progress=_progress) is not None
+      if ok:
+        bar.done = bar.total
+    if not ok:
+      computed.append(m)
+  if not computed:
+    echo(f"Rank references ready in {RANK_REFERENCE_DIR} for all featurizers.")
     return
   echo(
-    f"No rank reference in {RANK_REFERENCE_DIR} for {', '.join(missing)}: any of them that is "
-    f"trained is computed and saved there (up to {rr.format_bytes(rr.estimate_bytes(missing))}). "
-    "`eosvc download --path data/rank_reference` fetches the published ones.",
+    f"No published rank reference for {', '.join(computed)}: any of them that is trained is "
+    f"computed and cached in {RANK_REFERENCE_DIR} (up to "
+    f"{rr.format_bytes(rr.estimate_bytes(computed))}).",
     kind="warning",
   )

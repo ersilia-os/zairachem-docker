@@ -5,6 +5,17 @@ import joblib
 import numpy as np
 import pandas as pd
 
+# Imported at module load, i.e. before the CLI re-asserts its loguru sinks, which importing
+# lazy-qsar clears.
+from lazyqsar.utils.ranking import (
+  DECISION_RANK,
+  prepare_knots,
+  proba_from_reference_rank,
+  rank_from_reference,
+  reference_anchor_table,
+  subsample_knots,
+)
+
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
@@ -36,12 +47,74 @@ def _prettify(col):
 
 def _tier(has_rank, has_ad, base_scores):
   if has_rank and has_ad:
-    return "full (rank reliability + applicability domain)"
+    return "full (percentile reliability + applicability domain)"
   if has_ad:
     return "applicability-domain weighted"
   if has_rank:
-    return "rank-reliability weighted"
+    return "percentile-reliability weighted"
   return "skill weighted" if any(b > 0 for b in (base_scores or [])) else "uniform mean"
+
+
+def _build_reference_rank(params, ref, p_valid, y_valid):
+  """Fit the pooled reference rank into ``params`` (in place), mirroring lazy-qsar's ensemble.
+
+  ``ref`` is the rank-reference library's per-descriptor ``(P, R, A)``. It goes through the same
+  fitted weighting a query does, so its pooled probabilities are on the query scale; their knots are
+  what ``rank`` is a position against (``lazyqsar.ensemble.reference.build_pooled_rank_knots``).
+  The top of the scale is pinned on p95 of the validation actives' pooled probability, and the
+  decision cutoff is :data:`~lazyqsar.utils.ranking.DECISION_RANK` (top 1% of the library) mapped
+  back to a probability. Leaves ``params`` without a rank when there is no usable reference.
+  """
+  params["pooled_rank_knots"] = None
+  if ref is None:
+    logger.warning("[reliability_pool:fit] no rank-reference scores; `clf_rank` is unavailable")
+    return
+  P_ref, R_ref, A_ref = ref
+  if params.get("has_ad") and A_ref is None:
+    logger.warning("[reliability_pool:fit] rank reference has no AD scores; `clf_rank` unavailable")
+    return
+  p_ref, _ = ReliabilityClassifierPooler._combine_verbose(
+    P_ref,
+    R_ref if params.get("has_rank") else None,
+    A_ref if params.get("has_ad") else None,
+    params,
+  )
+  p_ref = np.asarray(p_ref)[np.isfinite(p_ref)]
+  if p_ref.size == 0:
+    return
+  knots = subsample_knots(np.sort(p_ref))
+  prepared = prepare_knots(knots)
+  actives = np.asarray(p_valid)[np.asarray(y_valid) == 1]
+  high = float(np.percentile(actives, 95)) if actives.size else None
+  _, _, used = reference_anchor_table(prepared=prepared, anchor_high=high)
+  params["pooled_rank_knots"] = knots
+  params["pooled_rank_anchor_high"] = high if used else None
+  params["decision_cutoff_proba"] = float(
+    proba_from_reference_rank(DECISION_RANK, prepared=prepared, anchor_high=high if used else None)
+  )
+  logger.info(
+    f"[reliability_pool:fit] rank reference: {p_ref.size:,} molecules · decision cutoff "
+    f"rank {DECISION_RANK} = probability {params['decision_cutoff_proba']:.4f}"
+  )
+
+
+def _rank_outputs(p, params):
+  """``(clf_bin, clf_rank)`` for pooled probabilities ``p``; ``clf_rank`` is None without a reference.
+
+  With a reference the call is ``rank >= DECISION_RANK`` (top 1% of drug-like space, as lazy-qsar's
+  ``binary``); without one it falls back to ``p > 0.5``.
+  """
+  p = np.asarray(p, dtype=np.float64)
+  knots = params.get("pooled_rank_knots")
+  if knots is None or not len(knots):
+    return (p > 0.5).astype(int), None
+  high = params.get("pooled_rank_anchor_high")
+  rank = rank_from_reference(
+    p,
+    prepared=prepare_knots(np.asarray(knots, dtype=np.float64)),
+    anchors=(None, high) if high is not None else None,
+  )
+  return (p >= params["decision_cutoff_proba"]).astype(int), rank
 
 
 def _veto_stats(A, ad_hard_cutoffs):
@@ -166,7 +239,11 @@ class Fitter(BasePooler):
     y_hat = pooler.fit(P_v, R_v, A_v, y_v, oof_aucs, curves, cutoffs, pred_cols)
     _, W = ReliabilityClassifierPooler._combine_verbose(P_v, R_v, A_v, pooler._params)
     _write_summary(self.path, "fit", pred_cols, pooler._params, P_v, R_v, A_v, W)
-    b_hat = (np.asarray(y_hat) > 0.5).astype(int)
+    _build_reference_rank(
+      pooler._params, self._get_reference_signals(pred_cols, self.task), y_hat, y_v
+    )
+    pooler.save()
+    b_hat, rank = _rank_outputs(y_hat, pooler._params)
 
     results = pd.DataFrame({"clf": y_hat, "clf_bin": b_hat})
     # Pooled UNCALIBRATED score (report raw lens): combine the per-descriptor clf_raw columns with the
@@ -177,6 +254,8 @@ class Fitter(BasePooler):
       P_raw_v = np.asarray(df_X[raw_cols], dtype=np.float64)[idx]
       y_hat_raw, _ = ReliabilityClassifierPooler._combine_verbose(P_raw_v, R_v, A_v, pooler._params)
       results["clf_raw"] = np.asarray(y_hat_raw)
+    if rank is not None:
+      results["clf_rank"] = rank
     columns = results.columns.tolist()
     results["compound_id"] = cids_v
     results = results[["compound_id"] + columns]
@@ -207,7 +286,8 @@ class Predictor(BasePooler):
       )
     if keep != saved:
       logger.warning(
-        f"[reliability_pool:predict] descriptor drift: using {len(keep)}/{len(saved)} trained descriptors"
+        f"[reliability_pool:predict] descriptor drift: using {len(keep)}/{len(saved)} trained "
+        "descriptors; `clf_rank` is unavailable (its reference was pooled over all of them)"
       )
     pos = [saved.index(c) for c in keep]
 
@@ -218,6 +298,8 @@ class Predictor(BasePooler):
     reduced = dict(params)
     reduced["descriptor_columns"] = keep
     reduced["base_scores"] = [params["base_scores"][p] for p in pos]
+    if keep != saved:
+      reduced["pooled_rank_knots"] = None
     if params.get("rank_error_curves") is not None:
       reduced["rank_error_curves"] = [params["rank_error_curves"][p] for p in pos]
     if params.get("ad_hard_cutoffs") is not None:
@@ -225,7 +307,11 @@ class Predictor(BasePooler):
 
     y_hat, W = ReliabilityClassifierPooler._combine_verbose(P, R, A, reduced)
     _write_summary(self.path, "predict", keep, reduced, P, R, A, W)
-    b_hat = (np.asarray(y_hat) > 0.5).astype(int)
+    if keep == saved and params.get("pooled_rank_knots") is None:
+      logger.warning(
+        "[reliability_pool:predict] model has no pooled rank reference (refit to get `clf_rank`)"
+      )
+    b_hat, rank = _rank_outputs(y_hat, reduced)
 
     results = pd.DataFrame({"clf": y_hat, "clf_bin": b_hat})
     # Per-compound confidence signals for the predict report, appended AFTER clf/clf_bin so the
@@ -235,10 +321,10 @@ class Predictor(BasePooler):
       results["clf_ad"] = (
         ad  # in-domain fraction: 1 = every descriptor in domain, 0 = fully outside
       )
-    if R is not None:
-      # Weighted rank-reliability quantile (the pooler's own signal — distinct from the score-rank
-      # used to order the hitlist, which the report derives from the pooled probability).
-      results["clf_rank"] = (np.asarray(W, dtype=float) * np.asarray(R, dtype=float)).sum(axis=1)
+    if rank is not None:
+      # Position of the pooled probability against the rank-reference library (lazy-qsar's `rank`:
+      # 0.50 = top 10%, 0.65 = top 1% and the binary cutoff, 0.75 = top 0.1%).
+      results["clf_rank"] = rank
     columns = results.columns.tolist()
     results["compound_id"] = cids
     results = results[["compound_id"] + columns]

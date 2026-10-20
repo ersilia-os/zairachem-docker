@@ -23,6 +23,9 @@ class HoldoutFitter(Fitter):
      points ``trained_path`` at ``get_output_dir()``, which is the production run).
   """
 
+  # Folds score AUROC on the pooled probability only, so they skip the rank-reference library.
+  score_reference = False
+
   def __init__(self, path, model_id, train_idxs, batch_size=None):
     Fitter.__init__(self, path=path, model_id=model_id, is_simple=True, batch_size=batch_size)
     self.trained_path = os.path.join(path, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER)

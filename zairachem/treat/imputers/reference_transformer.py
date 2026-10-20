@@ -39,18 +39,20 @@ def transformer_url(eos_id, version, reference_library=None, base_url=None):
   return f"{base_url}/{reference_library}/{transformer_object_name(eos_id, version)}"
 
 
-def transformer_exists(eos_id, version, reference_library=None, base_url=None):
-  """Return True if the reference transformer object is reachable (HTTP 200 to a HEAD request).
+def check_transformer(transformer, eos_id, version):
+  """Raise when a downloaded transformer is not the one for ``(eos_id, version)`` or has no columns.
 
-  Used by the setup preflight to confirm — before any descriptors are computed — that every
-  featurizer has a transformer in the reference library. Any network error counts as "not available".
+  The column names themselves are checked against the raw descriptors in treat
+  (:func:`validate_transformer`), once those exist.
   """
-  url = transformer_url(eos_id, version, reference_library=reference_library, base_url=base_url)
-  try:
-    resp = requests.head(url, timeout=30, allow_redirects=True)
-  except requests.RequestException:
-    return False
-  return resp.status_code == 200
+  if not transformer.get("columns"):
+    raise RuntimeError(f"Reference transformer for '{eos_id}' has no 'columns' entry.")
+  for key, expected in (("model_id", eos_id), ("model_version", version)):
+    found = transformer.get(key)
+    if found is not None and found != expected:
+      raise RuntimeError(
+        f"Reference transformer for '{eos_id}' ({version}) declares {key} '{found}'."
+      )
 
 
 def fetch_reference_transformer(eos_id, version, reference_library=None, base_url=None):

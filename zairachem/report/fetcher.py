@@ -235,7 +235,7 @@ class ResultsFetcher(ZairaBase):
     return list(df["clf_ad"]) if "clf_ad" in df.columns else None
 
   def get_pred_rank_clf(self):
-    """Per-compound weighted rank-reliability quantile (``clf_rank``) if present, else None."""
+    """Per-compound pooled rank against the rank-reference library (``clf_rank``), else None."""
     df = self._read_pooled_results()
     return list(df["clf_rank"]) if "clf_rank" in df.columns else None
 
