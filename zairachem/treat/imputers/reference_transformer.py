@@ -34,6 +34,7 @@ def local_transformer_name(eos_id, version):
 
 
 def transformer_url(eos_id, version, reference_library=None, base_url=None):
+  """Return the public URL of the reference transformer for ``(eos_id, version)``."""
   base_url = (base_url or REFERENCE_LIBRARY_S3_BASE_URL).rstrip("/")
   reference_library = reference_library or DEFAULT_REFERENCE_LIBRARY
   return f"{base_url}/{reference_library}/{transformer_object_name(eos_id, version)}"
@@ -94,6 +95,7 @@ def save_local_transformer(transformer, path):
 
 
 def load_local_transformer(path):
+  """Load a gzipped transformer saved in the model dir; raise if it is missing."""
   if not os.path.exists(path):
     raise RuntimeError(
       f"Expected a saved reference transformer at {path} but none was found. The trained model "

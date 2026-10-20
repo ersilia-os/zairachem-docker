@@ -2,6 +2,17 @@ import collections
 
 
 def make_classification_report(y, y_proba, y_rank=None, y_ad=None, y_raw=None, threshold=0.5):
+  """Pack a descriptor's classification outputs in the format stored in ``y_hat.joblib``.
+
+  Binary calls are ``y_proba > threshold``. ``y_rank`` (OOF percentile), ``y_ad``
+  (applicability-domain score) and ``y_raw`` (uncalibrated OOF score) are kept only when given.
+
+  Returns
+  -------
+  collections.OrderedDict
+    ``{"main": {...}}`` with ``y``, ``y_hat``, ``b_hat`` and, if given, ``r_hat``, ``a_hat`` and
+    ``y_hat_raw``.
+  """
   y_hat = y_proba
   b_hat = (y_hat > threshold).astype(int)
   results = collections.OrderedDict()

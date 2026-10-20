@@ -77,6 +77,7 @@ def library_dir():
 
 
 def matrix_path(eos_id, version):
+  """Return the cached raw reference matrix path for ``(eos_id, version)`` in the library."""
   return os.path.join(library_dir(), f"{eos_id}_{version}.h5")
 
 
@@ -233,6 +234,7 @@ def estimate_bytes(eos_ids):
 
 
 def format_bytes(n):
+  """Return a byte count as a human-readable string in B, KB, MB or GB."""
   for unit in ("B", "KB", "MB", "GB"):
     if n < 1024 or unit == "GB":
       return f"{n:,.0f} {unit}" if unit in ("B", "KB") else f"{n:,.1f} {unit}"

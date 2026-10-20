@@ -68,6 +68,7 @@ class ModelIdsFile(object):
     return ids
 
   def load(self):
+    """Return the model-ID dict, read from the JSON file or parsed from the raw IDs (cached)."""
     if self.data is not None:
       return self.data
     if os.path.isfile(self.path):
@@ -80,11 +81,14 @@ class ModelIdsFile(object):
 
 
 class ParametersFile(object):
+  """Lazily loaded JSON run-parameters file (e.g. ``metadata/parameters.json``)."""
+
   def __init__(self, path):
     self.path = os.path.abspath(path)
     self.params = None
 
   def load(self):
+    """Return the parameters dict, reading the JSON file on first call only."""
     if self.params is None:
       with open(self.path, "r") as f:
         self.params = json.load(f)
@@ -92,6 +96,8 @@ class ParametersFile(object):
 
 
 class SingleFile(InputSchema):
+  """Fit-time reader that turns a single input CSV into compound, value and mapping tables."""
+
   def __init__(self, input_file, params, path):
     InputSchema.__init__(self, input_file)
     self.path = path  # the run root, so get_output_dir()/get_trained_dir() resolve the session
@@ -119,6 +125,11 @@ class SingleFile(InputSchema):
     return identifiers
 
   def normalize_dataframe(self):
+    """Return one row per input row with compound id, SMILES and activity value.
+
+    Resolves the SMILES and values columns and assigns a ``CID…`` identifier per unique SMILES
+    (empty SMILES get None).
+    """
     resolved_columns = self.resolve_columns()
     self.smiles_column = resolved_columns["smiles_column"]
     self.values_column = resolved_columns["values_column"]
@@ -168,6 +179,11 @@ class SingleFile(InputSchema):
     return results
 
   def dedupe(self, df, path):
+    """Drop invalid SMILES, write ``mapping.csv`` to ``path`` and return the unique compounds.
+
+    The returned frame has one row per compound id (sorted) with its SMILES; ``mapping.csv`` links
+    each input row to its deduplicated row index and compound id (empty for invalid SMILES).
+    """
     n_total = df.shape[0]
     logger.info(f"[dedupe] Starting deduplication of {n_total:,} compounds")
     data = [
@@ -213,10 +229,15 @@ class SingleFile(InputSchema):
     return dfc
 
   def compounds_table(self, df, path):
+    """Return the deduplicated compounds table, writing ``mapping.csv`` to ``path``."""
     dfc = self.dedupe(df, path)
     return dfc
 
   def values_table(self, df):
+    """Return one activity value per compound id: the median over duplicate rows.
+
+    For classification the median is rounded back to a 0/1 label (a 0.5 tie becomes 1).
+    """
     dfv = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: df[COMPOUND_IDENTIFIER_COLUMN]})
     dfv[VALUES_COLUMN] = df[VALUES_COLUMN]
     dedupe = collections.defaultdict(list)
@@ -247,6 +268,7 @@ class SingleFile(InputSchema):
     return dfv
 
   def input_schema(self):
+    """Return the input file path and resolved SMILES/values column names as a dict."""
     sc = {
       "input_file": self.input_file,
       "smiles_column": self.smiles_column,
@@ -255,6 +277,10 @@ class SingleFile(InputSchema):
     return sc
 
   def process(self):
+    """Write ``compounds.csv``, ``values.csv``, ``mapping.csv`` and ``input_schema.json``.
+
+    All files go to the data subfolder of the run's output directory.
+    """
     path = os.path.join(self.get_output_dir(), DATA_SUBFOLDER)
     df = self.normalize_dataframe()
     dfc = self.compounds_table(df, path)
@@ -267,15 +293,22 @@ class SingleFile(InputSchema):
 
 
 class SingleFileForPrediction(SingleFile):
+  """Predict-time `SingleFile` that reads ground truth only from the fit-time values column."""
+
   def __init__(self, input_file, params, path):
     SingleFile.__init__(self, input_file, params, path)
     self.trained_path = self.get_trained_dir()
 
   def get_trained_values_column(self):
+    """Return the values column name recorded in the trained model's ``input_schema.json``."""
     with open(os.path.join(self.trained_path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       return json.load(f)["values_column"]
 
   def normalize_dataframe(self):
+    """Return compound ids and SMILES, plus values when a ground-truth column is found.
+
+    The ground-truth column must be named like the fit-time values column; sets ``self.has_tasks``.
+    """
     # Recognise a ground-truth column ONLY when it is named exactly like the fit-time activity column
     # (case-insensitive, trimmed). Any other extra columns in the input are ignored — so prediction
     # never depends on, or crashes over, unrelated numeric columns.
@@ -300,6 +333,7 @@ class SingleFileForPrediction(SingleFile):
     return df
 
   def input_schema(self):
+    """Return the input file path and resolved SMILES/values column names as a dict."""
     sc = {
       "input_file": self.input_file,
       "smiles_column": self.smiles_column,
@@ -308,6 +342,10 @@ class SingleFileForPrediction(SingleFile):
     return sc
 
   def process(self):
+    """Write compounds, mapping and ``input_schema.json``, plus ``values.csv`` if any are labelled.
+
+    If the ground-truth column is entirely blank, it is dropped (``values_column`` becomes None).
+    """
     path = os.path.join(self.get_output_dir(), DATA_SUBFOLDER)
     df = self.normalize_dataframe()
     dfc = self.dedupe(df, path)

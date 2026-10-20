@@ -56,6 +56,8 @@ def _rank_or_warn(ranks, model_id, stage):
 
 
 class Fitter(BaseEstimatorIndividual):
+  """Fit-time lazyqsar estimator for one descriptor."""
+
   #: Score the rank-reference library for the pooled rank. Off for held-out folds, which only score
   #: AUROC and would otherwise push the 50,000-molecule library through every fold's models.
   score_reference = True
@@ -77,6 +79,17 @@ class Fitter(BaseEstimatorIndividual):
     self.substep_cb = substep_cb or (lambda _text: None)
 
   def run(self):
+    """Fit the descriptor's lazyqsar classifier and return its per-row classification report.
+
+    Trains on the training rows and saves the model, applicability domain, CV report, pool signals
+    and (when a rank reference exists) reference scores. Training rows get out-of-fold signals; the
+    other rows are predicted by the fitted model. Regression is not implemented and is skipped.
+
+    Returns
+    -------
+    collections.OrderedDict
+      ``{"clf": report}`` from ``make_classification_report``; empty when skipped.
+    """
     self.reset_time()
     tasks = collections.OrderedDict()
     shape = self._get_X_shape()
@@ -483,6 +496,8 @@ class Fitter(BaseEstimatorIndividual):
 
 
 class Predictor(BaseEstimatorIndividual):
+  """Predict-time lazyqsar estimator for one descriptor."""
+
   def __init__(self, path, model_id, batch_size=None, substep_cb=None):
     BaseEstimatorIndividual.__init__(
       self,
@@ -497,6 +512,11 @@ class Predictor(BaseEstimatorIndividual):
     self.substep_cb = substep_cb or (lambda _text: None)
 
   def run(self):
+    """Apply the trained classifier and AD model to the run's descriptor matrix, chunk by chunk.
+
+    Returns ``{"clf": report}`` with probabilities, OOF percentiles and AD scores, or an empty
+    dict when there is no descriptor data or the task is regression.
+    """
     self.reset_time()
     tasks = collections.OrderedDict()
     shape = self._get_X_shape()
@@ -546,6 +566,8 @@ class Predictor(BaseEstimatorIndividual):
 
 
 class IndividualEstimator(ZairaBase):
+  """Fitter or Predictor for one descriptor, chosen by the run mode."""
+
   def __init__(self, path=None, model_id=None, is_simple=True, batch_size=None, substep_cb=None):
     ZairaBase.__init__(self)
     self.model_id = model_id
@@ -568,6 +590,7 @@ class IndividualEstimator(ZairaBase):
       )
 
   def run(self):
+    """Run the fitter or predictor and dump its report to the descriptor's ``y_hat.joblib``."""
     results = self.estimator.run()
     joblib.dump(
       results,
@@ -582,6 +605,8 @@ class IndividualEstimator(ZairaBase):
 
 
 class Estimator(ZairaBase):
+  """Lazyqsar estimate step over every descriptor the run uses."""
+
   def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -635,6 +660,10 @@ class Estimator(ZairaBase):
     return res
 
   def run(self):
+    """Fit or predict each used descriptor under a live table, skipping the ones that fail.
+
+    Raises ``RuntimeError`` when no descriptor produces a valid estimator.
+    """
     from zairachem.base.utils.progress import STEP_COLORS
     from zairachem.estimate.estimators.lazy_qsar.monitor import TrainingMonitor
 

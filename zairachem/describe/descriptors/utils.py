@@ -19,6 +19,8 @@ except Exception:
 
 
 class Hdf5Data:
+  """Descriptor result of ``BinaryStreamClient.run``, held in memory to be saved as an H5 file."""
+
   def __init__(self, results):
     self.values = results["data"]
     self.dim = results["shape"][-1]
@@ -29,6 +31,7 @@ class Hdf5Data:
     self.features = np.array(results["dims"], dtype=str_dt)
 
   def save(self, filename):
+    """Write the matrix to ``filename`` as ``Values``, ``Inputs`` and ``Features`` datasets."""
     logger.info(f"[h5] saving {filename} shape={np.shape(self.values)}")
     with h5py.File(filename, "w") as f:
       f.create_dataset("Values", data=self.values)
@@ -37,6 +40,7 @@ class Hdf5Data:
 
 
 def load_yml(file):
+  """Return the parsed YAML in ``file``, or None when the file does not exist."""
   if not os.path.exists(file):
     return None
 
@@ -51,12 +55,14 @@ def _service_name(model_id: str) -> str:
 
 
 def write_service_file(model_ids):
+  """Write ``model_ids``, one per line, to ``<BASE_DIR>/service.txt``."""
   with open(f"{BASE_DIR}/service.txt", "w") as f:
     for m in model_ids:
       f.write(f"{m}\n")
 
 
 def get_services(compose_file):
+  """Return the ``services`` mapping of a docker compose file, or None if missing or empty."""
   data = load_yml(compose_file)
   if not data:
     return None
@@ -64,6 +70,7 @@ def get_services(compose_file):
 
 
 def service_exists(compose_file, model_ids):
+  """Return whether every model has a service in ``compose_file`` (None if it has none)."""
   service_names = [_service_name(model_id) for model_id in model_ids]
   services = get_services(compose_file)
   if not services:
@@ -141,6 +148,10 @@ def _via_yaml(service: str, path) -> Optional[int]:
 
 
 def get_model_host_port(model_id: str, path) -> Optional[int]:
+  """Return the host port mapped to port 80 of the model's compose service, or None.
+
+  Asks ``docker compose port`` first and falls back to parsing the compose YAML.
+  """
   service = _service_name(model_id)
   return _via_cli(service, path) or _via_yaml(service, path)
 

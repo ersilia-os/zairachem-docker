@@ -275,39 +275,51 @@ class _PooledOofScorePlot(BasePlot):
 
 
 class OofScoreProbaPlot(_PooledOofScorePlot):
+  """Plot of the pooled OOF score as a probability, actives vs inactives."""
+
   stem = "oof-score-proba"
   title = "Out-of-fold pooled score · probability"
   ylabel = "Probability"
 
   def transform(self, p, y):
+    """Return the pooled score clipped to [0, 1]."""
     return np.clip(p, 0.0, 1.0)
 
 
 class OofScoreLogitPlot(_PooledOofScorePlot):
+  """Plot of the pooled OOF score on the log-odds scale, actives vs inactives."""
+
   stem = "oof-score-logit"
   title = "Out-of-fold pooled score · log-odds"
   ylabel = "Log-odds (logit)"
 
   def transform(self, p, y):
+    """Return the logit of the pooled score, clipped away from 0 and 1."""
     pc = np.clip(p, 1e-6, 1 - 1e-6)
     return np.log(pc / (1 - pc))
 
 
 class OofScoreRankPlot(_PooledOofScorePlot):
+  """Plot of the pooled OOF score as a within-run percentile rank, actives vs inactives."""
+
   stem = "oof-score-rank"
   title = "Out-of-fold pooled score · percentile rank"
   ylabel = "Percentile rank"
 
   def transform(self, p, y):
+    """Return the empirical percentile rank in [0, 1] of each pooled score."""
     return _percentile_rank(p)
 
 
 class OofScoreLiftPlot(_PooledOofScorePlot):
+  """Plot of the pooled OOF score as lift over the active base rate, actives vs inactives."""
+
   stem = "oof-score-lift"
   title = "Out-of-fold pooled score · lift"
   ylabel = "Lift (× base rate)"
 
   def transform(self, p, y):
+    """Return the pooled score divided by the fraction of actives, or None if there are none."""
     prior = float(np.mean(y))
     return p / prior if prior > 0 else None
 
@@ -325,35 +337,46 @@ class OofScoreRawPlot(_PooledOofScorePlot):
     return ResultsFetcher(path=path).clf_truth_raw()  # None when clf_raw wasn't persisted
 
   def transform(self, p, y):
+    """Return the uncalibrated pooled score clipped to [0, 1]."""
     return np.clip(p, 0.0, 1.0)
 
 
 # Jittered-points variants (same transforms, points over a lightened violin).
 class OofScoreProbaPointsPlot(OofScoreProbaPlot):
+  """Jittered-points variant of :class:`OofScoreProbaPlot` (points over a lightened violin)."""
+
   stem = "oof-score-proba-pts"
   title = "Out-of-fold pooled score · probability (points)"
   show_points = True
 
 
 class OofScoreLogitPointsPlot(OofScoreLogitPlot):
+  """Jittered-points variant of :class:`OofScoreLogitPlot` (points over a lightened violin)."""
+
   stem = "oof-score-logit-pts"
   title = "Out-of-fold pooled score · log-odds (points)"
   show_points = True
 
 
 class OofScoreRankPointsPlot(OofScoreRankPlot):
+  """Jittered-points variant of :class:`OofScoreRankPlot` (points over a lightened violin)."""
+
   stem = "oof-score-rank-pts"
   title = "Out-of-fold pooled score · percentile rank (points)"
   show_points = True
 
 
 class OofScoreLiftPointsPlot(OofScoreLiftPlot):
+  """Jittered-points variant of :class:`OofScoreLiftPlot` (points over a lightened violin)."""
+
   stem = "oof-score-lift-pts"
   title = "Out-of-fold pooled score · lift (points)"
   show_points = True
 
 
 class OofScoreRawPointsPlot(OofScoreRawPlot):
+  """Jittered-points variant of :class:`OofScoreRawPlot` (points over a lightened violin)."""
+
   stem = "oof-score-raw-pts"
   title = "Out-of-fold pooled score · raw (points)"
   show_points = True
@@ -1040,6 +1063,7 @@ class CvAuprPlot(_CvBarPlot):
   noskill = "prior"
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the average precision of the descriptor's OOF probabilities."""
     return average_precision_score(y, proba)
 
 
@@ -1051,6 +1075,7 @@ class CvMccPlot(_CvBarPlot):
   xlabel = "MCC (no skill = 0)"
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the MCC of the descriptor's OOF calls at its cutoff, or None without a cutoff."""
     return matthews_corrcoef(y, preds) if preds is not None else None
 
 
@@ -1062,6 +1087,7 @@ class CvF1Plot(_CvBarPlot):
   xlabel = "F1"
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the F1 of the descriptor's OOF calls at its cutoff, or None without a cutoff."""
     return f1_score(y, preds, zero_division=0) if preds is not None else None
 
 
@@ -1074,6 +1100,7 @@ class CvBalancedAccuracyPlot(_CvBarPlot):
   noskill = 0.5
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the balanced accuracy of the OOF calls at the cutoff, or None without a cutoff."""
     return balanced_accuracy_score(y, preds) if preds is not None else None
 
 
@@ -1086,6 +1113,7 @@ class CvPrecisionPlot(_CvBarPlot):
   noskill = "prior"
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the precision of the descriptor's OOF calls at its cutoff, or None without one."""
     return precision_score(y, preds, zero_division=0) if preds is not None else None
 
 
@@ -1097,6 +1125,7 @@ class CvRecallPlot(_CvBarPlot):
   xlabel = "Recall (sensitivity)"
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the recall of the descriptor's OOF calls at its cutoff, or None without a cutoff."""
     return recall_score(y, preds, zero_division=0) if preds is not None else None
 
 
@@ -1109,6 +1138,7 @@ class CvCutoffPlot(_CvBarPlot):
   noskill = 0.5
 
   def compute(self, s, proba, y, preds, prior):
+    """Return the descriptor's ideal decision cutoff from its CV report, or None."""
     return s.get("decision_cutoff_proba")
 
 

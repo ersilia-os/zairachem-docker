@@ -65,6 +65,8 @@ def _standardize_batch(batch_data):
 
 
 class ChemblStandardize(object):
+  """Setup step that standardises ``compounds.csv`` with the ChEMBL structure pipeline."""
+
   def __init__(self, outdir, batch_size=DEFAULT_BATCH_SIZE, max_workers=MAX_WORKERS):
     self.outdir = outdir
     self.input_file = self.get_input_file()
@@ -73,9 +75,11 @@ class ChemblStandardize(object):
     self.max_workers = max_workers
 
   def get_output_file(self):
+    """Return the path of the standardised compounds file (``compounds_std.csv``)."""
     return os.path.join(self.outdir, COMPOUNDS_FILENAME.split(".")[0] + "_std.csv")
 
   def get_input_file(self):
+    """Return the path of the deduplicated compounds file (``compounds.csv``)."""
     return os.path.join(self.outdir, COMPOUNDS_FILENAME)
 
   def _run_parallel(self, df):
@@ -126,6 +130,11 @@ class ChemblStandardize(object):
     return R
 
   def run(self):
+    """Standardise every compound's SMILES and write ``compounds_std.csv``.
+
+    Runs in parallel batches above the ``ZAIRACHEM_STANDARDIZE_MIN_PARALLEL`` threshold (serially
+    otherwise, or if the pool fails); the original SMILES is kept when standardisation fails.
+    """
     df = pd.read_csv(self.input_file)
     n_total = len(df)
     logger.info(f"[standardize] Starting standardization of {n_total:,} compounds")

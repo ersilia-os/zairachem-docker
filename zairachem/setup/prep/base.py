@@ -52,10 +52,13 @@ class BaseSetup(object):
     return df[SMILES_COLUMN].astype(str).tolist()
 
   def update_elapsed_time(self):
+    """Add the time since the last stopwatch reset to the run's ``session.json``."""
     ZairaBase().update_elapsed_time(self.output_dir)
 
   def reset_time(self):
+    """Restart the run's stopwatch stored in the output directory's ``session.json``."""
     ZairaBase().reset_time(self.output_dir)
 
   def is_done(self):
+    """Return True if the run's final ``results/output.csv`` already exists."""
     return os.path.exists(os.path.join(self.output_dir, OUTPUT_FILENAME))

@@ -40,6 +40,8 @@ stylia.set_format("print")
 
 
 class BaseResults(ZairaBase):
+  """Base for report plots and tables bound to a run folder and its ``data.csv`` tasks."""
+
   def __init__(self, path):
     ZairaBase.__init__(self)
     self.path = path
@@ -55,18 +57,38 @@ class BaseResults(ZairaBase):
     return self._data_columns
 
   def has_clf_data(self):
+    """Return True if ``data.csv`` has a classification (``bin``) task column (not skip/aux)."""
     return any("bin" in c and "_skip" not in c and "_aux" not in c for c in self._columns())
 
   def has_reg_data(self):
+    """Return True if ``data.csv`` has a regression (``val``) task column (not skip/aux)."""
     return any("val" in c and "_skip" not in c and "_aux" not in c for c in self._columns())
 
 
 class BaseTable(BaseResults):
+  """Base for the report's tables (performance and per-compound output tables)."""
+
   def __init__(self, path):
     BaseResults.__init__(self, path=path)
 
 
 class BasePlot(BaseResults):
+  """Base for report figures: a stylia axis sized from a footprint of 3 cm grid cells.
+
+  Subclasses draw on ``self.ax`` and set ``name`` (the output file stem) and ``is_available``.
+
+  Parameters
+  ----------
+  ax : list of matplotlib.axes.Axes or None
+    Axes to draw on (the first one is used); None creates a new figure.
+  path : str
+    Run folder.
+  cells : tuple of int, optional
+    Footprint as (rows, cols) of 3 cm cells; defaults to (2, 2).
+  figsize : tuple of float, optional
+    Legacy inch-like size, used only when given; prefer ``cells``.
+  """
+
   def __init__(self, ax, path, cells=None, figsize=None):
     BaseResults.__init__(self, path=path)
     # Footprint on the reference grid as (rows, cols) of 3 cm cells — the source of truth for size.
@@ -92,6 +114,10 @@ class BasePlot(BaseResults):
     self.ax.set_ylabel("")
 
   def save(self):
+    """Write the figure to ``report/png/<name>.png`` and ``report/pdf/<name>.pdf``.
+
+    Does nothing when the plot is not available. The PNG uses ``REPORT_DPI``; the PDF is vector.
+    """
     if not self.is_available:
       return
     import matplotlib.pyplot as plt
@@ -117,4 +143,5 @@ class BasePlot(BaseResults):
     plt.close()
 
   def load(self):
+    """Do nothing; overridable hook for subclasses."""
     pass

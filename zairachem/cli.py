@@ -64,6 +64,11 @@ def process_group(
   no_report=False,
   describe_workers=None,
 ):
+  """Run describe through finish on a prepared run folder, always stopping model servers.
+
+  Takes the same arguments as :func:`_run_steps`. SIGTERM is turned into an interrupt so the Ersilia
+  model servers started by describe are shut down on success, failure, Ctrl-C or SIGTERM.
+  """
   # The model servers are started by describe and used until estimate ends; they are always stopped
   # when the run ends, including on failure, Ctrl-C and SIGTERM (turned into an interrupt below).
   import signal
@@ -500,6 +505,7 @@ class _StatusGroup(StatusGroupMixin, click.RichGroup):
   help="Show detailed logs in the console (quiet by default). Place before the command, e.g. `zairachem -v fit ...`.",
 )
 def cli(verbose):
+  """Set the console log verbosity for every ZairaChem subcommand."""
   # Logging is quiet by default (WARNING/ERROR only); -v streams the full DEBUG log. The file
   # log always keeps everything. Stored on the logger so per-step configure() calls preserve it.
   logger.set_verbosity(verbose)

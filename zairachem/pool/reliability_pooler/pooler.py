@@ -20,6 +20,8 @@ EPS = 1e-7
 
 
 class WeightMatrixBuilder(object):
+  """Builder of the per-sample, per-descriptor weight matrix used to pool predictions."""
+
   @staticmethod
   def build(P, R, A, base_scores, rank_error_curves, ad_hard_cutoffs):
     """Return ``(W, base)`` — a row-normalized (B, D) per-sample weight matrix.
@@ -105,6 +107,27 @@ class ReliabilityClassifierPooler(object):
     return [max(0.0, float(a) - 0.5) if a is not None else 0.0 for a in oof_aucs]
 
   def fit(self, P, R, A, y, oof_aucs, rank_error_curves, ad_cutoffs, descriptor_columns):
+    """Fit the pooling params, save them and return the pooled probabilities of ``P``.
+
+    Parameters
+    ----------
+    P : array-like, shape (B, D)
+      Calibrated per-descriptor probabilities.
+    R : array-like, shape (B, D), or None
+      OOF percentiles; when None the rank reliability term is disabled.
+    A : array-like, shape (B, D), or None
+      Applicability-domain scores; when None the AD veto is disabled.
+    y : array-like, shape (B,)
+      Labels (not used in the weighting itself).
+    oof_aucs : list of float or None, length D
+      OOF AUC per descriptor; base skill is ``max(0, auc - 0.5)``.
+    rank_error_curves : list of (r_knots, e_knots) or None, length D
+      Per-descriptor OOF percentile to error curves.
+    ad_cutoffs : list of float or None, length D
+      AD hard veto cutoffs (None means never vetoed).
+    descriptor_columns : list of str
+      Prediction column names, in column order of ``P``.
+    """
     P = np.asarray(P, dtype=np.float64)
     D = P.shape[1]
     base_scores = self._base_scores(oof_aucs)
@@ -138,6 +161,7 @@ class ReliabilityClassifierPooler(object):
     return self._params
 
   def predict(self, P, R, A):
+    """Return pooled probabilities of ``P`` with the saved params, ignoring signals absent at fit."""
     params = self._load()
     P = np.asarray(P, dtype=np.float64)
     # Honor the tier decided at fit: if AD/rank were absent then, ignore them now.

@@ -19,6 +19,8 @@ from zairachem.base.vars import (
 
 
 class SimpleEvaluator(ZairaBase):
+  """Evaluator of each estimator's predictions against the run's known values."""
+
   def __init__(self, path):
     ZairaBase.__init__(self)
     self.path = path
@@ -51,6 +53,11 @@ class SimpleEvaluator(ZairaBase):
     return data
 
   def run(self):
+    """Score each estimator's results against ``data.csv`` and write the evaluation JSON files.
+
+    Writes the full-set scores next to each estimator's results and, at fit, the scores on the
+    validation subset too. Does nothing when the input has no values column.
+    """
     # Read each file once, then derive BOTH the full-set evaluation and the validation-subset
     # evaluation (fit only) from the in-memory frames — the previous two-pass version re-read
     # data.csv and every estimator's results from disk a second time.

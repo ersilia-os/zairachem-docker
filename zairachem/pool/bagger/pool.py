@@ -13,11 +13,18 @@ from .bagger import BaggerClassifier, BaggerRegressor
 
 
 class Fitter(BasePooler):
+  """Fit-time bagger that trains the pooling models on the validation rows."""
+
   def __init__(self, path, batch_size=None):
     BasePooler.__init__(self, path=path, batch_size=batch_size)
     self.trained_path = os.path.join(self.get_output_dir(), POOL_SUBFOLDER)
 
   def run(self):
+    """Fit the bagger on the validation rows and return their pooled predictions.
+
+    Models are saved under the run's pool folder. Returns a dataframe with ``compound_id`` and
+    ``reg`` (regression) or ``clf`` and ``clf_bin`` (probability thresholded at 0.5).
+    """
     self.reset_time()
     valid_idxs = self.get_validation_indices(path=self.path)
     cids = self._get_compound_ids()
@@ -60,11 +67,14 @@ class Fitter(BasePooler):
 
 
 class Predictor(BasePooler):
+  """Predict-time bagger that applies the pooling models from the trained model dir."""
+
   def __init__(self, path, batch_size=None):
     BasePooler.__init__(self, path=path, batch_size=batch_size)
     self.trained_path = os.path.join(self.get_trained_dir(), POOL_SUBFOLDER)
 
   def run(self):
+    """Return pooled predictions (``reg``, or ``clf`` and ``clf_bin``) for every compound."""
     self.reset_time()
     logger.info(f"[bagger:predict] Loading X with batch_size={self.batch_size}")
     df = self._get_X()
@@ -100,6 +110,8 @@ class Predictor(BasePooler):
 
 
 class Bagger(ZairaBase):
+  """Legacy bagger pool step, dispatching to the fitter or the predictor by run mode."""
+
   def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
@@ -110,6 +122,7 @@ class Bagger(ZairaBase):
       self.estimator = Predictor(path=self.path, batch_size=self.batch_size)
 
   def run(self):
+    """Run the fitter (fit mode) or the predictor (predict mode); return the pooled results."""
     if not self.is_predict():
       results = self.estimator.run()
     else:

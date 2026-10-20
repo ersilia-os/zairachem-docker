@@ -13,6 +13,8 @@ from zairachem.base.vars import (
 
 
 class SetupCleaner(object):
+  """Setup step that removes intermediate CSVs from the data folder and trims ``data.csv``."""
+
   def __init__(self, path):
     self.path = path
     self.data_file = pd.read_csv(os.path.join(path, DATA_FILENAME))
@@ -42,6 +44,7 @@ class SetupCleaner(object):
     logger.info(f"[clean] Cleaned data file: {len(df):,} rows, {len(keep_cols)} columns")
 
   def run(self):
+    """Delete compound/task/value intermediates and drop clf/reg/value columns from ``data.csv``."""
     logger.info("[clean] Starting cleanup")
     self._individual_files()
     self._clean_data_file()

@@ -202,11 +202,20 @@ def _write_summary(out_path, mode, pred_cols, params, P, R, A, W):
 
 
 class Fitter(BasePooler):
+  """Fit-time reliability pooler that learns the per-descriptor weighting on validation rows."""
+
   def __init__(self, path, batch_size=None):
     BasePooler.__init__(self, path=path, batch_size=batch_size)
     self.trained_path = os.path.join(self.get_output_dir(), POOL_SUBFOLDER)
 
   def run(self):
+    """Fit the pooler on the validation rows and return their pooled predictions.
+
+    Builds the weighting from OOF skill, rank and AD signals, adds the pooled reference rank,
+    saves the params under the run's pool folder and writes the pooling summary. Returns a
+    dataframe with ``compound_id``, ``clf``, ``clf_bin`` and, when available, ``clf_raw``
+    (pooled uncalibrated score) and ``clf_rank``.
+    """
     self.reset_time()
     _check_regression(self.task)
     valid_idxs = self.get_validation_indices(path=self.path)
@@ -264,11 +273,19 @@ class Fitter(BasePooler):
 
 
 class Predictor(BasePooler):
+  """Predict-time reliability pooler that applies the weighting saved in the trained model dir."""
+
   def __init__(self, path, batch_size=None):
     BasePooler.__init__(self, path=path, batch_size=batch_size)
     self.trained_path = os.path.join(self.get_trained_dir(), POOL_SUBFOLDER)
 
   def run(self):
+    """Pool every compound's per-descriptor predictions with the saved weighting.
+
+    Descriptors missing now are dropped and weights renormalised over the rest (``clf_rank``
+    is then disabled). Returns a dataframe with ``compound_id``, ``clf``, ``clf_bin`` and, when
+    available, ``clf_ad`` (in-domain fraction) and ``clf_rank``.
+    """
     self.reset_time()
     _check_regression(self.task)
     df = self._get_X()
@@ -333,6 +350,8 @@ class Predictor(BasePooler):
 
 
 class ReliabilityPooler(ZairaBase):
+  """Reliability pool step, dispatching to the fitter or the predictor by run mode."""
+
   def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
@@ -343,4 +362,5 @@ class ReliabilityPooler(ZairaBase):
       self.estimator = Predictor(path=self.path, batch_size=self.batch_size)
 
   def run(self):
+    """Run the fitter (fit mode) or the predictor (predict mode); return the pooled results."""
     return self.estimator.run()

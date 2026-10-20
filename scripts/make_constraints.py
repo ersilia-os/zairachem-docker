@@ -45,6 +45,7 @@ def closure():
 
 
 def main():
+  """Write the pinned dependency closure to ``constraints.txt`` at the repository root."""
   pins = closure()
   lines = [f"{name}=={version}" for name, version in sorted(pins.items())]
   header = (

@@ -16,6 +16,8 @@ from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
 
 class IndividualOutcomeAssembler(BaseOutcomeAssembler):
+  """Writer of one descriptor's lazyqsar predictions as results tables."""
+
   def __init__(self, path=None, model_id=None):
     BaseOutcomeAssembler.__init__(self, path=path)
     self.model_id = model_id
@@ -47,6 +49,11 @@ class IndividualOutcomeAssembler(BaseOutcomeAssembler):
     return pd.DataFrame(data)
 
   def run(self):
+    """Write the descriptor's ``y_hat.joblib`` predictions as unmapped and mapped results CSVs.
+
+    The unmapped table is aligned to the run's compounds; the mapped one is remapped to the original
+    input rows.
+    """
     df_c = self._get_compounds()
     df_y = self._get_y_hat()
     df = pd.concat([df_c, df_y], axis=1)
@@ -76,6 +83,8 @@ class IndividualOutcomeAssembler(BaseOutcomeAssembler):
 
 
 class OutcomeAssembler(ZairaBase):
+  """Writer of the results tables for every descriptor that produced predictions."""
+
   def __init__(self, path=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -107,6 +116,7 @@ class OutcomeAssembler(ZairaBase):
     return model_ids_successful
 
   def run(self):
+    """Write the results tables of each used descriptor that has a ``y_hat.joblib``."""
     model_ids = self._get_model_ids()
     for model_id in model_ids:
       o = IndividualOutcomeAssembler(path=self.path, model_id=model_id)

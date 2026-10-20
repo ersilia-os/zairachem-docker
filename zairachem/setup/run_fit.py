@@ -20,6 +20,14 @@ def run(
   evaluate_schemas=None,
   max_descriptors=3,
 ):
+  """Run the fit setup step, resuming an unfinished model directory when possible.
+
+  Returns
+  -------
+  bool
+    False if the directory is already a trained model (without ``override``) or the resumed run's
+    configuration conflicts with ``explicit_config``; True once setup completes.
+  """
   ts = TrainSetup(
     input_file,
     output_dir,

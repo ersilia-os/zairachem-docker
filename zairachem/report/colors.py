@@ -62,6 +62,7 @@ PHASE_COLORS = {k: _AC.hex[v] for k, v in _PHASE.items()}
 
 
 def phase_color_rgb(phase):
+  """Return the RGB colour of a pipeline phase, falling back to the ``other`` phase colour."""
   return PHASE_COLOR_RGB.get(phase, PHASE_COLOR_RGB["other"])
 
 

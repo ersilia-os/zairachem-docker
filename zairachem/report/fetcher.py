@@ -43,6 +43,12 @@ _CSV_CACHE = {}
 
 
 class ResultsFetcher(ZairaBase):
+  """Reader of a run's data, pooled and per-descriptor results, CV artefacts and projections.
+
+  Used by every report plot and table. ``path`` is the run folder (fit or predict) and
+  ``trained_path`` the trained model folder, whose fit-time results serve as reference at predict.
+  """
+
   def __init__(self, path):
     ZairaBase.__init__(self)
     self.path = path
@@ -159,16 +165,24 @@ class ResultsFetcher(ZairaBase):
     return None
 
   def get_tasks(self):
+    """Return the ``clf``/``reg`` task column names of the run's ``data.csv``."""
     df = self._read_data()
     tasks = [c for c in list(df.columns) if ("clf" in c or "reg" in c)]
     return tasks
 
   def get_reg_tasks(self):
+    """Return the regression value (``val``) column names of the run's ``data.csv``."""
     df = self._read_data()
     tasks = [c for c in list(df.columns) if "val" in c]
     return tasks
 
   def get_clf_tasks(self, data=None):
+    """Return the classification task columns, falling back to the pooled ``clf`` column.
+
+    Columns are read from ``data`` if given, else from the run's ``data.csv``. The fallback covers
+    predict runs without ground truth and excludes the derived pooled columns (``clf_bin``,
+    ``clf_ad``, ``clf_rank``, ``clf_raw``).
+    """
     if data is None:
       df = self._read_data()
     else:
@@ -184,39 +198,47 @@ class ResultsFetcher(ZairaBase):
     return tasks
 
   def get_actives_inactives(self):
+    """Return the binary truth labels (``bin`` column) of the run's ``data.csv``."""
     df = self._read_data()
     return list(df[self.clf_task])
 
   def get_actives_inactives_trained(self):
+    """Return the binary truth labels (``bin`` column) of the trained model's ``data.csv``."""
     df = self._read_data_train()
     return list(df[self.clf_task])
 
   def get_raw(self):
+    """Return the raw regression target (``val`` column) of the run's ``data.csv``."""
     df = self._read_data()
     return list(df[self.reg_task])
 
   def get_transformed(self):  # TODO adapt for REG final
+    """Return the first transformed regression target (``reg`` column) of ``data.csv``, or None."""
     df = self._read_data()
     for c in list(df.columns):
       if "reg" in c:
         return list(df[c])
 
   def get_true_clf(self):
+    """Return the binary truth labels; alias of :meth:`get_actives_inactives`."""
     return self.get_actives_inactives()
 
   def get_pred_binary_clf(self):
+    """Return the run's pooled binary classification calls (``clf`` + ``bin`` column), or None."""
     df = self._read_pooled_results()
     for c in list(df.columns):
       if "clf" in c and "bin" in c:
         return list(df[c])
 
   def get_pred_proba_clf(self):
+    """Return the run's pooled classification probability (first non-``bin`` ``clf`` column)."""
     df = self._read_pooled_results()
     for c in list(df.columns):
       if "clf" in c and "bin" not in c:
         return list(df[c])
 
   def get_pred_proba_clf_trained(self):
+    """Return the trained model's pooled classification probability (the fit-time OOF score)."""
     df = self._read_pooled_results_train()
     for c in list(df.columns):
       if "clf" in c and "bin" not in c:
@@ -241,24 +263,28 @@ class ResultsFetcher(ZairaBase):
     return list(df["clf_rank"]) if "clf_rank" in df.columns else None
 
   def get_pred_reg_trans(self):  # TODO ADAPT FOR REG
+    """Return the run's pooled regression prediction on the transformed (``reg``) scale."""
     df = self._read_pooled_results()
     for c in list(df.columns):
       if "reg" in c and "raw" not in c:
         return list(df[c])
 
   def get_pred_reg_trans_trained(self):  # TODO Adapt for Reg
+    """Return the trained model's pooled regression prediction on the transformed scale."""
     df = self._read_pooled_results_train()
     for c in list(df.columns):
       if "reg" in c and "raw" not in c:
         return list(df[c])
 
   def get_pred_reg_raw(self):
+    """Return the run's pooled regression prediction on the raw target scale (``reg_raw``)."""
     df = self._read_pooled_results()
     for c in list(df.columns):
       if "reg" in c and "raw" in c:
         return list(df[c])
 
   def get_pred_reg_raw_trained(self):
+    """Return the trained model's pooled regression prediction on the raw target scale."""
     df = self._read_pooled_results_train()
     for c in list(df.columns):
       if "reg" in c and "raw" in c:
@@ -318,10 +344,12 @@ class ResultsFetcher(ZairaBase):
     return None
 
   def get_smiles(self):
+    """Return the SMILES of the run's deduplicated ``data.csv`` rows."""
     df = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
     return list(df[SMILES_COLUMN])
 
   def get_original_smiles(self):
+    """Return the SMILES as given in the raw input file (the schema's SMILES column)."""
     raw_data = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
@@ -366,6 +394,13 @@ class ResultsFetcher(ZairaBase):
     return yt.astype(int), yp.astype(int)
 
   def classification_performance_report(self, y_true_train, y_pred_train, y_true_test, y_pred_test):
+    """Return classification metrics of test scores at a cutoff learnt on the train scores.
+
+    Unlabelled (NaN truth) positions are dropped first. The cutoff is the GHOST threshold fitted on
+    the train scores. The ordered dict holds class counts, AUROC, AUPR, the cutoff, confusion-matrix
+    counts, the thresholded metrics (accuracy, balanced accuracy, precision, recall, F1, MCC) and
+    precision among the top 1/5/10/50/100 scored compounds.
+    """
     # Drop unlabelled positions (NaN truth) so partial predict-time ground truth is handled, and
     # ensure numpy arrays so the class-count comparisons below are elementwise.
     y_true_train, y_pred_train = self._aligned_truth_pred(y_true_train, y_pred_train)
@@ -412,6 +447,7 @@ class ResultsFetcher(ZairaBase):
     return data
 
   def regression_performance_report(self):
+    """Return None; regression performance reporting is not implemented."""
     pass
 
   def _dedupe_to_original_index(self):
@@ -434,6 +470,10 @@ class ResultsFetcher(ZairaBase):
     return cached
 
   def map_to_original(self, values):
+    """Map per-row values of the deduplicated run back to the original input rows.
+
+    Returns a list as long as the raw input; rows dropped during deduplication are None.
+    """
     n, u2o = self._dedupe_to_original_index()
     mapped_values = [None] * n
     for i, v in enumerate(values):

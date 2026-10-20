@@ -18,7 +18,7 @@ ZairaChem is an automated QSAR modelling pipeline built on the Ersilia Model Hub
 ## Code style
 
 - Run `ruff check` and `ruff format` before every commit. `ruff.toml` is deliberate for this repo: line length 100, 2-space indent.
-- Write succinct NumPy-style docstrings for public classes, functions and methods.
+- Write succinct NumPy-style docstrings for public classes, functions and methods. Ruff enforces their presence (D101–D103, numpy convention); vendored code under `setup/tools/chembl_structure/` and `estimate/tools/ghost/ghostml/` is exempt.
 - Log through `loguru`; do not add new `logging.getLogger(...)` calls.
 
 ## Data

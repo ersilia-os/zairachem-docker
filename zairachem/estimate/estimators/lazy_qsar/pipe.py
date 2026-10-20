@@ -4,11 +4,14 @@ from zairachem.estimate.estimators.lazy_qsar.estimate import Estimator
 
 
 class LazyQsarAutoMLPipeline(object):
+  """Lazyqsar estimate pipeline: per-descriptor estimation, then results assembly."""
+
   def __init__(self, path, batch_size=None):
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
     self.e = Estimator(path=path, batch_size=self.batch_size)
     self.a = OutcomeAssembler(path=path)
 
   def run(self):
+    """Fit or predict every descriptor, then write their results tables."""
     self.e.run()
     self.a.run()

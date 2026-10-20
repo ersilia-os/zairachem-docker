@@ -32,4 +32,5 @@ class HoldoutFitter(Fitter):
     self._train_idxs = np.asarray(train_idxs)
 
   def get_train_indices(self, path):
+    """Return the fold's training row indices instead of all rows of the run."""
     return self._train_idxs

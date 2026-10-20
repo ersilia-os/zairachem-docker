@@ -28,6 +28,8 @@ from zairachem.base.vars import (
 
 
 class XGetter(ZairaBase):
+  """Loader of every estimator's unmapped results as one pool-step input matrix."""
+
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -63,6 +65,10 @@ class XGetter(ZairaBase):
     )
 
   def get(self):
+    """Return all estimators' result columns side by side, also saved to the pool ``data.csv``.
+
+    Columns are prefixed with the estimator's relative path (e.g. ``<family>-<eos_id>-clf``).
+    """
     self._get_results()
     X = np.hstack(self.X)
     df = pd.DataFrame(X, columns=self.columns)
@@ -70,6 +76,7 @@ class XGetter(ZairaBase):
     return df
 
   def iter_get(self, chunk_size=None) -> Iterator[Tuple[int, int, pd.DataFrame]]:
+    """Yield ``(start, end, chunk)`` row chunks of the combined result columns."""
     if chunk_size is None:
       chunk_size = self.batch_size
     self._get_results()
@@ -87,6 +94,13 @@ class XGetter(ZairaBase):
 
 
 class BasePooler(ZairaBase):
+  """Base class for the pool step, with getters for predictions, signals and labels.
+
+  Reads the task from the run parameters and exposes the per-descriptor prediction matrix,
+  the OOF-percentile and applicability-domain matrices, the per-descriptor metadata and the
+  rank-reference signals written by the estimate step.
+  """
+
   def __init__(self, path, batch_size=None):
     ZairaBase.__init__(self)
     self.logger = logger
@@ -245,6 +259,8 @@ class BasePooler(ZairaBase):
 
 
 class BaseOutcomeAssembler(ZairaBase):
+  """Base class for writing pooled results; resolves the trained model dir in predict mode."""
+
   def __init__(self, path=None):
     ZairaBase.__init__(self)
     self.path = path

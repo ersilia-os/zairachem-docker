@@ -237,6 +237,11 @@ class TreatedDescriptors(DescriptorBase):
     return len(raw_features), len(expected_cols)
 
   def run(self):
+    """Apply the reference transformer to every featurizer's raw descriptors.
+
+    Writes each featurizer's scaled ``treated.h5`` next to its ``raw.h5``, showing progress in a
+    live table; featurizers without raw data are skipped, transformer errors are raised.
+    """
     eos_ids = list(self.done_eos_iter())
     transformers = self._prefetch_transformers(eos_ids)
     monitor = TreatMonitor(eos_ids, color=STEP_COLORS.get("treat", "magenta"))

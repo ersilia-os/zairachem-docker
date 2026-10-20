@@ -15,16 +15,21 @@ from zairachem.base.vars import (
 
 
 class DataMerger(object):
+  """Setup step that joins standardised compounds and task columns into ``data.csv`` at fit."""
+
   def __init__(self, path):
     self.path = path
 
   def get_standard_smiles(self):
+    """Return the standardised compounds table (``compounds_std.csv``)."""
     return pd.read_csv(os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME))
 
   def get_tasks(self):
+    """Return the per-compound task table (``tasks.csv``)."""
     return pd.read_csv(os.path.join(self.path, TASKS_FILENAME))
 
   def run(self):
+    """Use the standardised SMILES, inner-join the tasks on compound id and write ``data.csv``."""
     df = self.get_standard_smiles()
     df = df.drop(columns=[SMILES_COLUMN])
     df = df.rename(columns={STANDARD_SMILES_COLUMN: SMILES_COLUMN})
@@ -34,10 +39,17 @@ class DataMerger(object):
 
 
 class DataMergerForPrediction(object):
+  """Setup step that builds ``data.csv`` from the standardised compounds at predict."""
+
   def __init__(self, path):
     self.path = path
 
   def run(self, has_tasks):
+    """Write ``data.csv`` with compound ids and standardised SMILES.
+
+    When ``has_tasks`` is True (the input carries ground truth), ``tasks.csv`` is left-joined so
+    that unlabelled compounds keep their rows with NaN truth.
+    """
     cpd_file = os.path.join(self.path, STANDARD_COMPOUNDS_FILENAME)
     out_file = os.path.join(self.path, DATA_FILENAME)
     with SetupProgress() as progress:

@@ -51,6 +51,13 @@ DEFAULT_BATCH_SIZE = 1000
 
 
 class BinaryStreamClient(ZairaBase):
+  """Featurization client for one Ersilia model server, with optional isaura store reads/writes.
+
+  Reads the run's input SMILES from ``csv_path``, computes descriptors by posting batches to the
+  model server at ``url`` and, when the run has a store, reads cached rows from and writes newly
+  computed rows to the isaura project.
+  """
+
   # ALL isaura store access (reads, index lookups AND writes) is serialized across models. Describe
   # featurizes models concurrently, but isaura's DuckDB/S3 layer is not thread-safe — concurrent
   # IsauraReader/IsauraInspect/IsauraWriter from worker threads collide (a shared connection gets
@@ -104,13 +111,19 @@ class BinaryStreamClient(ZairaBase):
     return self.schema
 
   def resolve_dtype(self):
+    """Return ``"float"`` if any output column in the model schema is float, else ``"int"``."""
     schema = self._get_schema()
     return "float" if "float" in set(schema[1]) else "int"
 
   def resolve_dims(self):
+    """Return the model's output column names from its schema."""
     return self._get_schema()[0]
 
   def resolve_version(self, model_id, bucket):
+    """Return ``model_id``'s Ersilia version, cached under ``latest_featurizer_version``.
+
+    The version is persisted to the run's ``parameters.json`` on first lookup. ``bucket`` is unused.
+    """
     try:
       if "latest_featurizer_version" not in self.params:
         self.params["latest_featurizer_version"] = {}
@@ -143,6 +156,15 @@ class BinaryStreamClient(ZairaBase):
       raise
 
   def decode_binary_stream(self, response, chunk_size=8192):
+    """Decode a "heavy" (binary) model-server response into a numpy array.
+
+    The stream is a JSON header line (``dtype``, ``shape``) followed by the raw array bytes.
+
+    Returns
+    -------
+    tuple of (numpy.ndarray, dict)
+      The decoded array and the parsed header.
+    """
     try:
       it = response.iter_content(chunk_size=chunk_size)
       header_buf = bytearray()
@@ -473,6 +495,18 @@ class BinaryStreamClient(ZairaBase):
     )
 
   def run(self, output_h5=None, isaura_batch_size=None):
+    """Featurize the run's molecules with this model and return the descriptor result.
+
+    Molecules present in the isaura read store are read from it and the rest are computed via the
+    model server; only freshly computed rows are written to the contribute store. With ``output_h5``
+    the matrix is streamed to that chunked H5 file instead of being kept in memory.
+
+    Returns
+    -------
+    dict
+      ``shape``, ``dtype``, ``dims`` and ``inputs``, plus ``data`` (the matrix, or None when it
+      was written to ``h5_file``).
+    """
     from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
 
     # Wall-clock for this single model's run() (one client per Ersilia model, featurizer or

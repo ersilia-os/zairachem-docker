@@ -41,6 +41,8 @@ from zairachem.setup.prep.base import BaseSetup, format_store_summary
 
 
 class PredictSetup(BaseSetup):
+  """Setup step that prepares a prediction run's data folder against a trained model directory."""
+
   def __init__(
     self,
     input_file,
@@ -315,6 +317,12 @@ class PredictSetup(BaseSetup):
     return self._effective_featurizers(), p.get("projection_ids", [])
 
   def setup(self):
+    """Run the predict setup: prepare the input data, check model images and seed the store.
+
+    Normalises, standardises, merges, checks and cleans the input (building ``tasks.csv`` only when
+    it carries ground truth), then checks the images of the descriptors the pooled model uses and,
+    for a named isaura project, migrates their stored results from the shared lake.
+    """
     require_docker_and_base()
     self._initialize()
     self._normalize_input()

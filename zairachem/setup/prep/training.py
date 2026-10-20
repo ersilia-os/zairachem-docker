@@ -80,6 +80,8 @@ def _check_model_count(ids, cap, kind, flag):
 
 
 class TrainSetup(BaseSetup):
+  """Setup step that prepares a fit run: data folder, ``parameters.json``, splits, featurizers."""
+
   def __init__(
     self,
     input_file,
@@ -451,6 +453,12 @@ class TrainSetup(BaseSetup):
     console.print(table)
 
   def setup(self):
+    """Run the fit setup: prepare the data, featurizer transformers and isaura store.
+
+    Normalises, standardises, merges, checks and cleans the input, writes held-out splits when
+    evaluating, drops featurizers without a reference transformer, checks model images and
+    rank references, and seeds the isaura project from the shared lake when a store is set.
+    """
     require_docker_and_base()
     self._initialize()
     self._normalize_input()

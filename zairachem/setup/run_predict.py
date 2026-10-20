@@ -12,6 +12,13 @@ def run(
   override_dir=False,
   store=None,
 ):
+  """Run the predict setup step for ``input_file`` against the trained ``model_dir``.
+
+  Returns
+  -------
+  bool
+    False if predictions already exist in the output directory, True once setup completes.
+  """
   # Build PredictSetup first: it validates the model folder and shows a formatted message + exits
   # if it's incomplete — before any run header is printed.
   ps = PredictSetup(

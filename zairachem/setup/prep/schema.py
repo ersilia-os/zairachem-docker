@@ -11,6 +11,8 @@ _MIN_CORRECT = 0.8
 
 
 class InputSchema(ZairaBase):
+  """Column sniffer that finds the SMILES and activity-value columns of an input CSV."""
+
   def __init__(self, input_file):
     ZairaBase.__init__(self)
     self.logger = logger
@@ -42,6 +44,7 @@ class InputSchema(ZairaBase):
       return False
 
   def find_smiles_column(self):
+    """Return, as a one-item list, the first column named like or parsing as SMILES."""
     cols = []
     for col in self.columns:
       if self._is_smiles_column(col):
@@ -72,6 +75,10 @@ class InputSchema(ZairaBase):
       return False
 
   def find_values_column(self):
+    """Return candidate activity columns: ``bin`` or ``exp`` if present, else all numeric ones.
+
+    Numeric identifier-like columns (``id``, ``Unnamed: 0``) are skipped.
+    """
     for col in self.columns:
       if col == "bin":
         return [col]

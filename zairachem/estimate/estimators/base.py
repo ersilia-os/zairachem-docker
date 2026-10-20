@@ -26,6 +26,12 @@ from zairachem.base.vars import (
 
 
 class BaseEstimator(ZairaBase):
+  """Base class for estimate-step components of a fit or predict run.
+
+  Sets ``trained_path`` (the run itself at fit, the trained model folder at predict) and reads the
+  ``task`` from the run's parameters.
+  """
+
   def __init__(self, path, batch_size=None):
     self.logger = logger
     ZairaBase.__init__(self)
@@ -45,6 +51,12 @@ class BaseEstimator(ZairaBase):
 
 
 class BaseEstimatorIndividual(BaseEstimator):
+  """Base class for a per-descriptor estimator reading that descriptor's matrix and labels.
+
+  Creates ``estimators/<estimator>/<model_id>/`` and reads the treated matrix (falling back to the
+  raw one) chunk by chunk.
+  """
+
   def __init__(self, path, estimator, model_id, batch_size=None):
     BaseEstimator.__init__(self, path=path, batch_size=batch_size)
     path_ = os.path.join(self.path, ESTIMATORS_SUBFOLDER, estimator, model_id)
@@ -109,6 +121,11 @@ class BaseEstimatorIndividual(BaseEstimator):
 
 
 class BaseOutcomeAssembler(ZairaBase):
+  """Base class for writing estimator outputs as per-compound results tables.
+
+  Provides the run's compounds and the mapping that remaps rows back to the original input order.
+  """
+
   def __init__(self, path=None):
     ZairaBase.__init__(self)
     self.path = path

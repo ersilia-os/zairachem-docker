@@ -14,6 +14,8 @@ NBITS = 2048
 
 
 class Fingerprinter(object):
+  """Morgan fingerprint calculator (radius 3, 2048 bits) for SMILES lists."""
+
   def __init__(self):
     pass
 
@@ -30,17 +32,21 @@ class Fingerprinter(object):
     return np.array([fp for fp in fingerprints if fp is not None])
 
   def calculate(self, smiles_list):
+    """Return a fingerprint matrix for the SMILES list, omitting unparseable molecules."""
     X = self._compute_ecfp4_fingerprints(smiles_list)
     return X
 
 
 class SmoothenY(object):
+  """Smoother that spreads heavily repeated regression values (e.g. censored) into a range."""
+
   def __init__(self, smiles_list, y):
     self.smiles_list = smiles_list
     self.y = np.array(y)
 
   @staticmethod
   def detect_repeats(y):
+    """Return the values repeated more than max(1% of ``y``, 3) times."""
     max_repeats = max(len(y) * ALPHA_REPEATS, 3)
     counts = collections.defaultdict(int)
     for y_ in y:
@@ -53,6 +59,7 @@ class SmoothenY(object):
 
   @staticmethod
   def get_nonrepeat_idxs(y, repeats):
+    """Return the indices of ``y`` whose value is not in ``repeats``."""
     repeats = set(repeats)
     idxs = []
     for i, v in enumerate(y):
@@ -63,6 +70,7 @@ class SmoothenY(object):
 
   @staticmethod
   def detect_tail_center_region(y):
+    """Return the 5th and 95th percentiles of ``y`` as ``(lower, upper)`` bounds."""
     alpha = ALPHA_DETECT_TAIL_CENTER
     lb = np.percentile(y, alpha * 100)
     ub = np.percentile(y, (1 - alpha) * 100)
@@ -70,6 +78,11 @@ class SmoothenY(object):
 
   @staticmethod
   def get_boundaries(y, repeats, lb, ub):
+    """Return, per repeated value, the ``(low, high)`` interval its occurrences are spread over.
+
+    Central values span the neighbouring non-repeated values; values in a tail (below ``lb`` or
+    above ``ub``) extend outwards from the repeated value.
+    """
     alpha = 0.01
     boundaries = {}
     for r in repeats:
@@ -94,6 +107,7 @@ class SmoothenY(object):
 
   @staticmethod
   def get_repeats_idxs(y, repeats):
+    """Return a dict mapping each repeated value to the indices of ``y`` holding it."""
     repeats = set(repeats)
     repeats_idxs = collections.defaultdict(list)
     for i, v in enumerate(y):
@@ -102,6 +116,11 @@ class SmoothenY(object):
     return repeats_idxs
 
   def run(self):
+    """Return ``y`` with repeated values replaced by evenly spaced values in their interval.
+
+    Order within each repeated group follows a random forest trained on Morgan fingerprints of the
+    non-repeated molecules; a tiny Gaussian noise is then added to all values.
+    """
     y = self.y
     smiles_list = self.smiles_list
     repeats = self.detect_repeats(y)

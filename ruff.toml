@@ -34,7 +34,12 @@ lint.select = [
   "SIM105", # suppressible-exception
   "FURB110",# if-exp-instead-of-or-operator
   "RUF018", # assignment-in-assert
+  "D101",   # undocumented-public-class
+  "D102",   # undocumented-public-method
+  "D103",   # undocumented-public-function
 ]
+# Modules, packages, magic methods and __init__ need no docstring (as the org canonical config).
+lint.ignore = ["D100", "D104", "D105", "D107"]
 
 line-length = 100
 
@@ -47,3 +52,13 @@ exclude = [
 
 [lint.isort]
 combine-as-imports = true
+
+[lint.pydocstyle]
+convention = "numpy"
+
+[lint.per-file-ignores]
+# Vendored upstream code (ChEMBL's structure standardizer, GHOST): kept close to its source.
+"zairachem/setup/tools/chembl_structure/**" = ["D"]
+"zairachem/estimate/tools/ghost/ghostml/**" = ["D"]
+# Test names describe the test; pytest functions need no docstring.
+"tests/**" = ["D103"]

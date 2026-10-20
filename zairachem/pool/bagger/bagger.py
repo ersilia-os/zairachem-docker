@@ -10,6 +10,8 @@ from sklearn.preprocessing import PowerTransformer, RobustScaler
 
 
 class WeightSchemes(object):
+  """Per-descriptor weight schemes for the legacy bagger, derived from validation predictions."""
+
   def __init__(self, df_X, df_y, task_type):
     self.df_X = df_X
     self.df_y = df_y
@@ -24,6 +26,11 @@ class WeightSchemes(object):
     self._weights = collections.defaultdict(dict)
 
   def distance_to_leads(self):
+    """Weight each descriptor by closeness of its score to the 66th percentile of all scores.
+
+    The score is ROC AUC (classification) or R2 (regression) of the descriptor's predictions
+    against ``df_y``; the weight is ``1 - |p66 - score|``.
+    """
     performances = {}
     y = np.array(self.df_y).ravel()
     for col in self.columns:
@@ -41,6 +48,7 @@ class WeightSchemes(object):
     self._weights["distance_to_leads"] = weights
 
   def importance(self):
+    """Weight each descriptor by its random-forest feature importance for predicting ``df_y``."""
     if self.is_clf:
       mdl = RandomForestClassifier()
     else:
@@ -52,6 +60,7 @@ class WeightSchemes(object):
     self._weights["importance"] = weights
 
   def save(self, filename):
+    """Dump the descriptor columns and all computed weight schemes to ``filename`` with joblib."""
     d = {}
     for k, v in self._weights.items():
       d[k] = v
@@ -60,6 +69,13 @@ class WeightSchemes(object):
 
 
 class BaggerClassifier(object):
+  """Legacy bagger that combines per-descriptor classifier probabilities into one probability.
+
+  Modes: ``weighting`` (power-transform + logistic recalibration per descriptor, then an
+  average over the weight schemes and a plain mean), ``median`` (row-wise median) and ``model``
+  (per-descriptor logistic regression, then median). Artifacts are saved under ``path``.
+  """
+
   def __init__(self, path, mode="weighting"):
     assert mode in ["weighting", "median", "model"]
     self.path = path
@@ -153,6 +169,7 @@ class BaggerClassifier(object):
     return np.median(Y_hat, axis=1)
 
   def fit(self, df_X, df_y):
+    """Fit the per-descriptor models and weights in the chosen mode; return pooled probabilities."""
     if self.mode == "weighting":
       return self._fit_weighting(df_X, df_y)
     if self.mode == "median":
@@ -161,6 +178,7 @@ class BaggerClassifier(object):
       return self._fit_model(df_X, df_y)
 
   def predict(self, df_X):
+    """Return pooled probabilities for ``df_X`` using the artifacts saved by ``fit``."""
     if self.mode == "weighting":
       return self._predict_weighting(df_X)
     if self.mode == "median":
@@ -170,6 +188,13 @@ class BaggerClassifier(object):
 
 
 class BaggerRegressor(object):
+  """Legacy bagger that combines per-descriptor regression outputs into one prediction.
+
+  Modes: ``scaling`` (robust-scale each descriptor, rescale to the global median/IQR, then
+  average over the weight schemes and a plain mean), ``median`` (row-wise median) and ``model``
+  (per-descriptor linear regression, then mean). Artifacts are saved under ``path``.
+  """
+
   def __init__(self, path, mode="scaling"):
     assert mode in ["scaling", "median", "model"]
     self.path = path
@@ -262,6 +287,7 @@ class BaggerRegressor(object):
     return np.mean(Y_hat, axis=1)
 
   def fit(self, df_X, df_y):
+    """Fit the per-descriptor scalers or models in the chosen mode; return pooled predictions."""
     if self.mode == "scaling":
       return self._fit_scaling(df_X, df_y)
     if self.mode == "median":
@@ -270,6 +296,7 @@ class BaggerRegressor(object):
       return self._fit_model(df_X, df_y)
 
   def predict(self, df_X):
+    """Return pooled predictions for ``df_X`` using the artifacts saved by ``fit``."""
     if self.mode == "scaling":
       return self._predict_scaling(df_X)
     if self.mode == "median":

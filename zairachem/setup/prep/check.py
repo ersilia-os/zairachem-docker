@@ -28,6 +28,8 @@ MAX_CHECK_SAMPLES = 10000
 
 
 class SetupChecker(object):
+  """Setup step that checks ``data.csv`` against the raw input file through ``mapping.csv``."""
+
   def __init__(self, path):
     input_dir = os.path.join(path, DATA_SUBFOLDER)
     for f in os.listdir(input_dir):
@@ -42,6 +44,10 @@ class SetupChecker(object):
       self.input_schema_dict = json.load(f)
 
   def remap(self):
+    """Rewrite ``mapping.csv`` so its dedupe indices point at rows of the final ``data.csv``.
+
+    Compounds absent from ``data.csv`` (e.g. dropped by standardisation) get an empty index.
+    """
     logger.info("[check] Remapping indices")
     dm = pd.read_csv(self.mapping_file)
     dd = pd.read_csv(self.data_file)
@@ -62,6 +68,11 @@ class SetupChecker(object):
     logger.info(f"[check] Remapped {len(cid_mapping):,} entries")
 
   def check_smiles(self):
+    """Log molecules whose processed SMILES no longer resembles the input SMILES.
+
+    Compares RDKit fingerprints (Tanimoto < 0.6, retried after ChEMBL standardisation of the input)
+    on at most ``MAX_CHECK_SAMPLES`` mapped molecules and logs the number of discrepancies.
+    """
     self._get_input_schema()
     input_smiles_column = self.input_schema_dict["smiles_column"]
     di = pd.read_csv(self.input_file)
@@ -119,6 +130,11 @@ class SetupChecker(object):
       logger.warning("Number of discrepencies >25%")
 
   def check_activity(self):
+    """Count processed activity values that differ from the raw input by more than 0.01.
+
+    Skipped when the input has no values column; warns with the number of compounds whose duplicate
+    rows disagreed on activity. Checks at most ``MAX_CHECK_SAMPLES`` mapped rows.
+    """
     self._get_input_schema()
     input_values_column = self.input_schema_dict["values_column"]
     if input_values_column is None:
@@ -165,6 +181,7 @@ class SetupChecker(object):
       )
 
   def run(self):
+    """Remap ``mapping.csv``, then run the SMILES and activity consistency checks."""
     self.remap()
     self.check_smiles()
     self.check_activity()

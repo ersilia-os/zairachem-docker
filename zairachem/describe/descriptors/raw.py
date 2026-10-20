@@ -72,6 +72,8 @@ class DescribeMonitor(LiveTableMonitor):
 
 
 class RawDescriptors(ZairaBase):
+  """Describe-step computation of each featurizer's raw descriptor matrix."""
+
   def __init__(self, path, batch_size=None, workers=None):
     ZairaBase.__init__(self)
     self.path = path
@@ -90,12 +92,14 @@ class RawDescriptors(ZairaBase):
     df.to_csv(self.input_csv_ersilia, index=False)
 
   def eos_ids(self):
+    """Return the configured featurizer ids, deduplicated in config order."""
     # Preserve config order and dedup deterministically (set() order varies per process,
     # which would make the per-descriptor processing order non-reproducible).
     eos_ids = list(dict.fromkeys(self.params["featurizer_ids"]))
     return eos_ids
 
   def output_h5_filename(self, eos_id):
+    """Return ``descriptors/<eos_id>/raw.h5``, creating the descriptor folder if needed."""
     path = os.path.join(self.path, DESCRIPTORS_SUBFOLDER, eos_id)
     os.makedirs(path, exist_ok=True)
     return os.path.join(path, RAW_DESC_FILENAME)
@@ -156,6 +160,12 @@ class RawDescriptors(ZairaBase):
         json.dump(self.params, f, indent=2)
 
   def run(self):
+    """Featurize the run's molecules with each featurizer into ``descriptors/<eos_id>/raw.h5``.
+
+    At fit every configured featurizer is computed; at predict only those the trained model uses.
+    Models run serially or concurrently under one live table, and the ones computed are listed in
+    ``descriptors/done_eos.json``. A failing featurizer raises.
+    """
     if self.is_predict():
       # Featurize only the descriptors the trained model uses — the --max-descriptors selection when
       # it was screened, else every trained featurizer (done_eos). No point computing descriptors the
