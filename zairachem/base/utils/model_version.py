@@ -104,7 +104,7 @@ def _resolve(model_id):
     # Broad on purpose: ersilia_model_version() must never raise. Log so a silent default isn't
     # mistaken for a real version when DockerHub is unreachable.
     logger.debug(
-      "Could not resolve version for %s (%s); defaulting to %s", model_id, e, _DEFAULT_VERSION
+      f"Could not resolve version for {model_id} ({e}); defaulting to {_DEFAULT_VERSION}"
     )
     return _DEFAULT_VERSION
 
@@ -145,7 +145,7 @@ def is_image_up_to_date(model_id):
   try:
     tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
   except Exception as e:
-    logger.debug("Could not check if %s is up to date (%s)", model_id, e)
+    logger.debug(f"Could not check if {model_id} is up to date ({e})")
     return None
   latest_digests = set()
   for name, _last_updated, digests in tags:

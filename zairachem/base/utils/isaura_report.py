@@ -143,7 +143,7 @@ def _found_local(bucket, model_id, version, smiles, store=None):
       seen = checker.seen_many(smiles)
     return {s for s, v in seen.items() if v[0]}
   except Exception as e:
-    logger.debug("Store availability check failed for %s in %s (%s)", model_id, bucket, e)
+    logger.debug(f"Store availability check failed for {model_id} in {bucket} ({e})")
     return _UNAVAILABLE
 
 
@@ -299,9 +299,7 @@ def check_isaura_version_consistency(bucket, featurizer_ids, projection_ids):
     with quiet_isaura_reads():
       stored = _stored_versions(bucket)
   except Exception as e:
-    logger.debug(
-      "Could not read stored versions from %s; skipping consistency check (%s)", bucket, e
-    )
+    logger.debug(f"Could not read stored versions from {bucket}; skipping consistency check ({e})")
     return
 
   mismatches = []
@@ -443,7 +441,7 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
             logger.debug(f"[isaura] could not read project {project} for {m}: {e}")
         to_migrate[m] = (version, present)
       except Exception as e:
-        logger.debug("Migration pre-check failed for %s (%s)", m, e)
+        logger.debug(f"Migration pre-check failed for {m} ({e})")
         to_migrate[m] = (None, None)
 
   if not any(present for _v, present in to_migrate.values()):
