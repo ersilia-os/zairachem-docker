@@ -149,7 +149,18 @@ REFERENCE_LIBRARY_S3_BASE_URL = "https://eosvc-public.s3.amazonaws.com/eosframes
 # "<eos_id>_<version>_transformer.json.gz" (gzipped, compact JSON). Predict reads them from there.
 TRANSFORMER_SUFFIX = "_transformer.json.gz"
 
-DEFAULT_FEATURIZERS = ["eos3l5f", "eos8aa5", "eos4u6p", "eos9o72", "eos4ex3", "eos82v1"]
+# A descriptor with no published reference-library transformer is skipped at setup, so one can be
+# listed here before its transformer exists and joins runs once it is published.
+DEFAULT_FEATURIZERS = [
+  "eos3l5f",
+  "eos8aa5",
+  "eos4u6p",
+  "eos9o72",
+  "eos4ex3",
+  "eos82v1",
+  "eos9q2i",
+  "eos8gop",
+]
 # Default Ersilia projection model for the report's 2-D embedding: eos1klk (lazy-chemvis PCA/UMAP/
 # t-SNE/TMAP over the Ersilia reference library). The built-in MW-vs-LogP projection (computed
 # locally with RDKit) is always shown in addition. Override or disable via --projection-ids.

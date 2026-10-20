@@ -194,6 +194,21 @@ class TrainSetup(BaseSetup):
     self._copy_input_file()
     step.update()
 
+  def _keep_featurizers(self, kept):
+    """Restrict the run to ``kept`` featurizers, recording the dropped ones in ``params.json``.
+
+    Downstream steps read the descriptor list from ``params.json``, so this is the one place a
+    descriptor is removed from a run. ``skipped_featurizer_ids`` keeps resume comparisons honest.
+    """
+    dropped = [m for m in self.featurizer_ids if m not in kept]
+    if not dropped:
+      return
+    self.featurizer_ids = list(kept)
+    self.params["featurizer_ids"] = list(kept)
+    skipped = self.params.get("skipped_featurizer_ids") or []
+    self.params["skipped_featurizer_ids"] = skipped + [m for m in dropped if m not in skipped]
+    self._save_params()
+
   def _load_disk_params(self):
     p = params_path(self.output_dir)
     if not os.path.exists(p):
@@ -215,7 +230,12 @@ class TrainSetup(BaseSetup):
       return None
     checks = {
       "classification": ("task", self.task, disk.get("task")),
-      "featurizer_ids": ("featurizers", self.featurizer_ids, disk.get("featurizer_ids")),
+      # Descriptors skipped at setup (no transformer) still count as requested.
+      "featurizer_ids": (
+        "featurizers",
+        sorted(self.featurizer_ids),
+        sorted((disk.get("featurizer_ids") or []) + (disk.get("skipped_featurizer_ids") or [])),
+      ),
       "projection_ids": ("projections", self.projection_ids, disk.get("projection_ids")),
       "store": ("store", self.params.get("store"), disk.get("store")),
       "max_descriptors": (
@@ -440,16 +460,19 @@ class TrainSetup(BaseSetup):
     self._check()
     self._clean()
     self._evaluate_splits()
+    # Download every featurizer's reference-library transformer before anything else looks at the
+    # descriptors: one without a transformer is dropped from the run here, so the summary, the image
+    # check and every later step only see the descriptors that can actually be treated.
+    self._keep_featurizers(
+      prepare_reference_transformers(
+        self.featurizer_ids,
+        self.params.get("reference_library", DEFAULT_REFERENCE_LIBRARY),
+        self.output_dir,
+      )
+    )
     self._print_summary()
     validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
-    # Download every featurizer's reference-library transformer into the model before any
-    # descriptors are computed; the treat step applies these and cannot proceed without them.
-    prepare_reference_transformers(
-      self.featurizer_ids,
-      self.params.get("reference_library", DEFAULT_REFERENCE_LIBRARY),
-      self.output_dir,
-    )
     prepare_rank_references(self.featurizer_ids)
     # Coverage/version checks always inspect the central lake (the migration source), not the
     # run's own read/write project.

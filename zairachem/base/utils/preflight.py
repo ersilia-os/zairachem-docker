@@ -257,14 +257,20 @@ def report_model_images(featurizer_ids, projection_ids):
 
 
 def prepare_reference_transformers(featurizer_ids, reference_library, output_dir):
-  """Download each featurizer's reference-library transformer into the model; fail if any is missing.
+  """Download each featurizer's reference-library transformer into the model; return those usable.
 
   The treat step applies, for each featurizer, a transformer pre-fitted on ``reference_library`` and
-  published to a public bucket. This runs at the END of setup (after the model images are confirmed)
-  and saves each one to ``<output_dir>/transformers/``, where treat and predict read it, so a run
-  aborts early — before any descriptors are computed — if a transformer is missing or malformed.
-  The version is the same one the treat step will use (:func:`ersilia_model_version`). Never
+  published to a public bucket. Setup runs this before anything else checks the descriptors, saving
+  each one to ``<output_dir>/transformers/`` where treat and predict read it. A featurizer whose
+  transformer is missing or malformed is skipped (reported, not fatal), so a descriptor whose
+  transformer is not yet published simply sits out the run; only when none is left does the run
+  stop. The version is the same one the treat step will use (:func:`ersilia_model_version`). Never
   uploads or fits anything.
+
+  Returns
+  -------
+  list of str
+      The featurizers with a usable transformer, in input order.
   """
   from rich import box
   from rich.table import Table
@@ -314,19 +320,21 @@ def prepare_reference_transformers(featurizer_ids, reference_library, output_dir
     with ThreadPoolExecutor(max_workers=io_workers(len(featurizer_ids))) as ex:
       checked = list(ex.map(_check, featurizer_ids))
 
-  missing = []
+  kept, missing = [], []
   for m, version, url, error in checked:
     if error is None:
       status = "[green]✓ downloaded[/]"
+      kept.append(m)
     else:
-      status = "[red]✗ unavailable[/]"
+      status = "[yellow]– skipped[/]"
       missing.append((m, version, url, error))
+      logger.debug(f"[setup] {m} ({version}) skipped, {url}: {error}")
     table.add_row(m, version, url.rsplit("/", 1)[-1], status)
   console.print(table)
 
-  if missing:
+  if not kept:
     echo(
-      f"{len(missing)} of {len(featurizer_ids)} featurizer(s) have no usable transformer in reference "
+      f"None of the {len(featurizer_ids)} featurizer(s) has a usable transformer in reference "
       f"library '{reference_library}' — ZairaChem cannot continue.",
       kind="error",
     )
@@ -335,10 +343,16 @@ def prepare_reference_transformers(featurizer_ids, reference_library, output_dir
       "Fit and upload the missing one(s), then re-run:",
       kind="info",
     )
-    for m, version, url, error in missing:
+    for m, version, url, _ in missing:
       console.print(f"      [red]✖[/] [bold]{m}[/] ({version}) → [dim]{url}[/]")
-      logger.debug(f"[setup] {error}")
     raise SystemExit(1)
+  if missing:
+    echo(
+      f"Skipping {len(missing)} descriptor(s) with no transformer in '{reference_library}': "
+      f"{', '.join(m for m, *_ in missing)}.",
+      kind="warning",
+    )
+  return kept
 
 
 _MB = 1 << 20

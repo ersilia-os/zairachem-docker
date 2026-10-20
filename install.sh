@@ -42,7 +42,7 @@ DO_BASE_IMAGES=true
 
 # Fallback default model list, used only if it cannot be read from the installed
 # package. Keep in sync with ALL_FEATURIZER in zairachem/base/vars.py.
-DEFAULT_MODELS="eos3l5f eos8aa5 eos4u6p eos9o72 eos4ex3 eos82v1 eos1klk"
+DEFAULT_MODELS="eos3l5f eos8aa5 eos4u6p eos9o72 eos4ex3 eos82v1 eos9q2i eos8gop eos1klk"
 
 # ---------------------------------------------------------------------------
 # Pretty output

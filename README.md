@@ -57,7 +57,7 @@ Run `zairachem <command> --help` for the authoritative, always-current options.
 | `-i, --input-file` | *(required)* | Input CSV (must contain a SMILES column). |
 | `-m, --model-dir` | *(required)* | Where the trained model is written. |
 | `-c, --classification` / `-r, --regression` | classification | Model type. |
-| `-f, --featurizer-ids` | curated set | Descriptor model IDs (comma-separated) or a JSON file. |
+| `-f, --featurizer-ids` | curated set | Descriptor model IDs (comma-separated) or a JSON file. A descriptor with no published transformer is skipped at setup. The default Mol-JEPA (`eos9q2i`) is licensed for non-commercial use only; pass `-f` without it to exclude it. |
 | `-p, --projection-ids` | `eos1klk` | Projection model(s) for the report's 2-D map. |
 | `-s, --store` | off | Cache descriptor precalculations in an isaura project to speed up re-runs. |
 | `--override` | off | Wipe & rebuild the model dir if it exists (otherwise resume/abort). |
@@ -74,7 +74,7 @@ Run `zairachem <command> --help` for the authoritative, always-current options.
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each
 descriptor a fit trains needs that library featurized with it. A fit downloads the published matrices
-for the descriptors it trains into `~/zairachem/rank_reference/` (up to ~1.6 GB for the six default
+for the descriptors it trains into `~/zairachem/rank_reference/` (up to ~1.6 GB for the default
 featurizers; `ZAIRACHEM_HOME` moves the folder). One that is not published (e.g. a custom featurizer)
 is computed on its model server and cached there, so later fits reuse it.
 
