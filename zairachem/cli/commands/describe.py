@@ -19,6 +19,7 @@ from zairachem.cli.steps import _activate_step
 def describe_cmd(model_dir, batch_size, describe_workers):
   """Compute the descriptors of an already prepared run folder."""
   from zairachem.base.utils.isaura_report import report_data_provenance
+  from zairachem.describe.descriptors.compose import stop_model_servers
   from zairachem.describe.descriptors.describe import Describer
 
   logger.configure()
@@ -26,6 +27,9 @@ def describe_cmd(model_dir, batch_size, describe_workers):
   output_dir = _activate_step(model_dir, "raw_descriptions")
   Describer(path=output_dir, batch_size=batch_size, workers=describe_workers).run()
   report_data_provenance(output_dir)
+  # The standalone step does not leave model servers running; a later step that needs one (e.g. a
+  # rank reference computed during estimate) starts them again.
+  stop_model_servers(output_dir)
 
 
 # Projections (the report's 2-D embedding) run as part of the fit pipeline (process_group, between

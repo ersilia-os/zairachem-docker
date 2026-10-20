@@ -142,17 +142,21 @@ def _published_meta(url, eos_id):
 
   Returns
   -------
-  tuple of (bool, object)
-      Whether the sidecar was fetched, and its parsed JSON (None when not fetched).
+  tuple of (bool, dict or None)
+      Whether a usable sidecar (a JSON object) was fetched, and that object (None otherwise).
   """
   try:
     r = requests.get(_sidecar(url), timeout=_DOWNLOAD_TIMEOUT)
     if r.status_code != 200:
       return False, None
-    return True, r.json()
+    meta = r.json()
   except (requests.RequestException, ValueError) as e:
     logger.info(f"[rank_reference] {eos_id} not downloadable ({e})")
     return False, None
+  if not isinstance(meta, dict):
+    logger.info(f"[rank_reference] {eos_id} not downloadable (sidecar is not a JSON object)")
+    return False, None
+  return True, meta
 
 
 def _stream_to(url, tmp, on_progress):
