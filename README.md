@@ -35,14 +35,15 @@ zairachem --help
 
 ## Quickstart
 
-Train a classifier and predict, using the example dataset shipped in `dev/data.csv`
-(475 molecules, columns `smiles,dili`). Make sure Docker is running first.
+Train a classifier and predict, using the example DILI data shipped in `example/`:
+`data_train.csv` (380 molecules, columns `smiles,dili`) to train, and `smiles_test.csv`
+(95 molecules, `smiles` only) to predict. Make sure Docker is running first.
 
 ```bash
 # 1. Train a classification model
 zairachem fit -i example/data_train.csv -m example_model
 
-# 2. Predict on new molecules (reusing the example here)
+# 2. Predict on new molecules
 zairachem predict -i example/smiles_test.csv -m example_model -o predictions_test
 ```
 
