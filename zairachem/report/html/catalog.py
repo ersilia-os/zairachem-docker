@@ -11,10 +11,10 @@ _CATEGORIES = [
   (
     "confidence",
     "Confidence",
-    "How much to trust each prediction (descriptor agreement, applicability domain).",
+    "How much to trust each prediction (descriptor agreement, similarity to the training set).",
     [
       "descriptor-consensus",
-      "ad-coverage",
+      "tanimoto-similarity-to-train",
       "predicted-property-mw",
       "predicted-property-logp",
     ],
@@ -148,8 +148,8 @@ _TITLES = {
   "predicted-score-hist": "Predicted score distribution",
   "predicted-rank-curve": "Ranked scores (operating point)",
   "descriptor-consensus": "Descriptor consensus",
-  "ad-coverage": "Applicability-domain coverage",
-  "rank-distribution": "Rank reliability",
+  "tanimoto-similarity-to-train": "Tanimoto similarity to the training set",
+  "rank-distribution": "Pooled rank",
   "predicted-property-mw": "Molecular weight (by predicted class)",
   "predicted-property-logp": "LogP (by predicted class)",
   "projection-mwlogp-proba": "MW vs LogP · by score",

@@ -302,31 +302,28 @@ class DescriptorConsensusPlot(BasePlot):
     self.is_available = True
 
 
-class AdCoveragePlot(BasePlot):
-  """Applicability-domain coverage: per-compound in-domain fraction across descriptors (predict).
+class TrainSimilarityPlot(BasePlot):
+  """Tanimoto similarity of the predicted molecules to the training set (predict).
 
-  A spike at 1.0 means most queries are well inside the training domain; a left tail flags
-  low-confidence, extrapolated predictions. Truth-free; needs the pooler's ``clf_ad`` column."""
+  Mean Tanimoto similarity to the 5 nearest training molecules (Morgan, radius 2): 1 is a
+  training-like neighbourhood, values near 0 share almost nothing with the training set."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.name = "ad-coverage"
+    self.name = "tanimoto-similarity-to-train"
     self.is_available = False
-    if self.has_clf_data():
+    sim = ResultsFetcher(path=path).get_train_similarity()
+    if sim is None:
       return
-    ad = ResultsFetcher(path=path).get_pred_ad_clf()
-    if ad is None:
+    sim = np.asarray(sim, dtype=float)
+    sim = sim[np.isfinite(sim)]
+    if sim.size == 0:
       return
-    ad = np.asarray(ad, dtype=float)
-    ad = ad[np.isfinite(ad)]
-    if ad.size == 0:
-      return
-    n_out = int((ad <= 0.0).sum())
     _predict_hist(
       self.ax,
-      ad,
-      xlabel="In-domain fraction (across descriptors)",
-      title=f"Applicability domain · {n_out}/{ad.size} fully out-of-domain",
+      sim,
+      xlabel="Mean Tanimoto similarity to the 5 nearest training molecules",
+      title=f"Similarity to training set · median {np.median(sim):.2f}",
       xlim=(0, 1),
     )
     self.is_available = True

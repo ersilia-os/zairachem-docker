@@ -24,6 +24,7 @@ click         = "8.4.2"
 psutil        = "7.0.0"
 requests      = "2.34.2"
 eosframes     = "1.1.0"
+fpsim2        = "0.7.4"  # Tanimoto search for the distance to the training set
 # Security floors for transitive deps (pulled via matplotlib / requests): the first patched release,
 # so a resolve can't land on a version with a known advisory. constraints.txt pins what was tested.
 pillow        = ">=12.2.0"

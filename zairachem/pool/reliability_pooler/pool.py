@@ -19,7 +19,7 @@ from lazyqsar.utils.ranking import (
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
-from zairachem.base.vars import POOL_SUBFOLDER
+from zairachem.base.vars import DATA_FILENAME, DATA_SUBFOLDER, POOL_SUBFOLDER, SMILES_COLUMN
 
 from ..base import BasePooler
 from .pooler import ReliabilityClassifierPooler
@@ -132,24 +132,6 @@ def _veto_stats(A, ad_hard_cutoffs):
   has_cut = np.isfinite(cut)
   n_fully = int(vetoed[:, has_cut].all(axis=1).sum()) if has_cut.any() else 0
   return per, n_fully
-
-
-def _per_compound_ad(A, ad_hard_cutoffs):
-  """Per-compound in-domain fraction in [0, 1] (1 = every cutoff-bearing descriptor in domain).
-
-  Uses the same veto rule as :func:`_veto_stats` (AD score below the descriptor's hard cutoff = out),
-  but aggregated per compound rather than per descriptor. Returns None when AD isn't available."""
-  if A is None or ad_hard_cutoffs is None:
-    return None
-  A = np.asarray(A, dtype=np.float64)
-  cut = np.asarray(ad_hard_cutoffs, dtype=np.float64)
-  has_cut = np.isfinite(cut)
-  if not has_cut.any():
-    return None
-  Ac = A[:, has_cut]
-  cutc = cut[has_cut]
-  vetoed = np.isfinite(Ac) & (Ac < cutc)
-  return 1.0 - vetoed.mean(axis=1)
 
 
 def _write_summary(out_path, mode, pred_cols, params, P, R, A, W):
@@ -283,8 +265,9 @@ class Predictor(BasePooler):
     """Pool every compound's per-descriptor predictions with the saved weighting.
 
     Descriptors missing now are dropped and weights renormalised over the rest (``clf_rank``
-    is then disabled). Returns a dataframe with ``compound_id``, ``clf``, ``clf_bin`` and, when
-    available, ``clf_ad`` (in-domain fraction) and ``clf_rank``.
+    is then disabled). Returns a dataframe with ``compound_id``, ``clf``, ``clf_bin``,
+    ``train_similarity`` (Tanimoto similarity to the training set), ``descriptor_std`` (spread of
+    the per-descriptor probabilities) and, when available, ``clf_rank``.
     """
     self.reset_time()
     _check_regression(self.task)
@@ -331,13 +314,12 @@ class Predictor(BasePooler):
     b_hat, rank = _rank_outputs(y_hat, reduced)
 
     results = pd.DataFrame({"clf": y_hat, "clf_bin": b_hat})
-    # Per-compound confidence signals for the predict report, appended AFTER clf/clf_bin so the
-    # first-match "clf" column scanners still resolve to the base prediction.
-    ad = _per_compound_ad(A, reduced.get("ad_hard_cutoffs")) if reduced.get("has_ad") else None
-    if ad is not None:
-      results["clf_ad"] = (
-        ad  # in-domain fraction: 1 = every descriptor in domain, 0 = fully outside
-      )
+    # Per-compound signals for the predict report, appended AFTER clf/clf_bin so the first-match
+    # "clf" column scanners still resolve to the base prediction. The applicability domain still
+    # vetoes descriptors inside the weighting above; it is not reported.
+    results["train_similarity"] = self._train_similarity()
+    # Disagreement between the descriptor models: std of the probabilities the pooler combined.
+    results["descriptor_std"] = np.nanstd(P, axis=1)
     if rank is not None:
       # Position of the pooled probability against the rank-reference library (lazy-qsar's `rank`:
       # 0.50 = top 10%, 0.65 = top 1% and the binary cutoff, 0.75 = top 0.1%).
@@ -347,6 +329,17 @@ class Predictor(BasePooler):
     results = results[["compound_id"] + columns]
     self.update_elapsed_time()
     return results
+
+  def _train_similarity(self):
+    """Return each compound's Tanimoto similarity to the trained model's training molecules."""
+    from zairachem.base.utils.similarity import training_similarity
+
+    def smiles(folder):
+      return list(pd.read_csv(os.path.join(folder, DATA_SUBFOLDER, DATA_FILENAME))[SMILES_COLUMN])
+
+    return training_similarity(
+      smiles(self.path), smiles(self.get_trained_dir()), os.path.join(self.path, POOL_SUBFOLDER)
+    )
 
 
 class ReliabilityPooler(ZairaBase):

@@ -181,7 +181,7 @@ class ResultsFetcher(ZairaBase):
 
     Columns are read from ``data`` if given, else from the run's ``data.csv``. The fallback covers
     predict runs without ground truth and excludes the derived pooled columns (``clf_bin``,
-    ``clf_ad``, ``clf_rank``, ``clf_raw``).
+    ``clf_rank``, ``clf_raw``, ``train_similarity``, ``descriptor_std``).
     """
     if data is None:
       df = self._read_data()
@@ -190,7 +190,7 @@ class ResultsFetcher(ZairaBase):
     tasks = [c for c in list(df.columns) if "clf" in c]
     if len(tasks) == 0:
       # No truth column in data.csv (predict-without-ground-truth): fall back to the pooled results,
-      # but keep only the base "clf" prediction — not the derived columns (clf_bin/clf_ad/clf_rank/
+      # but keep only the base "clf" prediction — not the derived columns (clf_bin/clf_rank/
       # clf_raw), which are not tasks and would break per-descriptor task lookups.
       df = self._read_pooled_results()
       derived = ("_bin", "_ad", "_rank", "_raw")
@@ -249,13 +249,18 @@ class ResultsFetcher(ZairaBase):
     df = self._read_pooled_results()
     return list(df["clf_raw"]) if "clf_raw" in df.columns else None
 
-  def get_pred_ad_clf(self):
-    """Per-compound applicability-domain in-domain fraction (``clf_ad``, 0..1) if present, else None.
+  def get_train_similarity(self):
+    """Per-compound Tanimoto similarity to the training set (``train_similarity``), else None.
 
-    Written by the reliability pooler at predict time (1 = every descriptor in domain, 0 = fully
-    out-of-domain). Read by exact column name so it is never confused with the base ``clf`` score."""
+    Written by the reliability pooler at predict time: the mean Tanimoto similarity to the 5 nearest
+    training molecules (Morgan, radius 2), so 1 is a training-like neighbourhood."""
     df = self._read_pooled_results()
-    return list(df["clf_ad"]) if "clf_ad" in df.columns else None
+    return list(df["train_similarity"]) if "train_similarity" in df.columns else None
+
+  def get_descriptor_std(self):
+    """Per-compound std of the per-descriptor probabilities (``descriptor_std``), else None."""
+    df = self._read_pooled_results()
+    return list(df["descriptor_std"]) if "descriptor_std" in df.columns else None
 
   def get_pred_rank_clf(self):
     """Per-compound pooled rank against the rank-reference library (``clf_rank``), else None."""

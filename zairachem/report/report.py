@@ -6,7 +6,6 @@ from zairachem.base.utils.progress import STEP_COLORS, LiveProgressBar
 from zairachem.report.fetcher import ResultsFetcher
 from zairachem.report.plots import (
   ActivesInactivesPlot,
-  AdCoveragePlot,
   CalibrationCurvePlot,
   ClassDonutPlot,
   ClassWafflePlot,
@@ -67,6 +66,7 @@ from zairachem.report.plots import (
   StepTimingPlot,
   ThresholdSweepPlot,
   TopKOverlapCurvePlot,
+  TrainSimilarityPlot,
   Transformation,
 )
 from zairachem.report.table import OutputTable, PerformanceTable
@@ -83,7 +83,7 @@ _PLOT_SPECS = [
   ("predicted-score-hist", PredictedScoreHistogramPlot),
   ("predicted-rank-curve", ScoreRankCurvePlot),
   ("descriptor-consensus", DescriptorConsensusPlot),
-  ("ad-coverage", AdCoveragePlot),
+  ("tanimoto-similarity-to-train", TrainSimilarityPlot),
   ("rank-distribution", RankDistributionPlot),
   ("oof-score-proba", OofScoreProbaPlot),
   ("oof-score-logit", OofScoreLogitPlot),

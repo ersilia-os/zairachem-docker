@@ -168,12 +168,13 @@ class OutputTable(BaseTable, ResultsFetcher):
     data["true-value"] = self._get_true_value_column()
     data["pred-value"] = self._get_pred_value_column()
     if self.is_predict():
-      # Predict-only enrichments (feed the hitlist): the binary call and, when the pooler emitted
-      # them, the per-compound applicability-domain fraction + pooled reference rank. Gated on
-      # is_predict() so a fit run's output_table.csv is unchanged.
+      # Predict-only enrichments (feed the hitlist): the binary call, the Tanimoto similarity to
+      # the training set, the spread of the per-descriptor probabilities and the pooled reference
+      # rank. Gated on is_predict() so a fit run's output_table.csv is unchanged.
       for key, getter in (
         ("clf_bin", self.get_pred_binary_clf),
-        ("ad", self.get_pred_ad_clf),
+        ("train-similarity", self.get_train_similarity),
+        ("descriptor-std", self.get_descriptor_std),
         ("rank", self.get_pred_rank_clf),
       ):
         try:

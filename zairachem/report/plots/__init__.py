@@ -58,7 +58,6 @@ from zairachem.report.plots.performance import (
   StepTimingPlot,
 )
 from zairachem.report.plots.predict import (
-  AdCoveragePlot,
   DescriptorConsensusPlot,
   PredictedPropertyLogpPlot,
   PredictedPropertyMwPlot,
@@ -66,6 +65,7 @@ from zairachem.report.plots.predict import (
   ProjectionProbaPlot,
   RankDistributionPlot,
   ScoreRankCurvePlot,
+  TrainSimilarityPlot,
 )
 from zairachem.report.plots.projections import (
   ProjectionClassPlot,
@@ -84,7 +84,7 @@ from zairachem.report.plots.regression import (
 
 __all__ = [
   "ActivesInactivesPlot",
-  "AdCoveragePlot",
+  "TrainSimilarityPlot",
   "CalibrationCurvePlot",
   "ClassDonutPlot",
   "ClassWafflePlot",

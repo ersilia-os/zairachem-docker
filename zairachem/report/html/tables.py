@@ -39,13 +39,13 @@ def _hitlist_table_html(report_dir, top_n=25):
     return ""
   total = len(df)
   desc_cols = [c for c in df.columns if c.startswith("lq_estimators-")]
-  has_ad = "ad" in df.columns
+  has_sim = "train-similarity" in df.columns
   top = df.sort_values("pred-value", ascending=False).head(top_n)
   headers = ["#", "SMILES", "Score", "Call"]
-  if desc_cols:
-    headers.append("Consensus")
-  if has_ad:
-    headers.append("In-domain")
+  if desc_cols or "descriptor-std" in df.columns:
+    headers.append("Descriptor std")
+  if has_sim:
+    headers.append("Train similarity")
   head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
   body = []
   for i, (_, r) in enumerate(top.iterrows(), start=1):
@@ -59,11 +59,13 @@ def _hitlist_table_html(report_dir, top_n=25):
       f"<td>{_fmt_num(r['pred-value'])}</td>",
       f"<td>{'active' if call == 1 else 'inactive'}</td>",
     ]
-    if desc_cols:
+    if "descriptor-std" in top.columns:
+      cells.append(f"<td>{_fmt_num(r['descriptor-std'])}</td>")
+    elif desc_cols:
       spread = float(_np.nanstd(_np.asarray([r[c] for c in desc_cols], dtype=float)))
       cells.append(f"<td>{_fmt_num(spread)}</td>")
-    if has_ad:
-      cells.append(f"<td>{_fmt_num(r['ad'])}</td>")
+    if has_sim:
+      cells.append(f"<td>{_fmt_num(r['train-similarity'])}</td>")
     body.append(f"<tr>{''.join(cells)}</tr>")
   note = f"<p style='color:#6e7781;font-size:13px'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
   return (
