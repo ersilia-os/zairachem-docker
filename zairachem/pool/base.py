@@ -122,19 +122,6 @@ class BasePooler(ZairaBase):
     df = XGetter(path=self.path, batch_size=self.batch_size).get()
     return df
 
-  def _iter_X(self, chunk_size=None) -> Iterator[Tuple[int, int, pd.DataFrame]]:
-    getter = XGetter(path=self.path, batch_size=self.batch_size)
-    yield from getter.iter_get(chunk_size=chunk_size)
-
-  def _get_X_clf(self, df):
-    # The classifier bagger stacks on the per-descriptor clf probabilities only. Drop the
-    # manifold projection columns (pca-/umap-/tsne-) and the binary (_bin) columns, which
-    # should not be fed to the meta-classifier (they dilute/leak rather than help).
-    return self._filter_out_unwanted_columns(df)
-
-  def _get_X_reg(self, df):
-    return df[[c for c in list(df.columns) if "reg" in c]]
-
   def _get_Y_col(self):
     if self.task == "classification":
       Y_col = "bin"
@@ -150,8 +137,7 @@ class BasePooler(ZairaBase):
   def _filter_out_unwanted_columns(self, df):
     # Single pass over the columns, dropping everything the meta-models must not see: manifold
     # projections (pca-/umap-/tsne-), the binary (_bin) columns, and the per-sample rank/AD signals
-    # (which the reliability pooler consumes as separate aligned matrices, and which the legacy
-    # bagger's "clf"-substring filter would otherwise silently ingest, e.g. "<desc>-clf_rank").
+    # (which the reliability pooler consumes as separate aligned matrices, not as predictions).
     keep = [
       c
       for c in df.columns

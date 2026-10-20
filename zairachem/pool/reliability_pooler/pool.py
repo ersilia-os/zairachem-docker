@@ -31,8 +31,8 @@ SUMMARY_FILENAME = "reliability_summary.json"
 def _check_regression(task):
   if task == "regression":
     raise NotImplementedError(
-      "The reliability pooler is classification-only (the lazy_qsar estimator has no working "
-      "regression head). Use --pooler bagger for the legacy regression path."
+      "Regression is not supported yet: lazyqsar has no regressor, so there are no per-descriptor "
+      "regression predictions to pool."
     )
 
 

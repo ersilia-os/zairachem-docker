@@ -1,8 +1,8 @@
 """Per-sample, per-descriptor reliability pooler.
 
 A port of LazyQSAR's outer multi-descriptor pooler (``lazyqsar/qsar.py::_build_weight_matrix`` and
-its logit-space combination) adapted to zairachem's pool step. It replaces the bagger's global,
-probability-space weighting with per-sample weights that blend each descriptor's global skill with
+its logit-space combination) adapted to zairachem's pool step. It weights the descriptors per
+sample, blending each descriptor's global skill with
 its per-sample reliability (an OOF-percentile→error curve), apply an applicability-domain (AD) hard veto, and
 combine the calibrated probabilities in logit space.
 

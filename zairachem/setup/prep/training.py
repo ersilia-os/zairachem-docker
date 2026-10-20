@@ -459,7 +459,14 @@ class TrainSetup(BaseSetup):
     Normalises, standardises, merges, checks and cleans the input, writes held-out splits when
     evaluating, drops featurizers without a reference transformer, checks model images and
     rank references, and seeds the isaura project from the shared lake when a store is set.
+    Regression stops here, before any work: lazyqsar has no regressor yet.
     """
+    if self.task == "regression":
+      echo(
+        "Regression is not supported yet: lazyqsar has no regressor. Use classification (-c).",
+        kind="error",
+      )
+      raise SystemExit(1)
     require_docker_and_base()
     self._initialize()
     self._normalize_input()

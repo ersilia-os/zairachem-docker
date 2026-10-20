@@ -4,7 +4,6 @@ from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.utils.pipeline import PipelineStep
-from zairachem.pool.bagger.pipe import BaggerPipeline
 from zairachem.pool.reliability_pooler.pipe import ReliabilityPoolerPipeline
 
 
@@ -38,17 +37,15 @@ class PoolerPipeline(ZairaBase):
   def _pool_pipeline(self):
     step = PipelineStep("pool", self.output_dir)
     if not step.is_done():
-      # Default to the per-sample reliability pooler; "bagger" restores the legacy global-weight
-      # ensemble (the only option for regression). Selectable via parameters.json "pooler".
-      pooler_name = (self.params or {}).get("pooler", "reliability")
-      if self.params and str(self.params.get("task")) == "regression":
-        pooler_name = "bagger"
-      logger.info(f"[pool] Running '{pooler_name}' pipeline with batch_size={self.batch_size}")
-      if pooler_name == "bagger":
-        pipeline = BaggerPipeline(self.path, batch_size=self.batch_size)
-      else:
-        pipeline = ReliabilityPoolerPipeline(self.path, batch_size=self.batch_size)
-      pipeline.run()
+      # The legacy "bagger" pooler was removed; a model whose parameters still ask for it must be
+      # refitted rather than silently pooled differently from how it was trained.
+      if (self.params or {}).get("pooler", "reliability") == "bagger":
+        raise RuntimeError(
+          "This model was trained with the legacy 'bagger' pooler, which has been removed. "
+          "Refit it with the current ZairaChem."
+        )
+      logger.info(f"[pool] Running 'reliability' pipeline with batch_size={self.batch_size}")
+      ReliabilityPoolerPipeline(self.path, batch_size=self.batch_size).run()
     else:
       self.logger.info("Pooling already done — skipping.")
 
