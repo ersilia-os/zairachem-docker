@@ -47,46 +47,34 @@ zairachem fit -i example/data_train.csv -m example_model
 zairachem predict -i example/smiles_test.csv -m example_model -o predictions_test
 ```
 
-## CLI reference
+## Commands
 
-Run `zairachem <command> --help` for the authoritative, always-current options.
+| Command | Description |
+| --- | --- |
+| `zairachem fit` | Train a QSAR model from a labelled CSV (runs every step below). |
+| `zairachem predict` | Predict activities for new molecules with a trained model. |
+| `zairachem setup` | Standardize and prepare the input molecules. |
+| `zairachem describe` | Compute molecular descriptors for each featurizer. |
+| `zairachem treat` | Impute and scale the descriptor matrix. |
+| `zairachem estimate` | Train the per-descriptor base estimators. |
+| `zairachem pool` | Combine the per-descriptor estimators into a consensus. |
+| `zairachem report` | Render the plots, tables and HTML report. |
+| `zairachem finish` | Assemble final outputs and clean up intermediate data. |
 
-### `fit` — train a model from a labelled CSV
+Run `zairachem <command> --help` for its options. `setup` creates a model directory (`-m`) from the
+input CSV; the later step commands (`describe` to `finish`) each run one stage on it.
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `-i, --input-file` | *(required)* | Input CSV (must contain a SMILES column). |
-| `-m, --model-dir` | *(required)* | Where the trained model is written. |
-| `-c, --classification` / `-r, --regression` | classification | Model type. |
-| `-f, --featurizer-ids` | curated set | Descriptor model IDs (comma-separated) or a JSON file. A descriptor with no published transformer is skipped at setup. The default Mol-JEPA (`eos9q2i`) is licensed for non-commercial use only; pass `-f` without it to exclude it. |
-| `-p, --projection-ids` | `eos1klk` | Projection model(s) for the report's 2-D map. |
-| `-s, --store` | off | Cache descriptor precalculations in an isaura project to speed up re-runs. |
-| `--override` | off | Wipe & rebuild the model dir if it exists (otherwise resume/abort). |
-| `-b, --batch-size` | `10000` | Rows per chunk for large datasets (controls memory). |
-| `--workers` | `1` | Descriptor models to featurize in parallel. |
-| `--skip-report` | off | Skip the plots/HTML report (still writes the results tables). |
-| `--keep-intermediate-data` | off | Keep descriptor matrices etc. instead of cleaning up. |
-| `--anonymize` | off | Blank out SMILES / InChIKey in all outputs. |
-| `--max-descriptors` | `3` | Cap the ensemble at the top-K descriptors, pre-screened by mean held-out AUROC across the chemistry-aware splits (classification only). Set ≥ the number you provide (e.g. `10`) to train all. Hard cap is 10. |
-| `--evaluate` | off | Held-out validation (classification only). Bare = all schemas (random, scaffold, scaffold_det, butina); or a subset, e.g. `--evaluate scaffold,random`. |
-| `--repeats` | `3` | Held-out repeats per schema when `--evaluate` is set (total folds = 1 + 3 × repeats). |
+By default `fit` uses a curated set of Ersilia descriptors (`-f` to choose your own). A descriptor
+with no published transformer is skipped at setup. The default Mol-JEPA (`eos9q2i`) is licensed for
+non-commercial use only; pass `-f` without it to exclude it.
 
-### Rank references
+## Rank references
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each
 descriptor a fit trains needs that library featurized with it. A fit downloads the published matrices
 for the descriptors it trains into `~/zairachem/rank_reference/` (up to ~1.6 GB for the default
 featurizers; `ZAIRACHEM_HOME` moves the folder). One that is not published (e.g. a custom featurizer)
 is computed on its model server and cached there, so later fits reuse it.
-
-### `predict` — predict with a trained model
-
-Same core options as `fit` (`-i`, `-m`, `-s`, `--override`, `-b`, `--workers`, `--skip-report`,
-`--keep-intermediate-data`, `--anonymize`), plus:
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `-o, --output-dir` | *(required)* | Where predictions and the report are written. |
 
 ## About the Ersilia Open Source Initiative
 
