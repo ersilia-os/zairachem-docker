@@ -126,8 +126,8 @@ class SetupChecker(object):
             discrepancies += 1
         progress.update(task, advance=1)
     logger.info(f"[check] Found {discrepancies:,} discrepancies in {n_total:,} checked molecules")
-    if discrepancies < n_total * 0.25:
-      logger.warning("Number of discrepencies >25%")
+    if discrepancies > n_total * 0.25:
+      logger.warning(f"Number of discrepancies >25% ({discrepancies:,} of {n_total:,})")
 
   def check_activity(self):
     """Count processed activity values that differ from the raw input by more than 0.01.

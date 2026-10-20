@@ -224,7 +224,7 @@ class BaggerRegressor(object):
     filename = self._get_model_filename("overall")
     joblib.dump(scale, filename)
     filename = self._get_model_filename("weighting")
-    ws = WeightSchemes(df_X, df_y, "classification")
+    ws = WeightSchemes(df_X, df_y, "regression")
     ws.distance_to_leads()
     ws.importance()
     ws.save(filename)
