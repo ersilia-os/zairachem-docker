@@ -66,6 +66,25 @@ def _n_compounds(output_dir):
     return None
 
 
+def _raw_h5_path(base):
+  """Path to a descriptor's ``raw.h5`` (or its first raw chunk) under ``base``; None if absent."""
+  h5 = os.path.join(base, "raw.h5")
+  if not os.path.exists(h5):
+    chunks = os.path.join(base, "raw_chunks", "chunk_0000.h5")
+    h5 = chunks if os.path.exists(chunks) else None
+  return h5
+
+
+def _h5_width(h5py, h5):
+  """Column count of a descriptor H5 file (``Features`` or ``Values``); None if neither exists."""
+  with h5py.File(h5, "r") as f:
+    if "Features" in f:
+      return int(f["Features"].shape[0])
+    if "Values" in f:
+      return int(f["Values"].shape[1])
+    return None
+
+
 def _descriptor_feature_width(output_dir, featurizer_ids):
   """Total descriptor columns across all featurizers (best-effort; None if unreadable)."""
   from zairachem.base.vars import DESCRIPTORS_SUBFOLDER
@@ -75,23 +94,24 @@ def _descriptor_feature_width(output_dir, featurizer_ids):
     import h5py
 
     for eos in featurizer_ids:
-      base = os.path.join(output_dir, DESCRIPTORS_SUBFOLDER, eos)
-      h5 = os.path.join(base, "raw.h5")
-      if not os.path.exists(h5):
-        chunks = os.path.join(base, "raw_chunks", "chunk_0000.h5")
-        h5 = chunks if os.path.exists(chunks) else None
+      h5 = _raw_h5_path(os.path.join(output_dir, DESCRIPTORS_SUBFOLDER, eos))
       if not h5:
         return None
-      with h5py.File(h5, "r") as f:
-        if "Features" in f:
-          total += int(f["Features"].shape[0])
-        elif "Values" in f:
-          total += int(f["Values"].shape[1])
-        else:
-          return None
+      width = _h5_width(h5py, h5)
+      if width is None:
+        return None
+      total += width
     return total or None
   except Exception:
     return None
+
+
+def _onnx_algorithm(filename):
+  """Algorithm name of an exported ``.onnx`` file; None for other files and preprocessor/pooler."""
+  if not filename.endswith(".onnx"):
+    return None
+  name = filename[:-5]
+  return None if name in ("preprocessor", "pooler") else name
 
 
 def _estimator_algorithms(output_dir):
@@ -101,11 +121,7 @@ def _estimator_algorithms(output_dir):
   algos = set()
   try:
     for root, _dirs, files in os.walk(os.path.join(output_dir, ESTIMATORS_SUBFOLDER)):
-      for f in files:
-        if f.endswith(".onnx"):
-          name = f[:-5]
-          if name not in ("preprocessor", "pooler"):
-            algos.add(name)
+      algos.update(name for name in map(_onnx_algorithm, files) if name is not None)
   except OSError as e:
     logger.debug(f"[summary] could not list estimator algorithms: {e}")
   return sorted(algos)
@@ -439,6 +455,145 @@ def _dir_size_mb(output_dir):
     return None
 
 
+def _setup_rows(d, params):
+  """Detail rows for the setup step."""
+  rows = []
+  n = _n_compounds(d)
+  if params.get("task") == "classification" and _active_inactive(d):
+    a, i = _active_inactive(d)
+    rows.append(("compounds", f"{n:,} [dim]·[/] {a:,} active [dim]·[/] {i:,} inactive"))
+  elif n is not None:
+    rows.append(("compounds", f"{n:,}"))
+  feats = _featurizers(d)
+  if feats:
+    rows.append(("featurizers", "  ".join(feats)))
+  projs = params.get("projection_ids", []) or []
+  rows.append((
+    "projection",
+    "MW/LogP" + (f"  +  {'  '.join(projs)}" if projs else " [dim](built-in)[/]"),
+  ))
+  store = params.get("contribute_store")
+  rows.append(("store", f"on [dim]· project {store}[/]" if store else "[dim]off[/]"))
+  return rows
+
+
+def _pooled_row(params, m):
+  """The ``pooled`` metrics detail row from a performance-table row."""
+
+  def fmt(k):
+    try:
+      return f"{float(m[k]):.3f}"
+    except Exception:
+      return "—"
+
+  if params.get("task") == "classification":
+    return (
+      "pooled",
+      f"AUROC {fmt('auroc')} [dim]·[/] acc {fmt('accuracy')} [dim]·[/] MCC {fmt('mcc')}",
+    )
+  return ("pooled", f"R² {fmt('r2')}")
+
+
+def _applicability_rows(rel, ad):
+  """Out-of-domain detail rows from the reliability summary's applicability block."""
+  rows = []
+  n_ood = ad.get("n_out_of_domain", 0)
+  n_tot = rel.get("n_compounds", 0) or 0
+  pct = 100.0 * ad.get("frac_out_of_domain", 0.0)
+  col = "yellow" if n_ood else "dim"
+  rows.append((
+    "applicability",
+    f"[{col}]{n_ood:,}[/]/{n_tot:,} compounds out-of-domain [dim]({pct:.0f}%)[/]",
+  ))
+  flagged = [
+    f"{name} {cnt:,}"
+    for name, cnt in sorted(
+      ad.get("per_descriptor_out_of_domain", {}).items(), key=lambda kv: -kv[1]
+    )
+    if cnt
+  ][:4]
+  if flagged:
+    rows.append(("ood by descriptor", "[dim]" + "  ".join(flagged) + "[/]"))
+  return rows
+
+
+def _reliability_rows(d, params, rel):
+  """Detail rows for the pool step when the per-sample reliability pooler ran."""
+  rows = []
+  # Per-sample reliability pooler: show how descriptors were combined. At predict time (no
+  # labels → no pooled metrics) these rows are the user's window into what the step did.
+  rows.append(("method", "reliability [dim]· per-sample weighted (logit space)[/]"))
+  rows.append((
+    "weighting",
+    f"{rel.get('tier', '?')} [dim]· {_plurals(rel.get('n_descriptors', 0), 'descriptor')}[/]",
+  ))
+  ad = rel.get("applicability")
+  if ad:
+    rows.extend(_applicability_rows(rel, ad))
+  mw = rel.get("mean_weights", {})
+  if mw:
+    top = sorted(mw.items(), key=lambda kv: -kv[1])[:4]
+    rows.append((
+      "mean weights",
+      "  ".join(f"{name} [bold]{w:.2f}[/]" for name, w in top),
+    ))
+  m = _pooled_metrics(d)
+  if m:
+    rows.append(_pooled_row(params, m))
+  return rows
+
+
+def _pool_rows(d, params):
+  """Detail rows for the pool step."""
+  rel = _reliability_summary(d)
+  if rel:
+    return _reliability_rows(d, params, rel)
+  rows = []
+  algos = _estimator_algorithms(d)
+  rows.append(("consensus", f"{_plurals(len(algos), 'descriptor model')}" if algos else "pooled"))
+  m = _pooled_metrics(d)
+  if m:
+    rows.append(_pooled_row(params, m))
+  return rows
+
+
+def _report_rows(d):
+  """Detail rows for the report step."""
+  from zairachem.base.vars import REPORT_SUBFOLDER, RESULTS_SUBFOLDER
+
+  rows = []
+  cats = _plots_by_category(d)
+  if cats:
+    total = sum(cats.values())
+    breakdown = "  ".join(f"{v} {k}" for k, v in sorted(cats.items(), key=lambda kv: -kv[1]))
+    rows.append(("plots", f"{total} [dim]· {breakdown}[/]"))
+  outs = [f for f in ("output.csv",) if os.path.exists(os.path.join(d, RESULTS_SUBFOLDER, f))]
+  if outs:
+    rows.append(("outputs", "  ".join(outs)))
+  html_path = os.path.join(d, REPORT_SUBFOLDER, "report.html")
+  if os.path.exists(html_path):
+    rows.append(("html", _collapse(html_path)))
+  return rows
+
+
+def _finish_rows(d):
+  """Detail rows for the finish step."""
+  from zairachem.base.vars import RESULTS_SUBFOLDER
+
+  rows = [("model", _collapse(d))]
+  size = _dir_size_mb(d)
+  if size is not None:
+    rows.append(("size", f"{size:,.1f} MB"))
+  present = [f for f in ("output.csv",) if os.path.exists(os.path.join(d, RESULTS_SUBFOLDER, f))]
+  from zairachem.base.vars import REPORT_SUBFOLDER
+
+  if os.path.exists(os.path.join(d, REPORT_SUBFOLDER, "report.html")):
+    present.append("report.html")
+  if present:
+    rows.append(("artifacts", "  ".join(present)))
+  return rows
+
+
 def _detail_rows(key, output_dir=None):
   """Rich (label, value) detail lines per step, read from the run's artifacts; [] if unavailable."""
   d = _resolve_output_dir(output_dir)
@@ -449,128 +604,13 @@ def _detail_rows(key, output_dir=None):
     # These steps keep their live table on screen as the record — no separate detail block.
     return []
   if key == "setup":
-    rows = []
-    n = _n_compounds(d)
-    if params.get("task") == "classification" and _active_inactive(d):
-      a, i = _active_inactive(d)
-      rows.append(("compounds", f"{n:,} [dim]·[/] {a:,} active [dim]·[/] {i:,} inactive"))
-    elif n is not None:
-      rows.append(("compounds", f"{n:,}"))
-    feats = _featurizers(d)
-    if feats:
-      rows.append(("featurizers", "  ".join(feats)))
-    projs = params.get("projection_ids", []) or []
-    rows.append((
-      "projection",
-      "MW/LogP" + (f"  +  {'  '.join(projs)}" if projs else " [dim](built-in)[/]"),
-    ))
-    store = params.get("contribute_store")
-    rows.append(("store", f"on [dim]· project {store}[/]" if store else "[dim]off[/]"))
-    return rows
+    return _setup_rows(d, params)
   if key == "pool":
-    rows = []
-    rel = _reliability_summary(d)
-    if rel:
-      # Per-sample reliability pooler: show how descriptors were combined. At predict time (no
-      # labels → no pooled metrics) these rows are the user's window into what the step did.
-      rows.append(("method", "reliability [dim]· per-sample weighted (logit space)[/]"))
-      rows.append((
-        "weighting",
-        f"{rel.get('tier', '?')} [dim]· {_plurals(rel.get('n_descriptors', 0), 'descriptor')}[/]",
-      ))
-      ad = rel.get("applicability")
-      if ad:
-        n_ood = ad.get("n_out_of_domain", 0)
-        n_tot = rel.get("n_compounds", 0) or 0
-        pct = 100.0 * ad.get("frac_out_of_domain", 0.0)
-        col = "yellow" if n_ood else "dim"
-        rows.append((
-          "applicability",
-          f"[{col}]{n_ood:,}[/]/{n_tot:,} compounds out-of-domain [dim]({pct:.0f}%)[/]",
-        ))
-        flagged = [
-          f"{name} {cnt:,}"
-          for name, cnt in sorted(
-            ad.get("per_descriptor_out_of_domain", {}).items(), key=lambda kv: -kv[1]
-          )
-          if cnt
-        ][:4]
-        if flagged:
-          rows.append(("ood by descriptor", "[dim]" + "  ".join(flagged) + "[/]"))
-      mw = rel.get("mean_weights", {})
-      if mw:
-        top = sorted(mw.items(), key=lambda kv: -kv[1])[:4]
-        rows.append((
-          "mean weights",
-          "  ".join(f"{name} [bold]{w:.2f}[/]" for name, w in top),
-        ))
-      m = _pooled_metrics(d)
-      if m:
-
-        def fmtr(k):
-          try:
-            return f"{float(m[k]):.3f}"
-          except Exception:
-            return "—"
-
-        if params.get("task") == "classification":
-          rows.append((
-            "pooled",
-            f"AUROC {fmtr('auroc')} [dim]·[/] acc {fmtr('accuracy')} [dim]·[/] MCC {fmtr('mcc')}",
-          ))
-        else:
-          rows.append(("pooled", f"R² {fmtr('r2')}"))
-      return rows
-    algos = _estimator_algorithms(d)
-    rows.append(("consensus", f"{_plurals(len(algos), 'descriptor model')}" if algos else "pooled"))
-    m = _pooled_metrics(d)
-    if m:
-
-      def fmt(k):
-        try:
-          return f"{float(m[k]):.3f}"
-        except Exception:
-          return "—"
-
-      if params.get("task") == "classification":
-        rows.append((
-          "pooled",
-          f"AUROC {fmt('auroc')} [dim]·[/] acc {fmt('accuracy')} [dim]·[/] MCC {fmt('mcc')}",
-        ))
-      else:
-        rows.append(("pooled", f"R² {fmt('r2')}"))
-    return rows
+    return _pool_rows(d, params)
   if key == "report":
-    from zairachem.base.vars import REPORT_SUBFOLDER, RESULTS_SUBFOLDER
-
-    rows = []
-    cats = _plots_by_category(d)
-    if cats:
-      total = sum(cats.values())
-      breakdown = "  ".join(f"{v} {k}" for k, v in sorted(cats.items(), key=lambda kv: -kv[1]))
-      rows.append(("plots", f"{total} [dim]· {breakdown}[/]"))
-    outs = [f for f in ("output.csv",) if os.path.exists(os.path.join(d, RESULTS_SUBFOLDER, f))]
-    if outs:
-      rows.append(("outputs", "  ".join(outs)))
-    html_path = os.path.join(d, REPORT_SUBFOLDER, "report.html")
-    if os.path.exists(html_path):
-      rows.append(("html", _collapse(html_path)))
-    return rows
+    return _report_rows(d)
   if key == "finish":
-    from zairachem.base.vars import RESULTS_SUBFOLDER
-
-    rows = [("model", _collapse(d))]
-    size = _dir_size_mb(d)
-    if size is not None:
-      rows.append(("size", f"{size:,.1f} MB"))
-    present = [f for f in ("output.csv",) if os.path.exists(os.path.join(d, RESULTS_SUBFOLDER, f))]
-    from zairachem.base.vars import REPORT_SUBFOLDER
-
-    if os.path.exists(os.path.join(d, REPORT_SUBFOLDER, "report.html")):
-      present.append("report.html")
-    if present:
-      rows.append(("artifacts", "  ".join(present)))
-    return rows
+    return _finish_rows(d)
   return []
 
 

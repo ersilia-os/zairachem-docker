@@ -166,20 +166,8 @@ def validate_model_roles(featurizer_ids, projection_ids):
   raise SystemExit(1)
 
 
-def report_model_images(featurizer_ids, projection_ids):
-  """Print a summary table of Ersilia model-image availability; fail if any are missing.
-
-  Intended to run at the END of the setup step: shows every requested ``ersiliaos/<id>`` image
-  with a ✓/✗ status, grouped by kind (descriptors vs projectors). If any are missing it prints
-  the ``ersilia fetch`` commands and raises ``SystemExit(1)``. Never fetches images.
-
-  Parameters
-  ----------
-  featurizer_ids : list of str
-      Descriptor (featurizer) model IDs.
-  projection_ids : list of str
-      Projector (projection) model IDs.
-  """
+def _model_images_table():
+  """Return the empty "Ersilia model images" table with its columns."""
   from rich import box
   from rich.table import Table
 
@@ -198,44 +186,35 @@ def report_model_images(featurizer_ids, projection_ids):
   table.add_column("Image", style="dim")
   table.add_column("Version", style="cyan")
   table.add_column("Status", justify="center")
+  return table
 
-  missing = []
-  outdated = []
-  groups = [("descriptor", featurizer_ids), ("projector", projection_ids)]
-  items = [(kind, m) for kind, ids in groups for m in ids]
 
-  # Each model costs a docker inspect + a registry digest check + a version lookup — all independent
-  # and network/IO-bound, so probe them in parallel (results gathered in order) instead of serially.
-  def _probe(item):
-    kind, m = item
-    image = f"{ORG}/{m.lower()}:latest"
-    if not _docker_image_present(image):
-      state = "missing"
-    elif is_image_up_to_date(m) is False:
-      state = "outdated"  # local :latest digest differs from the registry's current :latest
-    else:
-      state = "ok"
-    return kind, m, image, ersilia_model_version(m), state
+def _probe_model_image(item):
+  """Return ``(kind, model, image, version, state)`` for one ``(kind, model)`` item.
 
-  with console.status("[dim]Checking Ersilia model images…[/]", spinner="dots"):
-    with ThreadPoolExecutor(max_workers=io_workers(len(items))) as ex:
-      probed = list(ex.map(_probe, items))
+  ``state`` is ``"missing"``, ``"outdated"`` or ``"ok"``.
+  """
+  kind, m = item
+  image = f"{ORG}/{m.lower()}:latest"
+  if not _docker_image_present(image):
+    state = "missing"
+  elif is_image_up_to_date(m) is False:
+    state = "outdated"  # local :latest digest differs from the registry's current :latest
+  else:
+    state = "ok"
+  return kind, m, image, ersilia_model_version(m), state
 
-  status_markup = {
-    "missing": "[red]✗ missing[/]",
-    "outdated": "[yellow]⚠ behind latest[/]",
-    "ok": "[green]✓ available[/]",
-  }
-  for kind, m, image, version, state in probed:
-    if state == "missing":
-      missing.append(m)
-    elif state == "outdated":
-      outdated.append(m)
-    table.add_row(kind, m, image, version, status_markup[state])
-  console.print(table)
 
+_IMAGE_STATUS_MARKUP = {
+  "missing": "[red]✗ missing[/]",
+  "outdated": "[yellow]⚠ behind latest[/]",
+  "ok": "[green]✓ available[/]",
+}
+
+
+def _stop_on_bad_images(missing, outdated, total):
+  """Print fetch hints and raise ``SystemExit(1)`` if any model image is missing or outdated."""
   if missing:
-    total = len(featurizer_ids) + len(projection_ids)
     echo(
       f"{len(missing)} of {total} model image(s) missing — ZairaChem cannot continue.",
       kind="error",
@@ -256,33 +235,48 @@ def report_model_images(featurizer_ids, projection_ids):
     raise SystemExit(1)
 
 
-def prepare_reference_transformers(featurizer_ids, reference_library, output_dir):
-  """Download each featurizer's reference-library transformer into the model; return those usable.
+def report_model_images(featurizer_ids, projection_ids):
+  """Print a summary table of Ersilia model-image availability; fail if any are missing.
 
-  The treat step applies, for each featurizer, a transformer pre-fitted on ``reference_library`` and
-  published to a public bucket. Setup runs this before anything else checks the descriptors, saving
-  each one to ``<output_dir>/transformers/`` where treat and predict read it. A featurizer whose
-  transformer is missing or malformed is skipped (reported, not fatal), so a descriptor whose
-  transformer is not yet published simply sits out the run; only when none is left does the run
-  stop. The version is the same one the treat step will use (:func:`ersilia_model_version`). Never
-  uploads or fits anything.
+  Intended to run at the END of the setup step: shows every requested ``ersiliaos/<id>`` image
+  with a ✓/✗ status, grouped by kind (descriptors vs projectors). If any are missing it prints
+  the ``ersilia fetch`` commands and raises ``SystemExit(1)``. Never fetches images.
 
-  Returns
-  -------
-  list of str
-      The featurizers with a usable transformer, in input order.
+  Parameters
+  ----------
+  featurizer_ids : list of str
+      Descriptor (featurizer) model IDs.
+  projection_ids : list of str
+      Projector (projection) model IDs.
   """
+  table = _model_images_table()
+
+  missing = []
+  outdated = []
+  groups = [("descriptor", featurizer_ids), ("projector", projection_ids)]
+  items = [(kind, m) for kind, ids in groups for m in ids]
+
+  # Each model costs a docker inspect + a registry digest check + a version lookup — all independent
+  # and network/IO-bound, so probe them in parallel (results gathered in order) instead of serially.
+  with console.status("[dim]Checking Ersilia model images…[/]", spinner="dots"):
+    with ThreadPoolExecutor(max_workers=io_workers(len(items))) as ex:
+      probed = list(ex.map(_probe_model_image, items))
+
+  for kind, m, image, version, state in probed:
+    if state == "missing":
+      missing.append(m)
+    elif state == "outdated":
+      outdated.append(m)
+    table.add_row(kind, m, image, version, _IMAGE_STATUS_MARKUP[state])
+  console.print(table)
+
+  _stop_on_bad_images(missing, outdated, len(featurizer_ids) + len(projection_ids))
+
+
+def _transformers_table(reference_library):
+  """Return the empty reference-library transformers table with its columns."""
   from rich import box
   from rich.table import Table
-
-  from zairachem.base.vars import TRANSFORMERS_SUBFOLDER
-  from zairachem.treat.imputers.reference_transformer import (
-    check_transformer,
-    fetch_reference_transformer,
-    local_transformer_name,
-    save_local_transformer,
-    transformer_url,
-  )
 
   color = active_color()
   table = Table(
@@ -298,28 +292,47 @@ def prepare_reference_transformers(featurizer_ids, reference_library, output_dir
   table.add_column("Version", style="cyan")
   table.add_column("Transformer", style="dim")
   table.add_column("Status", justify="center")
+  return table
 
-  # One download per featurizer (0.5-2 MB each) — independent and network-bound, so fetch them in
-  # parallel (results gathered in featurizer order). ``error`` is None when the copy was saved.
-  def _check(m):
-    version = ersilia_model_version(m)
-    url = transformer_url(m, version, reference_library=reference_library)
-    try:
-      transformer = fetch_reference_transformer(m, version, reference_library=reference_library)
-      check_transformer(transformer, m, version)
-      save_local_transformer(
-        transformer,
-        os.path.join(output_dir, TRANSFORMERS_SUBFOLDER, local_transformer_name(m, version)),
-      )
-      error = None
-    except RuntimeError as e:
-      error = str(e)
-    return m, version, url, error
 
-  with console.status("[dim]Downloading reference-library transformers…[/]", spinner="dots"):
-    with ThreadPoolExecutor(max_workers=io_workers(len(featurizer_ids))) as ex:
-      checked = list(ex.map(_check, featurizer_ids))
+def _fetch_transformer(rt, m, reference_library, output_dir):
+  """Download, check and save one featurizer's transformer.
 
+  Parameters
+  ----------
+  rt : module
+      :mod:`zairachem.treat.imputers.reference_transformer` (imported once by the caller).
+  m : str
+      Featurizer model ID.
+  reference_library : str
+      Reference library the transformer was fitted on.
+  output_dir : str
+      Model folder; the copy is saved under its transformers subfolder.
+
+  Returns
+  -------
+  tuple
+      ``(m, version, url, error)``; ``error`` is None when the copy was saved.
+  """
+  from zairachem.base.vars import TRANSFORMERS_SUBFOLDER
+
+  version = ersilia_model_version(m)
+  url = rt.transformer_url(m, version, reference_library=reference_library)
+  try:
+    transformer = rt.fetch_reference_transformer(m, version, reference_library=reference_library)
+    rt.check_transformer(transformer, m, version)
+    rt.save_local_transformer(
+      transformer,
+      os.path.join(output_dir, TRANSFORMERS_SUBFOLDER, rt.local_transformer_name(m, version)),
+    )
+    error = None
+  except RuntimeError as e:
+    error = str(e)
+  return m, version, url, error
+
+
+def _tabulate_transformers(table, checked):
+  """Add one row per checked featurizer; return ``(kept, missing)``."""
   kept, missing = [], []
   for m, version, url, error in checked:
     if error is None:
@@ -330,11 +343,14 @@ def prepare_reference_transformers(featurizer_ids, reference_library, output_dir
       missing.append((m, version, url, error))
       logger.debug(f"[setup] {m} ({version}) skipped, {url}: {error}")
     table.add_row(m, version, url.rsplit("/", 1)[-1], status)
-  console.print(table)
+  return kept, missing
 
+
+def _report_transformer_gaps(kept, missing, n_featurizers, reference_library):
+  """Stop the run if no transformer is usable; otherwise warn about the skipped ones."""
   if not kept:
     echo(
-      f"None of the {len(featurizer_ids)} featurizer(s) has a usable transformer in reference "
+      f"None of the {n_featurizers} featurizer(s) has a usable transformer in reference "
       f"library '{reference_library}' — ZairaChem cannot continue.",
       kind="error",
     )
@@ -352,6 +368,41 @@ def prepare_reference_transformers(featurizer_ids, reference_library, output_dir
       f"{', '.join(m for m, *_ in missing)}.",
       kind="warning",
     )
+
+
+def prepare_reference_transformers(featurizer_ids, reference_library, output_dir):
+  """Download each featurizer's reference-library transformer into the model; return those usable.
+
+  The treat step applies, for each featurizer, a transformer pre-fitted on ``reference_library`` and
+  published to a public bucket. Setup runs this before anything else checks the descriptors, saving
+  each one to ``<output_dir>/transformers/`` where treat and predict read it. A featurizer whose
+  transformer is missing or malformed is skipped (reported, not fatal), so a descriptor whose
+  transformer is not yet published simply sits out the run; only when none is left does the run
+  stop. The version is the same one the treat step will use (:func:`ersilia_model_version`). Never
+  uploads or fits anything.
+
+  Returns
+  -------
+  list of str
+      The featurizers with a usable transformer, in input order.
+  """
+  from zairachem.treat.imputers import reference_transformer as rt
+
+  table = _transformers_table(reference_library)
+
+  # One download per featurizer (0.5-2 MB each) — independent and network-bound, so fetch them in
+  # parallel (results gathered in featurizer order). ``error`` is None when the copy was saved.
+  def _check(m):
+    return _fetch_transformer(rt, m, reference_library, output_dir)
+
+  with console.status("[dim]Downloading reference-library transformers…[/]", spinner="dots"):
+    with ThreadPoolExecutor(max_workers=io_workers(len(featurizer_ids))) as ex:
+      checked = list(ex.map(_check, featurizer_ids))
+
+  kept, missing = _tabulate_transformers(table, checked)
+  console.print(table)
+
+  _report_transformer_gaps(kept, missing, len(featurizer_ids), reference_library)
   return kept
 
 

@@ -117,6 +117,39 @@ def _via_cli(service: str, path) -> Optional[int]:
   return None
 
 
+def _published_port_80(p) -> Optional[int]:
+  """Host port that a compose ``ports`` entry maps to container port 80.
+
+  Parameters
+  ----------
+  p : dict or str
+      One entry of a service's ``ports`` list, in long (dict) or short (string) syntax.
+
+  Returns
+  -------
+  int or None
+      The published host port, or None when the entry does not map port 80.
+  """
+  if isinstance(p, dict):
+    tgt = str(p.get("target", "")).split("/")[0]
+    pub = str(p.get("published", "")).split("/")[0]
+    if tgt.isdigit() and int(tgt) == 80 and pub.isdigit():
+      return int(pub)
+  elif isinstance(p, str):
+    s = re.sub(r"\s+#.*$", "", p.strip())
+    m = re.match(r"^(?:\[[^\]]+\]:)?(\d+):(\d+)(?:/(?:tcp|udp))?$", s)
+    if m and int(m.group(2)) == 80:
+      return int(m.group(1))
+    parts = s.split(":")
+    try:
+      tgt = int(parts[-1].split("/")[0])
+      if tgt == 80 and len(parts) >= 2:
+        return int(parts[-2])
+    except Exception:
+      return None
+  return None
+
+
 def _via_yaml(service: str, path) -> Optional[int]:
   compose_file = compose.compose_file(path)
   if yaml is None or not compose_file.exists():
@@ -127,23 +160,9 @@ def _via_yaml(service: str, path) -> Optional[int]:
   if not svc:
     return None
   for p in svc.get("ports") or []:
-    if isinstance(p, dict):
-      tgt = str(p.get("target", "")).split("/")[0]
-      pub = str(p.get("published", "")).split("/")[0]
-      if tgt.isdigit() and int(tgt) == 80 and pub.isdigit():
-        return int(pub)
-    elif isinstance(p, str):
-      s = re.sub(r"\s+#.*$", "", p.strip())
-      m = re.match(r"^(?:\[[^\]]+\]:)?(\d+):(\d+)(?:/(?:tcp|udp))?$", s)
-      if m and int(m.group(2)) == 80:
-        return int(m.group(1))
-      parts = s.split(":")
-      try:
-        tgt = int(parts[-1].split("/")[0])
-        if tgt == 80 and len(parts) >= 2:
-          return int(parts[-2])
-      except Exception:
-        continue
+    port = _published_port_80(p)
+    if port is not None:
+      return port
   return None
 
 

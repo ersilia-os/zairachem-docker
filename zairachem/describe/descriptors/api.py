@@ -50,6 +50,32 @@ _ALLOWED_RE = re.compile(
 DEFAULT_BATCH_SIZE = 1000
 
 
+def _is_balanced(s, open_ch, close_ch):
+  """Whether ``open_ch``/``close_ch`` pairs in ``s`` are balanced and never close early.
+
+  Parameters
+  ----------
+  s : str
+      Text to scan.
+  open_ch, close_ch : str
+      Opening and closing characters.
+
+  Returns
+  -------
+  bool
+      True when every closing character matches an earlier opening one and none is left open.
+  """
+  c = 0
+  for ch in s:
+    if ch == open_ch:
+      c += 1
+    elif ch == close_ch:
+      c -= 1
+      if c < 0:
+        return False
+  return c == 0
+
+
 class BinaryStreamClient(ZairaBase):
   """Featurization client for one Ersilia model server, with optional isaura store reads/writes.
 
@@ -204,15 +230,7 @@ class BinaryStreamClient(ZairaBase):
 
   def _balanced(self, s, open_ch, close_ch):
     try:
-      c = 0
-      for ch in s:
-        if ch == open_ch:
-          c += 1
-        elif ch == close_ch:
-          c -= 1
-          if c < 0:
-            return False
-      return c == 0
+      return _is_balanced(s, open_ch, close_ch)
     except Exception as e:
       logger.error(f"Error checking balance for string: {e}")
       raise
@@ -741,92 +759,11 @@ class BinaryStreamClient(ZairaBase):
 
   def _run(self, output_h5=None):
     try:
-      from zairachem.base.utils.matrices import ChunkedH5Store
-
-      total_time = 0.0
       n = len(self.input_data)
       per_item_rows = [None] * n
-      valid_mask_input = [False] * n
-      good_idx = []
-      checked_input = []
-      for i, s in enumerate(self.input_data):
-        ok = self._is_smiles(s)
-        valid_mask_input[i] = ok
-        if ok:
-          good_idx.append(i)
-          checked_input.append(s)
-      any_results = None
-      h5_store = None
-      cols = None
-      n_ok = 0  # rows the server actually returned (vs NaN placeholders for failures)
-      if output_h5:
-        schema_cols = self._get_schema()[0]
-        h5_store = ChunkedH5Store(output_h5)
-        h5_store.create(len(schema_cols), schema_cols)
-        cols = schema_cols
-      # Live bar only when this model is featurized on its own; suppressed under concurrency
-      # (rich permits a single live display at a time) and when a monitor callback is wired (the
-      # step's shared live table reports batch progress instead, via ("batch", done, total)).
-      show = getattr(self, "_show_progress", True) and getattr(self, "_progress_cb", None) is None
-      n_batches = max(1, -(-len(checked_input) // self.batch_size))  # ceil division
-      progress = (
-        Progress(
-          SpinnerColumn(),
-          TextColumn("[progress.description]{task.description}"),
-          BarColumn(),
-          TaskProgressColumn(),
-          MofNCompleteColumn(),
-          TimeElapsedColumn(),
-          TimeRemainingColumn(),
-          transient=True,
-        )
-        if show
-        else None
-      )
-      try:
-        with progress if show else contextlib.nullcontext():
-          task = (
-            progress.add_task(
-              f"  [yellow]computing[/] [bold]{self.model_id}[/]", total=len(checked_input)
-            )
-            if show
-            else None
-          )
-          for batch_i, start in enumerate(range(0, len(checked_input), self.batch_size), start=1):
-            batch = checked_input[start : start + self.batch_size]
-            batch_abs_offset = good_idx[start]
-            t0 = time.perf_counter()
-            arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
-            total_time += time.perf_counter() - t0
-            if results is not None:
-              any_results = results
-            if h5_store:
-              batch_arrays = []
-              batch_inputs = []
-              for j, row in enumerate(arrays_out):
-                if isinstance(row, np.ndarray):
-                  batch_arrays.append(row)
-                  n_ok += 1
-                else:
-                  batch_arrays.append(self._placeholder_row())
-                batch_inputs.append(checked_input[start + j])
-              if batch_arrays:
-                stacked_batch = np.vstack(batch_arrays).astype("float32")
-                h5_store.save_chunk(stacked_batch, batch_inputs)
-                logger.debug(f"[api] Saved chunk with {len(batch_arrays)} rows")
-                del stacked_batch, batch_arrays
-                gc.collect()
-            else:
-              for j, row in enumerate(arrays_out):
-                per_item_rows[good_idx[start + j]] = row
-                if isinstance(row, np.ndarray):
-                  n_ok += 1
-            if show:
-              progress.advance(task, len(arrays_out))
-            else:
-              self._report("batch", batch_i, n_batches)
-      finally:
-        self.logger.info(f"Total elapsed: {total_time:.4f}s")
+      good_idx, checked_input = self._valid_inputs()
+      h5_store, cols = self._open_h5_store(output_h5)
+      any_results, n_ok = self._stream_batches(checked_input, good_idx, h5_store, per_item_rows)
       # A live server that returns nothing for any valid molecule means the model is broken in both
       # modalities — abort loudly rather than train on an all-NaN descriptor matrix.
       if checked_input and n_ok == 0:
@@ -836,38 +773,249 @@ class BinaryStreamClient(ZairaBase):
           f"logs (docker logs) for the underlying error."
         )
       if h5_store:
-        if any_results is None:
-          any_results = {}
-        if "dtype" not in any_results:
-          any_results.update({"dtype": self.resolve_dtype()})
-        if "dims" not in any_results:
-          any_results.update({"dims": cols})
-        any_results.update({
-          "shape": h5_store.shape(),
-          "data": None,
-          "inputs": checked_input,
-          "h5_file": output_h5,
-        })
-      else:
-        filled = []
-        for row in per_item_rows:
-          if isinstance(row, np.ndarray):
-            filled.append(row)
-          else:
-            filled.append(self._placeholder_row())
-        stacked = np.vstack(filled)
-        if any_results is None:
-          any_results = {}
-        if "dtype" not in any_results:
-          any_results.update({"dtype": self.resolve_dtype()})
-        if "dims" not in any_results:
-          any_results.update({"dims": self.resolve_dims()})
-        any_results.update({
-          "shape": stacked.shape,
-          "data": stacked,
-          "inputs": self.input_data,
-        })
-      return any_results
+        return self._h5_results(any_results, h5_store, cols, checked_input, output_h5)
+      return self._in_memory_results(any_results, per_item_rows)
     except Exception as e:
       logger.error(f"Unhandled error in _run: {e}")
       raise
+
+  def _valid_inputs(self):
+    """Split the inputs into the ones that look like SMILES.
+
+    Returns
+    -------
+    tuple of (list of int, list of str)
+        Positions in ``input_data`` of the valid inputs, and the valid inputs themselves.
+    """
+    good_idx = []
+    checked_input = []
+    for i, s in enumerate(self.input_data):
+      if self._is_smiles(s):
+        good_idx.append(i)
+        checked_input.append(s)
+    return good_idx, checked_input
+
+  def _open_h5_store(self, output_h5):
+    """Create the chunked H5 store that descriptors stream into, when ``output_h5`` is set.
+
+    Parameters
+    ----------
+    output_h5 : str or None
+        Path of the H5 file, or None to keep descriptors in memory.
+
+    Returns
+    -------
+    tuple of (ChunkedH5Store or None, list of str or None)
+        The store and its feature columns, or ``(None, None)`` without ``output_h5``.
+    """
+    from zairachem.base.utils.matrices import ChunkedH5Store
+
+    if not output_h5:
+      return None, None
+    schema_cols = self._get_schema()[0]
+    h5_store = ChunkedH5Store(output_h5)
+    h5_store.create(len(schema_cols), schema_cols)
+    return h5_store, schema_cols
+
+  def _make_progress(self):
+    """Return the rich progress bar for the describe loop."""
+    return Progress(
+      SpinnerColumn(),
+      TextColumn("[progress.description]{task.description}"),
+      BarColumn(),
+      TaskProgressColumn(),
+      MofNCompleteColumn(),
+      TimeElapsedColumn(),
+      TimeRemainingColumn(),
+      transient=True,
+    )
+
+  def _stream_batches(self, checked_input, good_idx, h5_store, per_item_rows):
+    """Describe ``checked_input`` batch by batch, into ``h5_store`` or ``per_item_rows``.
+
+    Parameters
+    ----------
+    checked_input : list of str
+        Valid inputs to describe.
+    good_idx : list of int
+        Position in ``input_data`` of each valid input.
+    h5_store : ChunkedH5Store or None
+        Store to stream rows into; None fills ``per_item_rows`` in place instead.
+    per_item_rows : list
+        One slot per input in ``input_data``, filled when there is no ``h5_store``.
+
+    Returns
+    -------
+    tuple of (dict or None, int)
+        The last non-None server result, and how many rows the server actually returned.
+    """
+    total_time = 0.0
+    any_results = None
+    n_ok = 0  # rows the server actually returned (vs NaN placeholders for failures)
+    # Live bar only when this model is featurized on its own; suppressed under concurrency
+    # (rich permits a single live display at a time) and when a monitor callback is wired (the
+    # step's shared live table reports batch progress instead, via ("batch", done, total)).
+    show = getattr(self, "_show_progress", True) and getattr(self, "_progress_cb", None) is None
+    n_batches = max(1, -(-len(checked_input) // self.batch_size))  # ceil division
+    progress = self._make_progress() if show else None
+    try:
+      with progress if show else contextlib.nullcontext():
+        task = (
+          progress.add_task(
+            f"  [yellow]computing[/] [bold]{self.model_id}[/]", total=len(checked_input)
+          )
+          if show
+          else None
+        )
+        for batch_i, start in enumerate(range(0, len(checked_input), self.batch_size), start=1):
+          batch = checked_input[start : start + self.batch_size]
+          batch_abs_offset = good_idx[start]
+          t0 = time.perf_counter()
+          arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
+          total_time += time.perf_counter() - t0
+          if results is not None:
+            any_results = results
+          if h5_store:
+            n_ok += self._save_h5_batch(h5_store, arrays_out, checked_input, start)
+          else:
+            n_ok += self._fill_rows(per_item_rows, arrays_out, good_idx, start)
+          if show:
+            progress.advance(task, len(arrays_out))
+          else:
+            self._report("batch", batch_i, n_batches)
+    finally:
+      self.logger.info(f"Total elapsed: {total_time:.4f}s")
+    return any_results, n_ok
+
+  def _save_h5_batch(self, h5_store, arrays_out, checked_input, start):
+    """Write one batch of rows to ``h5_store``, with NaN placeholders for failed molecules.
+
+    Parameters
+    ----------
+    h5_store : ChunkedH5Store
+        Store to append the chunk to.
+    arrays_out : list
+        One row per batch input: an array, or a non-array for a failure.
+    checked_input : list of str
+        Valid inputs; the batch starts at ``start``.
+    start : int
+        Offset of the batch in ``checked_input``.
+
+    Returns
+    -------
+    int
+        Number of rows the server actually returned.
+    """
+    n_ok = 0
+    batch_arrays = []
+    batch_inputs = []
+    for j, row in enumerate(arrays_out):
+      if isinstance(row, np.ndarray):
+        batch_arrays.append(row)
+        n_ok += 1
+      else:
+        batch_arrays.append(self._placeholder_row())
+      batch_inputs.append(checked_input[start + j])
+    if batch_arrays:
+      stacked_batch = np.vstack(batch_arrays).astype("float32")
+      h5_store.save_chunk(stacked_batch, batch_inputs)
+      logger.debug(f"[api] Saved chunk with {len(batch_arrays)} rows")
+      del stacked_batch, batch_arrays
+      gc.collect()
+    return n_ok
+
+  def _fill_rows(self, per_item_rows, arrays_out, good_idx, start):
+    """Place one batch of rows into ``per_item_rows`` at their input positions.
+
+    Parameters
+    ----------
+    per_item_rows : list
+        One slot per input in ``input_data``, updated in place.
+    arrays_out : list
+        One row per batch input: an array, or a non-array for a failure.
+    good_idx : list of int
+        Position in ``input_data`` of each valid input.
+    start : int
+        Offset of the batch among the valid inputs.
+
+    Returns
+    -------
+    int
+        Number of rows the server actually returned.
+    """
+    n_ok = 0
+    for j, row in enumerate(arrays_out):
+      per_item_rows[good_idx[start + j]] = row
+      if isinstance(row, np.ndarray):
+        n_ok += 1
+    return n_ok
+
+  def _h5_results(self, any_results, h5_store, cols, checked_input, output_h5):
+    """Complete the result dict for descriptors streamed to ``output_h5``.
+
+    Parameters
+    ----------
+    any_results : dict or None
+        Last server result, if any.
+    h5_store : ChunkedH5Store
+        Store the descriptors were written to.
+    cols : list of str
+        Feature columns of the store.
+    checked_input : list of str
+        Valid inputs, in store row order.
+    output_h5 : str
+        Path of the H5 file.
+
+    Returns
+    -------
+    dict
+        Result with ``dtype``, ``dims``, ``shape``, ``data`` (None), ``inputs`` and ``h5_file``.
+    """
+    if any_results is None:
+      any_results = {}
+    if "dtype" not in any_results:
+      any_results.update({"dtype": self.resolve_dtype()})
+    if "dims" not in any_results:
+      any_results.update({"dims": cols})
+    any_results.update({
+      "shape": h5_store.shape(),
+      "data": None,
+      "inputs": checked_input,
+      "h5_file": output_h5,
+    })
+    return any_results
+
+  def _in_memory_results(self, any_results, per_item_rows):
+    """Complete the result dict for descriptors held in memory.
+
+    Parameters
+    ----------
+    any_results : dict or None
+        Last server result, if any.
+    per_item_rows : list
+        One row per input; non-array entries become NaN placeholder rows.
+
+    Returns
+    -------
+    dict
+        Result with ``dtype``, ``dims``, ``shape``, ``data`` and ``inputs``.
+    """
+    filled = []
+    for row in per_item_rows:
+      if isinstance(row, np.ndarray):
+        filled.append(row)
+      else:
+        filled.append(self._placeholder_row())
+    stacked = np.vstack(filled)
+    if any_results is None:
+      any_results = {}
+    if "dtype" not in any_results:
+      any_results.update({"dtype": self.resolve_dtype()})
+    if "dims" not in any_results:
+      any_results.update({"dims": self.resolve_dims()})
+    any_results.update({
+      "shape": stacked.shape,
+      "data": stacked,
+      "inputs": self.input_data,
+    })
+    return any_results

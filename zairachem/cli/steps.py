@@ -72,104 +72,136 @@ def _run_steps(
   # logger.configure() is re-asserted after each one to keep zairachem's log sinks alive.
   # The shared `tracker` (begun in fit/predict) shows which step is running; start()/complete()
   # are no-ops if the tracker was not begun (e.g. standalone step commands).
-  from zairachem.base.utils.progress import SUMMARIES, final_summary_panel, tracker
-  from zairachem.describe.descriptors.describe import Describer
+  from zairachem.base.utils.progress import final_summary_panel
+
+  _featurize(output_dir, batch_size, describe_workers)
+  estimate_seconds = _estimate(output_dir, batch_size)
+  _pool_and_validate(output_dir, batch_size, estimate_seconds)
+  _report_and_finish(output_dir, anonymize, keep_intermediate_data, no_report)
+  final_summary_panel(output_dir)
+
+
+def _tracked_step(name, output_dir, run):
+  """Run one pipeline step under the progress tracker and return what ``run`` returns.
+
+  Re-asserts ``logger.configure()`` (the step's freshly imported module may have removed the log
+  sinks), marks the step started, calls ``run`` and marks it complete with its summary.
+  """
+  from zairachem.base.utils.progress import SUMMARIES, tracker
 
   logger.configure()
-  tracker.start("describe")
-  Describer(path=output_dir, batch_size=batch_size, workers=describe_workers).run()
-  tracker.complete("describe", SUMMARIES["describe"](output_dir))
+  tracker.start(name)
+  result = run()
+  tracker.complete(name, SUMMARIES[name](output_dir))
+  return result
+
+
+def _featurize(output_dir, batch_size, describe_workers):
+  """Run the describe, projections, treat and screen steps."""
+  from zairachem.describe.descriptors.describe import Describer
+
+  _tracked_step(
+    "describe",
+    output_dir,
+    lambda: Describer(path=output_dir, batch_size=batch_size, workers=describe_workers).run(),
+  )
 
   # Projections are an independent 2-D embedding shown as-is in the report (NOT a transformation of
   # the descriptors) — their own step, run while the model containers from Describe are still up.
   from zairachem.base.utils.isaura_report import report_data_provenance
   from zairachem.treat.imputers.manifolds import Manifolds
 
-  logger.configure()
-  tracker.start("projections")
-  Manifolds(path=output_dir, batch_size=batch_size).run()
-  # Rendered here so it reflects BOTH featurizers (describe) and projectors (this step).
-  report_data_provenance(output_dir)
-  tracker.complete("projections", SUMMARIES["projections"](output_dir))
+  def _projections():
+    Manifolds(path=output_dir, batch_size=batch_size).run()
+    # Rendered here so it reflects BOTH featurizers (describe) and projectors (this step).
+    report_data_provenance(output_dir)
+
+  _tracked_step("projections", output_dir, _projections)
 
   from zairachem.treat.imputers.impute import Imputer
 
-  logger.configure()
-  tracker.start("treat")
-  Imputer(path=output_dir, batch_size=batch_size).run()
-  tracker.complete("treat", SUMMARIES["treat"](output_dir))
+  _tracked_step("treat", output_dir, lambda: Imputer(path=output_dir, batch_size=batch_size).run())
 
   # Descriptor pre-screening (--max-descriptors). Self-gates on params["max_descriptors"]; a no-op
   # otherwise. Runs after treat (needs the treated matrices) and before estimate so only the selected
   # descriptors are fully trained.
   from zairachem.screen.pipe import ScreenPipeline
 
-  logger.configure()
-  tracker.start("screen")
-  ScreenPipeline(path=output_dir, batch_size=batch_size).run()
-  tracker.complete("screen", SUMMARIES["screen"](output_dir))
+  _tracked_step(
+    "screen", output_dir, lambda: ScreenPipeline(path=output_dir, batch_size=batch_size).run()
+  )
 
+
+def _estimate(output_dir, batch_size):
+  """Run the estimate step, stop the model servers and return the training wall-clock seconds."""
   import time
 
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
-  logger.configure()
-  tracker.start("estimate")
-  _estimate_t0 = time.time()
-  EstimatorPipeline(path=output_dir, batch_size=batch_size).run()
-  # Wall-clock of training the full descriptor stack — the per-fold predictor for held-out validation
-  # (each fold refits the same stack). ~0 on a resume where estimate was already done; the monitor
-  # ignores tiny values.
-  estimate_seconds = time.time() - _estimate_t0
-  tracker.complete("estimate", SUMMARIES["estimate"](output_dir))
+  def _train():
+    _estimate_t0 = time.time()
+    EstimatorPipeline(path=output_dir, batch_size=batch_size).run()
+    # Wall-clock of training the full descriptor stack — the per-fold predictor for held-out
+    # validation (each fold refits the same stack). ~0 on a resume where estimate was already done;
+    # the monitor ignores tiny values.
+    return time.time() - _estimate_t0
+
+  estimate_seconds = _tracked_step("estimate", output_dir, _train)
 
   # Nothing after estimate talks to a model server: free the containers before holdout and report.
   from zairachem.describe.descriptors.compose import stop_model_servers
 
   stop_model_servers(output_dir)
+  return estimate_seconds
 
+
+def _pool_and_validate(output_dir, batch_size, estimate_seconds):
+  """Run the pool and holdout steps, then drop the rank-reference matrices."""
   from zairachem.pool.pipe import PoolerPipeline
 
-  logger.configure()
-  tracker.start("pool")
-  PoolerPipeline(path=output_dir, batch_size=batch_size).run()
-  tracker.complete("pool", SUMMARIES["pool"](output_dir))
+  _tracked_step(
+    "pool", output_dir, lambda: PoolerPipeline(path=output_dir, batch_size=batch_size).run()
+  )
 
   # Held-out validation (--evaluate). Self-gates on params["evaluate"] read from parameters.json, so
   # this is a no-op for a plain fit and for predict. Runs before the report so its section is rendered.
   from zairachem.holdout.pipe import HoldoutValidationPipeline
 
-  logger.configure()
-  tracker.start("holdout")
-  HoldoutValidationPipeline(
-    path=output_dir, batch_size=batch_size, est_seconds=estimate_seconds
-  ).run()
-  tracker.complete("holdout", SUMMARIES["holdout"](output_dir))
+  _tracked_step(
+    "holdout",
+    output_dir,
+    lambda: HoldoutValidationPipeline(
+      path=output_dir, batch_size=batch_size, est_seconds=estimate_seconds
+    ).run(),
+  )
 
   # The held-out folds are the last fits; after them the rank-reference matrices are never read.
   from zairachem.base.utils.descriptors import drop_rank_references
 
   drop_rank_references(output_dir)
 
+
+def _report_and_finish(output_dir, anonymize, keep_intermediate_data, no_report):
+  """Run the report and finish steps."""
   from zairachem.report.report import Reporter
 
-  logger.configure()
-  tracker.start("report")
-  Reporter(path=output_dir, plot_name=None, make_plots=not no_report).run()
-  tracker.complete("report", SUMMARIES["report"](output_dir))
+  _tracked_step(
+    "report",
+    output_dir,
+    lambda: Reporter(path=output_dir, plot_name=None, make_plots=not no_report).run(),
+  )
 
   from zairachem.finish.finish import Finisher
 
-  logger.configure()
-  tracker.start("finish")
-  Finisher(
-    path=output_dir,
-    anonymize=anonymize,
-    keep_intermediate_data=keep_intermediate_data,
-  ).run()
-  tracker.complete("finish", SUMMARIES["finish"](output_dir))
-
-  final_summary_panel(output_dir)
+  _tracked_step(
+    "finish",
+    output_dir,
+    lambda: Finisher(
+      path=output_dir,
+      anonymize=anonymize,
+      keep_intermediate_data=keep_intermediate_data,
+    ).run(),
+  )
 
 
 def _activate_step(model_dir, *step_names):

@@ -213,21 +213,7 @@ def _cv_table_html(cv_stats):
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
   for i, r in enumerate(cv_stats):
-    cells = []
-    for k, _ in cols:
-      v = r.get(k)
-      if k == "descriptor":
-        cell = html.escape(str(v))
-      elif v is None:
-        cell = "—"
-      elif k == "overfit_gap":
-        cell = f"<span class='pill {_gap_level(v)}'>{float(v):.3f}</span>"
-      else:
-        try:
-          cell = f"{float(v):.3f}"
-        except Exception:
-          cell = html.escape(str(v))
-      cells.append(f"<td>{cell}</td>")
+    cells = [f"<td>{_cv_cell(k, r.get(k))}</td>" for k, _ in cols]
     # Highlight the best descriptor (cv_stats is sorted by OOF AUROC desc).
     cls = " class='pooled'" if i == 0 else ""
     body.append(f"<tr{cls}>{''.join(cells)}</tr>")
@@ -235,6 +221,20 @@ def _cv_table_html(cv_stats):
     "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
   )
+
+
+def _cv_cell(key, value):
+  """Format one cross-validation table cell's content for column ``key``."""
+  if key == "descriptor":
+    return html.escape(str(value))
+  if value is None:
+    return "—"
+  if key == "overfit_gap":
+    return f"<span class='pill {_gap_level(value)}'>{float(value):.3f}</span>"
+  try:
+    return f"{float(value):.3f}"
+  except Exception:
+    return html.escape(str(value))
 
 
 def _gap_level(gap):

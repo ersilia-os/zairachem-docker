@@ -111,63 +111,69 @@ def common_options(
   """
 
   def _decorator(func):
-    options = [
-      click.option(
-        "--input-file",
-        "-i",
-        required=require_input,
-        help="Input CSV of molecules (must contain a SMILES column).",
-      ),
-      click.option(
-        "--model-dir",
-        "-m",
-        required=require_model,
-        default=None,
-        help="Model directory — created here when fitting; the trained model to use when predicting.",
-      ),
-    ]
-    # Build in display order: required I/O (input, model) first, then task / featurizer-ids /
-    # projection-ids. (Commands that want an --anonymize flag declare it themselves, grouped with
-    # their own output-control flags.)
-    if include_task:
-      options.append(
-        click.option(
-          "--classification/--regression",
-          "-c/-r",
-          default=True,
-          help="Model type: classification (default) or regression.",
-        )
-      )
-    if include_eos:
-      options.append(
-        click.option(
-          "--featurizer-ids",
-          "-f",
-          "featurizer_ids",
-          required=False,
-          default=None,
-          help="Descriptor model IDs, comma-separated (e.g. eos8aa5,eos3l5f), or a JSON file with featurizer_ids/projection_ids keys. Default: a curated descriptor set.",
-        )
-      )
-      options.append(
-        click.option(
-          "--projection-ids",
-          "-p",
-          "projection_ids",
-          required=False,
-          is_flag=False,
-          flag_value="none",
-          default=None,
-          help="Projection model ID(s) for the report's 2-D embedding (default: eos1klk). Pass "
-          "'none' — or a bare -p — to skip Ersilia projections and show only the built-in MW-vs-LogP "
-          "map. Overrides any projection_ids in a --featurizer-ids JSON file.",
-        )
-      )
+    options = _common_option_decorators(require_input, include_task, include_eos, require_model)
     for option in reversed(options):
       func = option(func)
     return func
 
   return _decorator
+
+
+def _common_option_decorators(require_input, include_task, include_eos, require_model):
+  """Return the click option decorators of :func:`common_options`, in display order."""
+  options = [
+    click.option(
+      "--input-file",
+      "-i",
+      required=require_input,
+      help="Input CSV of molecules (must contain a SMILES column).",
+    ),
+    click.option(
+      "--model-dir",
+      "-m",
+      required=require_model,
+      default=None,
+      help="Model directory — created here when fitting; the trained model to use when predicting.",
+    ),
+  ]
+  # Build in display order: required I/O (input, model) first, then task / featurizer-ids /
+  # projection-ids. (Commands that want an --anonymize flag declare it themselves, grouped with
+  # their own output-control flags.)
+  if include_task:
+    options.append(
+      click.option(
+        "--classification/--regression",
+        "-c/-r",
+        default=True,
+        help="Model type: classification (default) or regression.",
+      )
+    )
+  if include_eos:
+    options.append(
+      click.option(
+        "--featurizer-ids",
+        "-f",
+        "featurizer_ids",
+        required=False,
+        default=None,
+        help="Descriptor model IDs, comma-separated (e.g. eos8aa5,eos3l5f), or a JSON file with featurizer_ids/projection_ids keys. Default: a curated descriptor set.",
+      )
+    )
+    options.append(
+      click.option(
+        "--projection-ids",
+        "-p",
+        "projection_ids",
+        required=False,
+        is_flag=False,
+        flag_value="none",
+        default=None,
+        help="Projection model ID(s) for the report's 2-D embedding (default: eos1klk). Pass "
+        "'none' — or a bare -p — to skip Ersilia projections and show only the built-in MW-vs-LogP "
+        "map. Overrides any projection_ids in a --featurizer-ids JSON file.",
+      )
+    )
+  return options
 
 
 _MODEL_DIR_HELP = (

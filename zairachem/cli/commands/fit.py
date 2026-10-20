@@ -125,37 +125,11 @@ def fit(
   # --evaluate is an optional-value flag: off / bare (all schemas) / a comma-separated subset.
   evaluate_on, evaluate_schemas = _resolve_evaluate(evaluate)
   store = _resolve_store(store, os.path.basename(os.path.normpath(model_dir)))
-  # Config-affecting flags the user actually typed (vs click defaults). On resume, these are checked
-  # against the trained model's on-disk config so a conflicting re-run aborts instead of silently
-  # mixing settings; un-typed flags inherit the on-disk values.
-  ctx = click.get_current_context()
-  explicit_config = {
-    name
-    for name in (
-      "classification",
-      "featurizer_ids",
-      "projection_ids",
-      "store",
-      "evaluate",
-      "evaluate_repeats",
-      "max_descriptors",
-    )
-    if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
-  }
-  # The optional screen (--max-descriptors) and holdout (--evaluate) steps are only in the pipeline
-  # when their flags are set; drop them from the tracker order otherwise so step numbering and the run
-  # header reflect what actually runs.
-  from zairachem.base.utils.pipeline_tracker import PIPELINE_STEPS
-
-  steps = [
-    k
-    for k, _, _ in PIPELINE_STEPS
-    if (k != "holdout" or evaluate_on) and (k != "screen" or (max_descriptors and classification))
-  ]
+  explicit_config = _explicit_config(click.get_current_context())
   tracker.begin(
     "ZairaChem · QSAR training",
     subtitle=f"{os.path.basename(input_file)} → {os.path.basename(os.path.normpath(model_dir))} · {task}",
-    steps=steps,
+    steps=_tracked_steps(evaluate_on, max_descriptors, classification),
   )
   proceed = run_fit(
     input_file,
@@ -171,6 +145,49 @@ def fit(
     evaluate_schemas=evaluate_schemas,
     max_descriptors=max_descriptors,
   )
+  _run_or_summarize(
+    proceed, model_dir, anonymize, batch_size, keep_intermediate_data, no_report, describe_workers
+  )
+
+
+def _explicit_config(ctx):
+  """Return the names of the config-affecting parameters typed on the command line."""
+  # Config-affecting flags the user actually typed (vs click defaults). On resume, these are checked
+  # against the trained model's on-disk config so a conflicting re-run aborts instead of silently
+  # mixing settings; un-typed flags inherit the on-disk values.
+  return {
+    name
+    for name in (
+      "classification",
+      "featurizer_ids",
+      "projection_ids",
+      "store",
+      "evaluate",
+      "evaluate_repeats",
+      "max_descriptors",
+    )
+    if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+  }
+
+
+def _tracked_steps(evaluate_on, max_descriptors, classification):
+  """Return the pipeline step keys that this fit will run, in tracker order."""
+  # The optional screen (--max-descriptors) and holdout (--evaluate) steps are only in the pipeline
+  # when their flags are set; drop them from the tracker order otherwise so step numbering and the run
+  # header reflect what actually runs.
+  from zairachem.base.utils.pipeline_tracker import PIPELINE_STEPS
+
+  return [
+    k
+    for k, _, _ in PIPELINE_STEPS
+    if (k != "holdout" or evaluate_on) and (k != "screen" or (max_descriptors and classification))
+  ]
+
+
+def _run_or_summarize(
+  proceed, model_dir, anonymize, batch_size, keep_intermediate_data, no_report, describe_workers
+):
+  """Run the post-setup steps when setup says to proceed; otherwise show the final summary."""
   if proceed:
     process_group(
       os.path.abspath(model_dir),

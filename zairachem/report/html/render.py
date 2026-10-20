@@ -51,14 +51,34 @@ def write_html_report(output_dir):
   # projection-* figure generically); then any leftovers.
   assigned = set()
   config_table = _config_section_html(output_dir, params, n)
-  cv_stats = _read_cv_stats(output_dir)
-  if cv_stats:
-    with open(os.path.join(report_dir, "cv_stats.json"), "w") as f:
-      json.dump({"per_descriptor": cv_stats, "summary": _cv_summary(cv_stats)}, f, indent=2)
+  _write_cv_stats(output_dir, report_dir)
   sections = []
   rendered_groups = set()
   # (The Overview poster is intentionally omitted for now.)
   sections.append(("config", "Configuration", "Run settings and model identifiers.", config_table))
+  _add_lead_sections(sections, output_dir, report_dir, present, assigned, params, kind)
+  _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind)
+  _add_category_sections(sections, report_dir, stems, present, rendered_groups, assigned, kind)
+  _insert_diagnostics_section(sections, output_dir, report_dir, present, assigned)
+  _add_closing_sections(sections, report_dir, stems, assigned)
+
+  doc = _page_html(kind, model, report_heading, subtitle, tab_title, sections, report_dir)
+  out = os.path.join(report_dir, "report.html")
+  with open(out, "w") as f:
+    f.write(doc)
+  return out
+
+
+def _write_cv_stats(output_dir, report_dir):
+  """Write ``report/cv_stats.json`` (per-descriptor inner-CV stats plus summary) when available."""
+  cv_stats = _read_cv_stats(output_dir)
+  if cv_stats:
+    with open(os.path.join(report_dir, "cv_stats.json"), "w") as f:
+      json.dump({"per_descriptor": cv_stats, "summary": _cv_summary(cv_stats)}, f, indent=2)
+
+
+def _add_lead_sections(sections, output_dir, report_dir, present, assigned, params, kind):
+  """Append the Hitlist (predict only), Computational performance and Dataset sections."""
   # Predict deliverable: the top-scoring molecules, up front (right after Configuration).
   if kind == "Predict":
     hitlist = _hitlist_table_html(report_dir)
@@ -85,6 +105,10 @@ def write_html_report(output_dir):
       "Class balance and molecular property distributions of the labelled set.",
       dataset_section,
     ))
+
+
+def _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind):
+  """Append the Chemical space section (truth-keyed maps, or predicted-probability maps)."""
   space_section = _chemical_space_html(output_dir, report_dir, present, assigned)
   if space_section:
     sections.append((
@@ -105,6 +129,10 @@ def write_html_report(output_dir):
         "Each 2-D projection coloured by the predicted probability.",
         "<div class='grid'>" + "".join(cards) + "</div>",
       ))
+
+
+def _add_category_sections(sections, report_dir, stems, present, rendered_groups, assigned, kind):
+  """Append one section per plot category that has any figure (or table) to show."""
   for anchor, heading, desc, members in _CATEGORIES:
     if kind == "Predict" and anchor in _PREDICT_SECTION:
       heading, desc = _PREDICT_SECTION[anchor]
@@ -120,6 +148,10 @@ def write_html_report(output_dir):
       inner = grid
     if inner:
       sections.append((anchor, heading, desc, inner))
+
+
+def _insert_diagnostics_section(sections, output_dir, report_dir, present, assigned):
+  """Insert the per-descriptor inner diagnostics section right after the Chemical space."""
   # Per-descriptor inner diagnostics (inner lazy-qsar CV): inserted right after the chemical space.
   diag_section = _diagnostics_html(output_dir, report_dir, present, assigned)
   if diag_section:
@@ -131,6 +163,10 @@ def write_html_report(output_dir):
     )
     idx = next((i + 1 for i, s in enumerate(sections) if s[0] == "space"), len(sections))
     sections.insert(idx, entry)
+
+
+def _add_closing_sections(sections, report_dir, stems, assigned):
+  """Append the More (unassigned figures) and About the figures sections."""
   leftovers = [s for s in stems if s not in assigned]
   if leftovers:
     grid = "<div class='grid'>" + "".join(_card(report_dir, s) for s in leftovers) + "</div>"
@@ -144,14 +180,9 @@ def write_html_report(output_dir):
     _about_figures_html(),
   ))
 
-  nav = "".join(f"<a href='#{a}'>{html.escape(h)}</a>" for a, h, _, _ in sections)
 
-  def _section(a, h, d, inner):
-    desc = f"<p class='desc'>{html.escape(d)}</p>" if d else ""
-    return f"<section id='{a}'><h2>{html.escape(h)}</h2>{desc}{inner}</section>"
-
-  body_sections = "".join(_section(a, h, d, inner) for a, h, d, inner in sections)
-
+def _footer_html(report_dir):
+  """Return the sidebar footer: table download links plus the Ersilia / ZairaChem credit."""
   # Footer downloads (tables live next to the page; xlsx at the model root once finish ran).
   links = []
   for fname, label in (
@@ -160,13 +191,25 @@ def write_html_report(output_dir):
   ):
     if os.path.exists(os.path.join(report_dir, fname)):
       links.append(f"<a href='{fname}'>{label}</a>")
-  footer = (f"<div>{' · '.join(links)}</div>" if links else "<div></div>") + (
+  return (f"<div>{' · '.join(links)}</div>" if links else "<div></div>") + (
     "<div>Brought to you by the "
     "<a href='https://github.com/ersilia-os/ersilia'>Ersilia Open Source Initiative</a>. "
     "Produced with <a href='https://github.com/ersilia-os/zaira-chem'>ZairaChem</a>.</div>"
   )
 
-  doc = f"""<!doctype html>
+
+def _page_html(kind, model, report_heading, subtitle, tab_title, sections, report_dir):
+  """Assemble the full report HTML document from its header strings and sections."""
+  nav = "".join(f"<a href='#{a}'>{html.escape(h)}</a>" for a, h, _, _ in sections)
+
+  def _section(a, h, d, inner):
+    desc = f"<p class='desc'>{html.escape(d)}</p>" if d else ""
+    return f"<section id='{a}'><h2>{html.escape(h)}</h2>{desc}{inner}</section>"
+
+  body_sections = "".join(_section(a, h, d, inner) for a, h, d, inner in sections)
+  footer = _footer_html(report_dir)
+
+  return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -194,7 +237,3 @@ def write_html_report(output_dir):
 </body>
 </html>
 """
-  out = os.path.join(report_dir, "report.html")
-  with open(out, "w") as f:
-    f.write(doc)
-  return out

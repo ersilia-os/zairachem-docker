@@ -130,6 +130,54 @@ def published_bytes(eos_id, version):
   return int(r.headers.get("Content-Length", 0)) if r.status_code == 200 else None
 
 
+def _published_meta(url, eos_id):
+  """Fetch the published sidecar of the matrix at ``url``.
+
+  Parameters
+  ----------
+  url : str
+      URL of the published matrix.
+  eos_id : str
+      Featurizer identifier, for the log message.
+
+  Returns
+  -------
+  tuple of (bool, object)
+      Whether the sidecar was fetched, and its parsed JSON (None when not fetched).
+  """
+  try:
+    r = requests.get(_sidecar(url), timeout=_DOWNLOAD_TIMEOUT)
+    if r.status_code != 200:
+      return False, None
+    return True, r.json()
+  except (requests.RequestException, ValueError) as e:
+    logger.info(f"[rank_reference] {eos_id} not downloadable ({e})")
+    return False, None
+
+
+def _stream_to(url, tmp, on_progress):
+  """Stream the file at ``url`` into ``tmp``, reporting byte counts to ``on_progress``.
+
+  Parameters
+  ----------
+  url : str
+      URL to download.
+  tmp : str
+      Local path to write.
+  on_progress : callable or None
+      Called as ``on_progress(done, total)`` after each block (``total`` is 0 when unknown).
+  """
+  with requests.get(url, stream=True, timeout=_DOWNLOAD_TIMEOUT) as r:
+    r.raise_for_status()
+    total, done = int(r.headers.get("Content-Length", 0)), 0
+    with open(tmp, "wb") as f:
+      for block in r.iter_content(_HASH_CHUNK):
+        f.write(block)
+        done += len(block)
+        if on_progress is not None:
+          on_progress(done, total)
+
+
 def download(eos_id, version, on_progress=None):
   """Download the published matrix for ``(eos_id, version)`` into the cache; its path, or None.
 
@@ -139,13 +187,8 @@ def download(eos_id, version, on_progress=None):
   called with byte counts as the file arrives (``total`` is 0 when the server sends no size).
   """
   url = published_url(eos_id, version)
-  try:
-    r = requests.get(_sidecar(url), timeout=_DOWNLOAD_TIMEOUT)
-    if r.status_code != 200:
-      return None
-    meta = r.json()
-  except (requests.RequestException, ValueError) as e:
-    logger.info(f"[rank_reference] {eos_id} not downloadable ({e})")
+  fetched, meta = _published_meta(url, eos_id)
+  if not fetched:
     return None
   if not _matches(meta, eos_id, version):
     logger.info(f"[rank_reference] Published {eos_id} is for another reference library")
@@ -154,15 +197,7 @@ def download(eos_id, version, on_progress=None):
   os.makedirs(os.path.dirname(dest), exist_ok=True)
   tmp = f"{dest}.{os.getpid()}.tmp"
   try:
-    with requests.get(url, stream=True, timeout=_DOWNLOAD_TIMEOUT) as r:
-      r.raise_for_status()
-      total, done = int(r.headers.get("Content-Length", 0)), 0
-      with open(tmp, "wb") as f:
-        for block in r.iter_content(_HASH_CHUNK):
-          f.write(block)
-          done += len(block)
-          if on_progress is not None:
-            on_progress(done, total)
+    _stream_to(url, tmp, on_progress)
     if _sha256(tmp) != meta.get("sha256"):
       raise RuntimeError("sha256 mismatch")
   except Exception as e:

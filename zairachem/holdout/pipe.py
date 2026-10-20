@@ -51,6 +51,90 @@ class HoldoutValidationPipeline(ZairaBase):
 
     return effective_descriptors(self.path)
 
+  def _announce(self, n):
+    """Echo the upfront fold count (with a time estimate when training took long enough)."""
+    if self.est_seconds and self.est_seconds > 5:
+      echo(
+        f"Held-out validation — {n} folds, ~{_fmt_duration(self.est_seconds)} each (based on "
+        f"training) → ~{_fmt_duration(self.est_seconds * n)} total. Refits the model per fold; the "
+        f"saved model is unaffected.",
+        kind="info",
+      )
+    else:
+      echo(
+        f"Held-out validation — {n} folds. Refits the model per fold (the saved model is unaffected).",
+        kind="info",
+      )
+
+  def _run_fold(
+    self, run_one_fold, monitor, fold_name, spec, model_ids, fetcher, records, failures
+  ):
+    """Run one fold under ``monitor``, appending to ``records`` or ``failures``."""
+    monitor.start(fold_name)
+    monitor.update_fields(
+      fold_name,
+      split=spec["strategy"],
+      counts=f"{len(spec['train_idx'])}/{len(spec['test_idx'])}",
+    )
+    try:
+      rec = run_one_fold(
+        self.path,
+        fold_name,
+        spec,
+        model_ids,
+        fetcher,
+        batch_size=self.batch_size,
+        substep_cb=lambda text, f=fold_name: monitor.set_substep(f, text),
+      )
+      monitor.update_fields(fold_name, auroc=rec.get("auroc"), aupr=rec.get("aupr"))
+      records.append(rec)
+      monitor.finish(fold_name, ok=True)
+    except Exception as e:
+      # Full traceback to the log file only: inside the live table the console must stay clean.
+      logger.debug(f"[evaluate] Fold {fold_name} failed:\n{traceback.format_exc()}")
+      failures.append({
+        "fold": fold_name,
+        "strategy": spec["strategy"],
+        "error": f"{type(e).__name__}: {e}",
+      })
+      monitor.finish(fold_name, ok=False)
+
+  def _run_folds(self, run_one_fold, folds, model_ids, fetcher):
+    """Run every fold behind the live monitor table; return ``(records, failures)``."""
+    monitor = EvaluateMonitor(
+      list(folds), color=STEP_COLORS.get("holdout", "bright_blue"), est_seconds=self.est_seconds
+    )
+    records = []
+    failures = []
+    # Inside monitor.live() the table is the only console surface; per-fold detail goes to the log
+    # file at debug level so it never corrupts the live region.
+    with monitor.live():
+      for fold_name, spec in folds.items():
+        self._run_fold(
+          run_one_fold, monitor, fold_name, spec, model_ids, fetcher, records, failures
+        )
+    return records, failures
+
+  @staticmethod
+  def _report_failures(n, records, failures):
+    """Warn (some folds failed) or error (all failed) about failed folds; silent if none failed."""
+    if not failures:
+      return
+    names = ", ".join(f["fold"] for f in failures)
+    first = failures[0]["error"]
+    if records:
+      echo(
+        f"{len(failures)} of {n} held-out folds failed ({names}); metrics cover the other "
+        f"{len(records)}. First error: {first}. Details: report/holdout_summary.json",
+        kind="warning",
+      )
+    else:
+      echo(
+        f"All {n} held-out folds failed; validation was not completed and will be retried on "
+        f"re-run. First error: {first}. Details: report/holdout_summary.json",
+        kind="error",
+      )
+
   def run(self):
     """Run every fold defined at setup and write the validation outputs.
 
@@ -78,71 +162,9 @@ class HoldoutValidationPipeline(ZairaBase):
     fetcher = ResultsFetcher(path=self.path)
 
     n = len(folds)
-    if self.est_seconds and self.est_seconds > 5:
-      echo(
-        f"Held-out validation — {n} folds, ~{_fmt_duration(self.est_seconds)} each (based on "
-        f"training) → ~{_fmt_duration(self.est_seconds * n)} total. Refits the model per fold; the "
-        f"saved model is unaffected.",
-        kind="info",
-      )
-    else:
-      echo(
-        f"Held-out validation — {n} folds. Refits the model per fold (the saved model is unaffected).",
-        kind="info",
-      )
-
-    monitor = EvaluateMonitor(
-      list(folds), color=STEP_COLORS.get("holdout", "bright_blue"), est_seconds=self.est_seconds
-    )
-    records = []
-    failures = []
-    # Inside monitor.live() the table is the only console surface; per-fold detail goes to the log
-    # file at debug level so it never corrupts the live region.
-    with monitor.live():
-      for fold_name, spec in folds.items():
-        monitor.start(fold_name)
-        monitor.update_fields(
-          fold_name,
-          split=spec["strategy"],
-          counts=f"{len(spec['train_idx'])}/{len(spec['test_idx'])}",
-        )
-        try:
-          rec = run_one_fold(
-            self.path,
-            fold_name,
-            spec,
-            model_ids,
-            fetcher,
-            batch_size=self.batch_size,
-            substep_cb=lambda text, f=fold_name: monitor.set_substep(f, text),
-          )
-          monitor.update_fields(fold_name, auroc=rec.get("auroc"), aupr=rec.get("aupr"))
-          records.append(rec)
-          monitor.finish(fold_name, ok=True)
-        except Exception as e:
-          # Full traceback to the log file only: inside the live table the console must stay clean.
-          logger.debug(f"[evaluate] Fold {fold_name} failed:\n{traceback.format_exc()}")
-          failures.append({
-            "fold": fold_name,
-            "strategy": spec["strategy"],
-            "error": f"{type(e).__name__}: {e}",
-          })
-          monitor.finish(fold_name, ok=False)
+    self._announce(n)
+    records, failures = self._run_folds(run_one_fold, folds, model_ids, fetcher)
     write_validation_outputs(self.path, folds, records, failures=failures)
-    if failures:
-      names = ", ".join(f["fold"] for f in failures)
-      first = failures[0]["error"]
-      if records:
-        echo(
-          f"{len(failures)} of {n} held-out folds failed ({names}); metrics cover the other "
-          f"{len(records)}. First error: {first}. Details: report/holdout_summary.json",
-          kind="warning",
-        )
-      else:
-        echo(
-          f"All {n} held-out folds failed; validation was not completed and will be retried on "
-          f"re-run. First error: {first}. Details: report/holdout_summary.json",
-          kind="error",
-        )
+    self._report_failures(n, records, failures)
     if records:
       step.update()
