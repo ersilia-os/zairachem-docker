@@ -37,7 +37,7 @@ _DEFAULT_TEST_FRACTION = 0.2
 _CANDIDATE_POOL = 50
 
 
-def split(smiles, labels, strategy, seed, test_fraction=_DEFAULT_TEST_FRACTION):
+def split(smiles, labels, strategy, seed, test_fraction=_DEFAULT_TEST_FRACTION, groups=None):
   """Draw one seeded 80/20 split for ``strategy``.
 
   Parameters
@@ -52,6 +52,9 @@ def split(smiles, labels, strategy, seed, test_fraction=_DEFAULT_TEST_FRACTION):
     Random seed controlling the partition.
   test_fraction : float, optional
     Target held-out fraction (default 0.2).
+  groups : numpy.ndarray, optional
+    Precomputed group ids for a group-based strategy (see :func:`strategy_groups`); computed from
+    ``smiles`` when omitted.
 
   Returns
   -------
@@ -60,19 +63,29 @@ def split(smiles, labels, strategy, seed, test_fraction=_DEFAULT_TEST_FRACTION):
     classes in each side.
   """
   labels = np.asarray(labels)
+  if strategy not in STRATEGIES:
+    raise ValueError(f"Unknown split strategy '{strategy}' (expected one of {STRATEGIES}).")
   if strategy == "random":
     train_idx, test_idx = _split_random(labels, seed, test_fraction)
-  elif strategy == "scaffold":
-    train_idx, test_idx = _assign_by_groups(_groups_scaffold(smiles), seed, test_fraction)
-  elif strategy == "butina":
-    train_idx, test_idx = _assign_by_groups(
-      _groups_butina(smiles, _BUTINA_CUTOFF), seed, test_fraction
-    )
   else:
-    raise ValueError(f"Unknown split strategy '{strategy}' (expected one of {STRATEGIES}).")
+    if groups is None:
+      groups = strategy_groups(smiles, strategy)
+    train_idx, test_idx = _assign_by_groups(groups, seed, test_fraction)
   if train_idx is None or not _both_classes(labels, train_idx, test_idx):
     return None
   return train_idx, test_idx
+
+
+def strategy_groups(smiles, strategy):
+  """Group id per molecule for a group-based strategy (``scaffold`` or ``butina``), else None.
+
+  Deterministic, so :func:`select_folds` computes it once and reuses it for every seed.
+  """
+  if strategy == "scaffold":
+    return _groups_scaffold(smiles)
+  if strategy == "butina":
+    return _groups_butina(smiles, _BUTINA_CUTOFF)
+  return None
 
 
 def scaffold_deterministic(smiles, labels, test_fraction=_DEFAULT_TEST_FRACTION):
@@ -121,8 +134,9 @@ def select_folds(
   labels = np.asarray(labels)
   p = float(labels.mean())
   candidates = []
+  groups = strategy_groups(smiles, strategy)
   for seed in range(pool):
-    res = split(smiles, labels, strategy, seed, test_fraction)
+    res = split(smiles, labels, strategy, seed, test_fraction, groups=groups)
     if res is None:
       continue
     train_idx, test_idx = res

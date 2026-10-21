@@ -179,7 +179,9 @@ class Fitter(BaseEstimatorIndividual):
     logger.info(
       f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
     )
-    reference_h5 = self._rank_reference_or_warn()
+    # Held-out folds (score_reference=False) skip the reference inside fit too, not only the
+    # signals written after it: lazy-qsar would otherwise score all 50,000 molecules per fold.
+    reference_h5 = self._rank_reference_or_warn() if self.score_reference else None
     model = LazyClassifier()
     model.fit(X=X_train, y=y_train, reference_h5_file=reference_h5)
     # Capture lazy-qsar's internal cross-validation outputs (OOF AUROC etc.) before X_train is
