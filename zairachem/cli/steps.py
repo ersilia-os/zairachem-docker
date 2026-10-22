@@ -11,16 +11,15 @@ def process_group(
   no_report=False,
   describe_workers=None,
 ):
-  """Run describe through finish on a prepared run folder, always stopping model servers.
+  """Run describe through finish on a prepared run folder.
 
-  Takes the same arguments as :func:`_run_steps`. SIGTERM is turned into an interrupt so the Ersilia
-  model servers started by describe are shut down on success, failure, Ctrl-C or SIGTERM.
+  Takes the same arguments as :func:`_run_steps`. SIGTERM is turned into an interrupt, so a
+  terminated run unwinds like Ctrl-C. The model servers stay up for the next run.
   """
-  # The model servers are started by describe and used until estimate ends; they are always stopped
-  # when the run ends, including on failure, Ctrl-C and SIGTERM (turned into an interrupt below).
+  # The model servers are shared by all runs and left up afterwards (`zairachem stop` removes
+  # them). SIGTERM is turned into an interrupt so the run unwinds, and its cleanup (e.g. describe's
+  # `docker stats` monitor) runs.
   import signal
-
-  from zairachem.describe.descriptors.compose import stop_model_servers
 
   def _interrupt(signum, frame):
     raise KeyboardInterrupt
@@ -36,7 +35,6 @@ def process_group(
       describe_workers=describe_workers,
     )
   finally:
-    stop_model_servers(output_dir)
     signal.signal(signal.SIGTERM, previous)
 
 
@@ -133,7 +131,7 @@ def _featurize(output_dir, batch_size, describe_workers):
 
 
 def _estimate(output_dir, batch_size):
-  """Run the estimate step, stop the model servers and return the training wall-clock seconds."""
+  """Run the estimate step and return the training wall-clock seconds."""
   import time
 
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
@@ -148,10 +146,6 @@ def _estimate(output_dir, batch_size):
 
   estimate_seconds = _tracked_step("estimate", output_dir, _train)
 
-  # Nothing after estimate talks to a model server: free the containers before holdout and report.
-  from zairachem.describe.descriptors.compose import stop_model_servers
-
-  stop_model_servers(output_dir)
   return estimate_seconds
 
 

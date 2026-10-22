@@ -8,10 +8,14 @@ def _sanitize(name):
   return s or "svc"
 
 
+def service_name(model_id):
+  """Compose service name of a model's server (e.g. ``eos3l5f_api``)."""
+  return f"{_sanitize(model_id)}_api"
+
+
 def _service_block(model_id, host_port, network_name):
-  service_name = f"{_sanitize(model_id)}_api"
   image_name = f"ersiliaos/{model_id.lower()}"
-  return f"""  {service_name}:
+  return f"""  {service_name(model_id)}:
     image: {image_name}
     environment:
       REDIS_HOST: redis
@@ -69,10 +73,8 @@ def generate_compose(
   ipam_subnet=None,
   external=False,
 ):
-  """The docker-compose YAML for one run: a redis cache plus one API service per model.
-
-  Redis is stateless (no volume), so it disappears with the run's compose project.
-  """
+  """The docker-compose YAML of the shared model servers: a redis cache plus one API service per
+  model (``models_with_ports``: model id → host port). Redis is stateless (no volume)."""
   header = "services:\n"
 
   redis = f"""  redis:
@@ -84,7 +86,7 @@ def generate_compose(
         - --appendonly
         - "no"
         - --maxmemory
-        - 4gb
+        - 1gb
         - --maxmemory-policy
         - allkeys-lru
         - --maxmemory-samples

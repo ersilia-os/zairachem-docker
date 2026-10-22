@@ -27,9 +27,11 @@ from zairachem.base.utils.utils import fetch_schema_from_github
 from zairachem.base.vars import (
   DATA_SUBFOLDER,
   DEFAULT_ISAURA_BATCH_SIZE,
+  DESCRIPTORS_SUBFOLDER,
   ERSILIA_DATA_FILENAME,
   METADATA_SUBFOLDER,
   PARAMETERS_FILE,
+  PROJECTION_CACHE_FILENAME,
   PROJECTIONS_FILENAME,
   PROJECTIONS_MANIFEST_FILENAME,
 )
@@ -55,7 +57,8 @@ class Manifolds(DescriptorBase):
   path : str
     Run folder.
   batch_size : int, optional
-    Rows per request to a projection model server.
+    Rows per chunk when reading from or writing to the isaura store (the projection itself is one
+    request to the model server).
   """
 
   def __init__(self, path, batch_size=None):
@@ -110,28 +113,41 @@ class Manifolds(DescriptorBase):
       f"re-run."
     )
 
-  def _run_projection_model(self, model_id, progress_cb=None):
+  def _run_projection_model(self, model_id, progress_cb=None, sampler=None):
     """Compute a projection model through the store-aware client, returning per-row dicts + columns.
 
     Reuses ``BinaryStreamClient`` so projections are cached in the isaura project store exactly like
-    featurizers (hybrid read-from-project + contribute-back, with the heavy→JSON fallback). Returns
+    featurizers (hybrid read-from-project + contribute-back), in a single request. Returns
     ``(rows, cols)`` where ``rows`` is a list of per-row dicts keyed by the model's output columns.
     """
     from zairachem.describe.descriptors.api import BinaryStreamClient
 
+    cached = self._read_cache(model_id)
+    if cached is not None:
+      return cached
+    sample = self._projection_sample()
     client = BinaryStreamClient(
       path=self.path,
-      csv_path=self.input_file,
+      csv_path=self.input_file if sample is None else self._write_sample(sample),
       model_id=model_id,
       project_name=os.path.basename(self.path),
-      batch_size=self.batch_size,
     )
-    client.url = get_model_url(model_id, self.path)
+    client.url = get_model_url(model_id)
     client._provenance_kind = "projections"  # count toward the projector group, not featurizers
+    client.splittable = False  # the projection embeds the molecules of a request together
+    # The profile keeps the response format this image supports, learned on its first request.
+    from zairachem.base.utils.model_version import _local_image_digest
+    from zairachem.describe.descriptors import profiles
+
+    client.profile = profiles.load(model_id, _local_image_digest(model_id))
+    client.sampler = sampler  # memory and cores into the profile, when describe measures them
     if progress_cb is not None:
       client._progress_cb = progress_cb
       client._show_progress = False
-    res = client.run(output_h5=None, isaura_batch_size=self.batch_size)
+    try:
+      res = client.run(output_h5=None, isaura_batch_size=self.batch_size)
+    finally:
+      profiles.save(client.profile)
     cols = res.get("dims") or fetch_schema_from_github(model_id)[0]
     data = res.get("data")
     if data is None and res.get("h5_file"):
@@ -149,7 +165,69 @@ class Manifolds(DescriptorBase):
         f"projection. Check the model container logs (docker logs)."
       )
     rows = [dict(zip(cols, row)) for row in data]
+    if sample is not None:
+      full = [{} for _ in self.inputs]  # unsampled rows get no coordinates (NaN in the outputs)
+      for i, row in zip(sample, rows):
+        full[i] = row
+      rows = full
+    self._write_cache(model_id, rows, cols)
     return rows, cols
+
+  def _cache_path(self, model_id):
+    return os.path.join(self.path, DESCRIPTORS_SUBFOLDER, model_id, PROJECTION_CACHE_FILENAME)
+
+  def _write_cache(self, model_id, rows, cols):
+    """Keep a projection model's coordinates in the run (computed during describe, read here)."""
+    path = self._cache_path(model_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    clean = [{k: (None if v is None else float(v)) for k, v in r.items()} for r in rows]
+    with open(path, "w") as f:
+      json.dump({"cols": list(cols), "rows": clean}, f)
+
+  def _read_cache(self, model_id):
+    """``(rows, cols)`` from the run's cached projection, or None if absent or for other inputs."""
+    path = self._cache_path(model_id)
+    if not os.path.exists(path):
+      return None
+    with open(path) as f:
+      data = json.load(f)
+    if len(data.get("rows") or []) != len(self.inputs):
+      return None
+    return data["rows"], data["cols"]
+
+  def precompute(self, model_id, progress_cb=None, sampler=None):
+    """Compute and cache one projection model's coordinates (describe runs this alongside the
+    descriptor models, so the projections step only reads them). ``progress_cb`` reports into the
+    caller's live table; ``sampler`` measures the server's memory and cores into its profile."""
+    self.inputs = self._load_data()
+    self._run_projection_model(model_id, progress_cb=progress_cb, sampler=sampler)
+
+  def _projection_sample(self):
+    """Row indices projected when there are more molecules than one request may hold, else None.
+
+    A projector embeds the molecules of a request together, and the server would split a larger
+    request into chunks embedded separately, so at most ``MAX_PROJECTION_MOLECULES`` molecules (a
+    fixed, seeded sample) are projected.
+    """
+    from zairachem.base.vars import MAX_PROJECTION_MOLECULES
+
+    n = len(self.inputs)
+    if n <= MAX_PROJECTION_MOLECULES:
+      return None
+    logger.info(
+      f"[manifolds] Projecting a sample of {MAX_PROJECTION_MOLECULES:,} of {n:,} molecules"
+    )
+    rng = np.random.default_rng(0)
+    return np.sort(rng.choice(n, MAX_PROJECTION_MOLECULES, replace=False)).tolist()
+
+  def _write_sample(self, sample):
+    path = os.path.join(self.path, DATA_SUBFOLDER, "projection_sample.csv")
+    with open(path, "w", newline="") as f:
+      writer = csv.writer(f)
+      writer.writerow(["smiles"])
+      for i in sample:
+        writer.writerow([self.inputs[i]])
+    return path
 
   def _compute_ersilia_projections(self):
     """Each requested Ersilia projection model → one or more (x, y) projection pairs."""
@@ -184,7 +262,7 @@ class Manifolds(DescriptorBase):
             "y_values": [r.get(ycol) for r in rows],
           })
           n_pairs += 1
-        monitor.update_fields(model_id, source=f"{n_pairs} projection(s)")
+        monitor.update_fields(model_id, source=f"{n_pairs} projection{'' if n_pairs == 1 else 's'}")
         monitor.finish(model_id, ok=True)
     return projections
 
@@ -210,7 +288,13 @@ class Manifolds(DescriptorBase):
     logger.info(f"[manifolds] Computing projections for {len(self.inputs)} molecules")
     projections = [self._compute_mw_logp()]
     if self.projection_ids:
+      # Start the projection servers (shared and kept up between runs, like the descriptors').
+      from zairachem.describe.descriptors.describe import Describer
+
+      missing = [m for m in self.projection_ids if self._read_cache(m) is None]
+      if missing:  # describe usually computed them already
+        Describer(path=self.path).setup_model_servers(missing)
       projections += self._compute_ersilia_projections()
     self._write_projections(projections)
-    logger.info(f"[manifolds] Wrote {len(projections)} projection(s)")
+    logger.info(f"[manifolds] Wrote {len(projections)} projections")
     step.update()

@@ -34,6 +34,8 @@ ORG = "ersiliaos"
 REDIS_IMAGE = "redis:7.4.2"
 DEFAULT_ISAURA_BUCKET = "isaura-public"
 NETWORK_NAME = "ersilia_network"
+# Compose project of the model servers shared by all runs of this user (see describe/compose.py).
+SERVERS_PROJECT_NAME = "zairachem-servers"
 GITHUB_ORG = "ersilia-os"
 GITHUB_CONTENT_URL = f"https://raw.githubusercontent.com/{GITHUB_ORG}"
 PREDEFINED_COLUMN_FILE = "model/framework/columns/run_columns.csv"
@@ -52,6 +54,8 @@ TREATED_DESC_FILENAME = "treated.h5"
 # transformer (TREATED, written as one plain H5 because lazy-qsar's reference_h5_file reads a single
 # file), and estimate hands it to fit. Fit-only: a trained model carries the scored reference itself.
 RANK_REFERENCE_SMILES_FILENAME = "rank_reference.csv"
+# A projection model's coordinates, computed during describe and read by the projections step.
+PROJECTION_CACHE_FILENAME = "projection.json"
 RANK_REFERENCE_RAW_FILENAME = "rank_reference_raw.h5"
 RANK_REFERENCE_TREATED_FILENAME = "rank_reference.h5"
 # Each descriptor's scores of the treated reference (proba, OOF percentile, AD), written by estimate;
@@ -131,6 +135,8 @@ OUTPUT_COLUMNS = {
   "descriptor_std": "spread",
 }
 OUTPUT_LABEL_COLUMN = "label"
+# Decimals of the scores in results/output.csv.
+OUTPUT_DECIMALS = 4
 # Prefix of the per-descriptor probability columns in the output table (proba_<eos_id>).
 OUTPUT_DESCRIPTOR_PREFIX = "proba_"
 # Columns blanked by `finish --anonymize`.
@@ -187,7 +193,46 @@ MAX_FEATURIZERS = 10
 # Default --max-descriptors: the pre-screen keeps up to this many descriptors that add to the pool.
 DEFAULT_MAX_DESCRIPTORS = 5
 MAX_PROJECTIONS = 3
-ALL_FEATURIZER = DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS
 
 DEFAULT_ISAURA_BATCH_SIZE = 10000
 DEFAULT_CHUNK_SIZE = 10000
+
+# Molecules per request to a model server, the same for every model (fewer molecules go in one
+# request). A failed request halves the size for the rest of that model's run, down to the minimum,
+# before single molecules are isolated.
+DESCRIBE_BATCH_SIZE = 10000
+MIN_DESCRIBE_BATCH_SIZE = 8
+# Most molecules a projection model gets (one request, never split): fewer than the server's chunking
+# line (SERVER_CHUNKING_MOLECULES), since a projection must embed its molecules together.
+MAX_PROJECTION_MOLECULES = 9999
+# Longest wait for one model-server reply: a base plus a generous allowance per molecule (the slowest
+# model measured needs ~0.2 s per molecule), finite so that a server whose worker died does not
+# leave the request waiting forever.
+DESCRIBE_READ_TIMEOUT_S = 900
+DESCRIBE_READ_TIMEOUT_PER_MOLECULE_S = 1.0
+# Copies of a model a server may run for one request (its max_workers). Left unset, the server
+# (ersilia-pack) runs up to 16, sized from the whole VM's memory, so a large model runs out of memory;
+# ZairaChem gives each server one, and more only for requests the server cuts into chunks anyway
+# (SERVER_CHUNKING_MOLECULES or more), as far as the describe scheduler has cores and memory free.
+DESCRIBE_SERVER_WORKERS = 1
+MAX_DESCRIBE_SERVER_WORKERS = 4
+# Model servers cut a request of this many molecules or more into chunks computed separately, this
+# many per server worker, so each model process sees a chunk of n / (chunks * workers) molecules.
+SERVER_CHUNKING_MOLECULES = 10000
+SERVER_CHUNKS_PER_WORKER = 4
+# Docker VM memory kept for the VM itself (kernel, Docker daemon). The describe scheduler subtracts
+# what the running containers hold (idle model servers, redis) and shares the rest between the
+# models running at once, by what each one's predicted peak adds to its idle server
+# (describe/descriptors/profiles.py).
+DESCRIBE_MEMORY_RESERVE_GB = 1.0
+# What the describe scheduler assumes for a model before its own requests have been measured on
+# this machine (its profile then takes over; describe/descriptors/profiles.py). Generic on purpose:
+# any Ersilia model can be a descriptor, so nothing here is specific to one model.
+DEFAULT_DESCRIBE_MEMORY_GB = 3.0
+DEFAULT_DESCRIBE_CORES = 1.0
+MODEL_PROFILES_FILENAME = "model_profiles.json"  # under BASE_DIR
+# A featurizer that still fails on more than this fraction of molecules is dropped at fit (an error at
+# predict, where the trained model needs it).
+DESCRIBE_MAX_FAILED_FRACTION = 0.1
+# ...but always allow this many, so one bad molecule does not fail a small input.
+DESCRIBE_MIN_FAILED_ALLOWED = 10

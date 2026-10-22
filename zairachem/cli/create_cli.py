@@ -91,11 +91,20 @@ def _isaura_status_line():
 
 
 def _docker_running():
-  # Bounded with a timeout so a slow or hanging daemon never stalls --help.
+  # The daemon's socket answers in milliseconds; the CLI (bounded by a timeout) is the fallback.
+  from zairachem.base.utils.docker_socket import daemon_running
+
+  fast = daemon_running()
+  if fast is not None:
+    return fast
   try:
     return (
       subprocess.run(
-        ["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3
+        # `docker version` asks the daemon for its version: ~10x faster than `docker info`.
+        ["docker", "version", "--format", "{{.Server.Version}}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=3,
       ).returncode
       == 0
     )
@@ -105,6 +114,11 @@ def _docker_running():
 
 def _docker_image_present(image):
   # Bounded probe, only used on the --help screen (Docker is already confirmed up).
+  from zairachem.base.utils.docker_socket import image_present
+
+  fast = image_present(image)
+  if fast is not None:
+    return fast
   try:
     return (
       subprocess.run(
@@ -130,9 +144,16 @@ def _docker_status_line():
   def mark(image):
     return "[green]✓[/]" if _docker_image_present(image) else "[red]✗[/]"
 
+  from zairachem.base.utils.docker_socket import running_containers
+  from zairachem.base.vars import SERVERS_PROJECT_NAME
+
+  # Model servers stay up between runs (faster next run); `zairachem stop` is hidden from the
+  # command list and only pointed to here, while there is something to stop.
+  n_up = running_containers(SERVERS_PROJECT_NAME)
+  servers = f" [dim]· {n_up} model servers up (zairachem stop)[/]" if n_up else ""
   return (
     "[green]●[/] [bold]Docker[/]: [green]running[/] "
-    f"[dim]· base images:[/] redis {mark(REDIS_IMAGE)}"
+    f"[dim]· base images:[/] redis {mark(REDIS_IMAGE)}{servers}"
   )
 
 
@@ -172,7 +193,18 @@ def cli(verbose):
 
 
 # Command modules, in registration (and --help) order.
-COMMANDS = ("fit", "predict", "setup", "describe", "treat", "estimate", "pool", "report", "finish")
+COMMANDS = (
+  "fit",
+  "predict",
+  "setup",
+  "describe",
+  "treat",
+  "estimate",
+  "pool",
+  "report",
+  "finish",
+  "stop",
+)
 
 
 def create_cli():

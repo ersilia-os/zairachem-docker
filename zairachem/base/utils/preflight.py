@@ -12,7 +12,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from zairachem.base.utils.concurrency import io_workers
-from zairachem.base.utils.console import active_color, console, echo
+from zairachem.base.utils.console import active_color, console, echo, plural
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
 from zairachem.base.vars import ORG, REDIS_IMAGE
@@ -38,12 +38,20 @@ def _returncode(cmd, timeout=120):
 
 
 def is_docker_running():
-  """Return True if the Docker daemon responds (within the probe timeout) to ``docker info``."""
-  return _returncode(["docker", "info"]) == 0
+  """Return True if the Docker daemon responds (within the probe timeout)."""
+  from zairachem.base.utils.docker_socket import daemon_running
+
+  fast = daemon_running()  # milliseconds over the daemon's socket; the CLI is the fallback
+  if fast is not None:
+    return fast
+  return _returncode(["docker", "version", "--format", "{{.Server.Version}}"]) == 0
 
 
 def _docker_image_present(image):
-  return _returncode(["docker", "image", "inspect", image]) == 0
+  from zairachem.base.utils.docker_socket import image_present
+
+  fast = image_present(image)  # milliseconds over the daemon's socket; the CLI is the fallback
+  return fast if fast is not None else _returncode(["docker", "image", "inspect", image]) == 0
 
 
 def require_docker_and_base():
@@ -76,7 +84,7 @@ def require_docker_and_base():
 
   if missing_base:
     echo(
-      "Required base Docker image(s) are not available locally. ZairaChem cannot continue.",
+      "Required base Docker images are not available locally. ZairaChem cannot continue.",
       kind="error",
     )
     echo("Fetch them with:", kind="info")
@@ -153,7 +161,8 @@ def validate_model_roles(featurizer_ids, projection_ids):
   if not problems:
     return
   echo(
-    f"{len(problems)} model(s) are not valid for their requested role — ZairaChem cannot continue.",
+    f"{plural(len(problems), 'model')} {'is' if len(problems) == 1 else 'are'} not valid for "
+    "the requested role — ZairaChem cannot continue.",
     kind="error",
   )
   for role, m, reason in problems:
@@ -216,7 +225,7 @@ def _stop_on_bad_images(missing, outdated, total):
   """Print fetch hints and raise ``SystemExit(1)`` if any model image is missing or outdated."""
   if missing:
     echo(
-      f"{len(missing)} of {total} model image(s) missing — ZairaChem cannot continue.",
+      f"{len(missing)} of {plural(total, 'model image')} missing — ZairaChem cannot continue.",
       kind="error",
     )
     echo("Fetch them with the Ersilia CLI, then re-run:", kind="info")
@@ -226,7 +235,8 @@ def _stop_on_bad_images(missing, outdated, total):
 
   if outdated:
     echo(
-      f"{len(outdated)} model image(s) are behind the registry :latest — ZairaChem cannot continue.",
+      f"{plural(len(outdated), 'model image')} {'is' if len(outdated) == 1 else 'are'} behind the "
+      "registry's :latest — ZairaChem cannot continue.",
       kind="error",
     )
     echo("Update them to the latest image, then re-run:", kind="info")
@@ -350,13 +360,13 @@ def _report_transformer_gaps(kept, missing, n_featurizers, reference_library):
   """Stop the run if no transformer is usable; otherwise warn about the skipped ones."""
   if not kept:
     echo(
-      f"None of the {n_featurizers} featurizer(s) has a usable transformer in reference "
+      f"None of the {plural(n_featurizers, 'featurizer')} has a usable transformer in reference "
       f"library '{reference_library}' — ZairaChem cannot continue.",
       kind="error",
     )
     echo(
       "A transformer fitted on this reference library is required for each featurizer. "
-      "Fit and upload the missing one(s), then re-run:",
+      "Fit and upload the missing ones, then re-run:",
       kind="info",
     )
     for m, version, url, _ in missing:
@@ -364,7 +374,7 @@ def _report_transformer_gaps(kept, missing, n_featurizers, reference_library):
     raise SystemExit(1)
   if missing:
     echo(
-      f"Skipping {len(missing)} descriptor(s) with no transformer in '{reference_library}': "
+      f"Skipping {plural(len(missing), 'descriptor')} with no transformer in '{reference_library}': "
       f"{', '.join(m for m, *_ in missing)}.",
       kind="warning",
     )

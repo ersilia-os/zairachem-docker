@@ -3,6 +3,7 @@ import csv
 import gc
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -30,24 +31,45 @@ from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.utils.utils import (
   fetch_schema_from_github,
 )
-from zairachem.base.vars import METADATA_SUBFOLDER, PARAMETERS_FILE
+from zairachem.base.vars import (
+  DESCRIBE_BATCH_SIZE,
+  DESCRIBE_MAX_FAILED_FRACTION,
+  DESCRIBE_MIN_FAILED_ALLOWED,
+  DESCRIBE_READ_TIMEOUT_PER_MOLECULE_S,
+  DESCRIBE_READ_TIMEOUT_S,
+  DESCRIBE_SERVER_WORKERS,
+  METADATA_SUBFOLDER,
+  MIN_DESCRIBE_BATCH_SIZE,
+  PARAMETERS_FILE,
+  SERVER_CHUNKING_MOLECULES,
+  SERVER_CHUNKS_PER_WORKER,
+)
 
-# isaura is an OPTIONAL dependency — only needed when a run requests a --store. We import the
-# classes zairachem uses directly against the CURRENT isaura API; there is deliberately no
-# compatibility shim for older isaura releases. When isaura is absent these stay None, and any run
-# that actually needs a store fails loudly at the point of use (see _contribute), never silently.
-try:
-  from isaura.manage import IsauraReader, IsauraWriter
-except Exception as e:
-  logger.debug(f"Isaura could not be imported: {e}")
-  IsauraReader = None
-  IsauraWriter = None
+
+def _isaura_classes():
+  """``(IsauraReader, IsauraWriter)``, or ``(None, None)`` when isaura cannot be imported.
+
+  isaura is an OPTIONAL dependency, only needed when a run uses a --store, and importing it costs
+  ~250 ms (DuckDB, boto3), so it is imported on first use, not with this module. Its CURRENT API is
+  used directly (no shim for older releases); a run that needs a store and cannot import it fails
+  loudly at the point of use (see _contribute), never silently.
+  """
+  try:
+    from isaura.manage import IsauraReader, IsauraWriter
+  except Exception as e:
+    logger.debug(f"Isaura could not be imported: {e}")
+    return None, None
+  return IsauraReader, IsauraWriter
+
 
 _RING_TOKEN_RE = re.compile(r"%(?:\d{2})|[0-9]")
 _ALLOWED_RE = re.compile(
   r"^[A-Za-z0-9@+\-\[\]\(\)=#$:.\\/%,*\.]+(?:\s+[A-Za-z0-9@+\-\[\]\(\)=#$:.\\/%,*\.]+)?$"
 )
-DEFAULT_BATCH_SIZE = 1000
+
+
+class DescriptorFailedError(RuntimeError):
+  """A model server failed on more molecules than ``DESCRIBE_MAX_FAILED_FRACTION`` allows."""
 
 
 def _is_balanced(s, open_ch, close_ch):
@@ -88,17 +110,26 @@ class BinaryStreamClient(ZairaBase):
   # featurizes models concurrently, but isaura's DuckDB/S3 layer is not thread-safe — concurrent
   # IsauraReader/IsauraInspect/IsauraWriter from worker threads collide (a shared connection gets
   # "already closed"). Only the store I/O is serialized; the slow part — the model-server HTTP calls —
-  # still runs fully in parallel. Shared by every client instance, so it serializes across the whole
-  # describe thread pool; uncontended (and free) in the default serial path.
+  # still runs fully in parallel. Shared by every client instance, so it serializes across all the
+  # models describe runs at once.
   _store_lock = threading.RLock()
 
-  def __init__(
-    self, path, csv_path, model_id=None, url=None, project_name=None, batch_size=DEFAULT_BATCH_SIZE
-  ):
+  def __init__(self, path, csv_path, model_id=None, url=None, project_name=None, batch_size=None):
     try:
       super(ZairaBase, self).__init__()
       self.logger = logger
-      self.batch_size = batch_size
+      # Molecules per request (DESCRIBE_BATCH_SIZE), halved on a failed request.
+      self.batch_size = batch_size or DESCRIBE_BATCH_SIZE
+      self._initial_batch_size = self.batch_size
+      self._largest_ok = 0  # largest request that has succeeded in this run
+      # Set by describe (raw.py): the model's memory profile and a sampler of its container; each
+      # request's molecules, peak memory and time are measured into the profile (for the scheduler's
+      # memory reservations and the time estimate of later runs).
+      self.profile = None
+      self.sampler = None
+      # Copies of the model the server may run for one request (its max_workers); describe raises
+      # it for requests the server cuts into chunks when the VM has room (see raw._server_workers).
+      self.server_workers = DESCRIBE_SERVER_WORKERS
       self.csv_path = csv_path
       self.url = url
       self.model_id = model_id
@@ -108,9 +139,12 @@ class BinaryStreamClient(ZairaBase):
       self.read_store = self.params.get("read_store")
       self.contribute_store = self.params.get("contribute_store")
       self._feature_len = None
-      # Served-model output modality: try "heavy" (fast binary) first; if it fails the model latches
-      # to "simple" (JSON) for the rest of the run — see _try_request.
-      self._output_mode = "heavy"
+      # False for a model that must get all molecules in one request (a projector embeds the
+      # molecules of a request together): a failed request then raises instead of being split.
+      self.splittable = True
+      # Response format without a profile: "heavy" (binary array, no text round trip). With a
+      # profile, the format the image supports is learned once and kept there (see _try_request).
+      self.output_type = "heavy"
       # Which provenance group this client's results count toward: "featurizers" (default) or
       # "projections" (set by the treat/manifolds step when computing projection models).
       self._provenance_kind = "featurizers"
@@ -285,7 +319,7 @@ class BinaryStreamClient(ZairaBase):
     scheme = p.scheme or "http"
     return f"{scheme}://{host}:{port}"
 
-  def _ensure_ready(self, attempts=60, sleep_s=0.5):
+  def _ensure_ready(self, attempts=240, sleep_s=0.5):
     if getattr(self, "_ready", False):
       return
     root = self._root_from_url()
@@ -319,30 +353,41 @@ class BinaryStreamClient(ZairaBase):
     array = np.array(rows, dtype=float)  # None -> NaN
     return array, {}
 
-  def _attempt(self, mode, batch):
-    """POST one batch in a given output modality and return (array, results). Raises on any error.
+  def _attempt(self, batch, output_type):
+    """POST one batch in ``output_type`` ("heavy" or "simple") and return ``(array, results)``.
 
-    `mode` is "heavy" (binary stream) or "simple" (JSON records). On a non-OK HTTP status the raised
-    error includes the server's response body so the real cause is visible (not just the status).
+    Raises on any error. On a non-OK HTTP status the raised error includes the server's response
+    body so the real cause is visible.
     """
     self._ensure_ready()
     headers = {"Content-Type": "application/json", "Accept": "*/*", "Connection": "close"}
     payload = json.dumps(batch, separators=(",", ":"))
     response = requests.post(
       self.url,
-      params={"output_type": mode},
+      params={
+        "output_type": output_type,
+        "min_workers": 1,
+        "max_workers": self.server_workers,
+        # No server-side result cache: some server versions cache in redis by default, which would
+        # serve stale results after a model's image is updated (redis outlives the containers).
+        "fetch_cache": "false",
+        "save_cache": "false",
+      },
       data=payload,
       headers=headers,
-      stream=(mode == "heavy"),
-      timeout=(10, None),
+      stream=output_type == "heavy",
+      timeout=(10, DESCRIBE_READ_TIMEOUT_S + DESCRIBE_READ_TIMEOUT_PER_MOLECULE_S * len(batch)),
     )
     if not response.ok:
-      body = (response.text or "").strip().replace("\n", " ")[:500]
+      body = (response.text or "").strip().replace("\n", " ")
+      if len(body) > 2000:  # keep the start and the end of a traceback, where the cause is
+        body = f"{body[:300]} … {body[-1700:]}"
       raise requests.HTTPError(
-        f"{response.status_code} {response.reason} from {self.url} (output_type={mode}): {body}",
+        f"{response.status_code} {response.reason} from {self.url} "
+        f"(output_type={output_type}): {body}",
         response=response,
       )
-    if mode == "heavy":
+    if output_type == "heavy":
       array, results = self.decode_binary_stream(response)
     else:
       array, results = self._decode_json_records(response)
@@ -352,40 +397,107 @@ class BinaryStreamClient(ZairaBase):
     return array, results
 
   def _try_request(self, batch):
-    """Request one batch, picking the output modality at the model level.
+    """Request one batch in the format this model's image supports; raises on any error.
 
-    `heavy` (fast binary) is tried first; the first time it fails, the whole model latches to
-    `simple` (JSON) and the batch is retried once. This is "heavy when it works, JSON when it
-    doesn't" — a per-model choice, not a per-molecule one. Genuinely unprocessable molecules are
-    handled by the caller's bisection (NaN placeholders), independent of the modality.
+    The format is learned once per image and kept in the profile. Until known, binary is tried
+    first; if the server rejects it or its reply cannot be decoded, and the same request succeeds as
+    JSON, the image cannot produce binary output and is recorded as JSON. A timeout or a dropped
+    connection says nothing about the format, so it is raised without trying JSON, as is a JSON
+    failure (then the problem is not the format, e.g. memory).
     """
+    if self.profile is None:  # nothing to learn into: the client's own format
+      return self._attempt(batch, self.output_type)
+    if self.profile.output_type:
+      return self._attempt(batch, self.profile.output_type)
     try:
-      return self._attempt(self._output_mode, batch)
-    except Exception as e:
-      if self._output_mode == "heavy":
-        # Benign transport fallback (results are identical) — log it for --verbose, don't print it
-        # to the console on every run.
-        self.logger.info(
-          f"{self.model_id}: 'heavy' output failed ({e}); using JSON for this model."
-        )
-        self._output_mode = "simple"
-        return self._attempt("simple", batch)
-      logger.debug(f"Error in _try_request for batch of size {len(batch)}: {e}")
+      out = self._attempt(batch, "heavy")
+    except (requests.Timeout, requests.ConnectionError):
       raise
+    except (requests.RequestException, IOError, ValueError, KeyError, TypeError) as heavy_error:
+      try:
+        out = self._attempt(batch, "simple")
+      except (requests.RequestException, IOError):
+        raise heavy_error from None
+      self.logger.info(f"{self.model_id}: binary output not supported by this image; using JSON.")
+      self.profile.output_type = "simple"
+      return out
+    self.profile.output_type = "heavy"
+    return out
+
+  def _fetch_batch(self, batch, idx_offset):
+    """Request one batch; on failure halve the batch size, or isolate the failing molecules.
+
+    Returns ``(arrays_out, results)``, one row per molecule (``None`` where a molecule failed), or
+    ``(None, None)`` after halving ``self.batch_size``: the caller re-sends from the same molecule.
+    A failure usually means the server ran out of memory on a request that large, so the smaller
+    size is kept for the rest of the run. Only at ``MIN_DESCRIBE_BATCH_SIZE`` is the batch split to
+    find molecules the model cannot process at all; the failure was then caused by those molecules,
+    not the request size, so the size goes back to the largest one that has worked in this run.
+    """
+    if self.sampler is not None:
+      self.sampler.reset()
+    t0 = time.perf_counter()
+    if not self.splittable:
+      # All molecules in one request, never split: a failure is the model's, and is raised.
+      array, results = self._try_request(batch)
+      self._record(len(batch), t0)
+      return self._rows(array), results
+    if len(batch) <= MIN_DESCRIBE_BATCH_SIZE:
+      arrays_out, ok, results = self._fetch_or_split(batch, idx_offset)
+      if not all(ok):
+        self.batch_size = self._largest_ok or self._initial_batch_size
+      else:
+        self._record(len(batch), t0)
+      return arrays_out, results
+    try:
+      array, results = self._try_request(batch)
+    except (requests.RequestException, IOError) as e:
+      self.batch_size = max(MIN_DESCRIBE_BATCH_SIZE, len(batch) // 2)
+      logger.warning(
+        f"{self.model_id}: a request of {len(batch)} molecules failed; continuing with "
+        f"{self.batch_size} per request."
+      )
+      logger.debug(f"{self.model_id}: {e}")
+      return None, None
+    self._largest_ok = max(self._largest_ok, len(batch))
+    self._record(len(batch), t0)
+    return self._rows(array), results
+
+  def _record(self, n, t0):
+    """Add a successful request of ``n`` molecules, started at ``t0``, to the model's profile."""
+    if self.profile is None:
+      return
+    peak, cores = self.sampler.take() if self.sampler is not None else (0.0, None)
+    seconds, copies = time.perf_counter() - t0, 1
+    if n >= SERVER_CHUNKING_MOLECULES:
+      # The server ran it as chunks of n / SERVER_CHUNKS_PER_WORKER molecules, one process per
+      # worker at a time. Memory is recorded at the chunk size and time at the request's own size,
+      # both only with one worker (with several, the peak mixes processes and the time is shorter).
+      copies = max(1, self.server_workers)
+      if copies == 1:
+        self.profile.record(math.ceil(n / SERVER_CHUNKS_PER_WORKER), peak, None)
+        self.profile.record(n, 0.0, seconds)
+    else:
+      self.profile.record(n, peak, seconds)
+    if cores:
+      # What one copy of the model keeps busy.
+      self.profile.cores = max(cores / copies, self.profile.cores or 0.0)
+
+  def _rows(self, array):
+    """Split a returned batch into one ``(1, n_features)`` array per molecule."""
+    if isinstance(array, np.ndarray):
+      return [array[i : i + 1] for i in range(array.shape[0])]
+    return [np.asarray(row).reshape(1, -1) for row in array]
 
   def _fetch_or_split(self, batch, idx_offset, depth=0):
     try:
       try:
         array, results = self._try_request(batch)
-        if isinstance(array, np.ndarray):
-          arrays_out = [array[i : i + 1] for i in range(array.shape[0])]
-        else:
-          arrays_out = [np.asarray(row).reshape(1, -1) for row in array]
+        arrays_out = self._rows(array)
         return arrays_out, [True] * len(arrays_out), results
       except (requests.RequestException, IOError) as e:
         # Per-split failures are expected while isolating a bad molecule; keep them at debug so the
-        # console isn't flooded. The heavy→JSON modality switch happens in _try_request; a
-        # fully-failed run is reported once by _run's all-failed guard.
+        # console isn't flooded; a fully-failed run is reported once by _run's all-failed guard.
         logger.debug(
           f"Request/IO error in _fetch_or_split at depth {depth}, idx_offset {idx_offset}: {e}"
         )
@@ -409,7 +521,7 @@ class BinaryStreamClient(ZairaBase):
 
     A store was explicitly requested (``--store``), so a failed contribute is fatal: continuing
     would report the run as successful while nothing was cached. Raises a normal ``Exception`` (not
-    ``SystemExit``) so it also propagates out of the parallel describe worker pool.
+    ``SystemExit``) so it also propagates out of describe's scheduler threads.
     """
     echo(
       f"Failed to write descriptors for [bold]{self.model_id}[/] to isaura store "
@@ -431,6 +543,7 @@ class BinaryStreamClient(ZairaBase):
     # A store was explicitly requested (--store), so a write failure is fatal — otherwise the run
     # would report success while nothing was cached. isaura raises SystemExit (not Exception) for a
     # missing bucket, so catch both and route every failure through _fail_contribute.
+    IsauraWriter = _isaura_classes()[1]
     if IsauraWriter is None:
       self._fail_contribute(
         bucket,
@@ -647,11 +760,12 @@ class BinaryStreamClient(ZairaBase):
   def _read_subset(self, smiles, isaura_batch_size):
     """Read descriptors for a subset of (project-present) molecules, aligned to `smiles` order.
 
-    Runs entirely under :attr:`_store_lock` — isaura's DuckDB/S3 layer is not thread-safe, so the
-    parallel describe pool must not open concurrent readers. The reader is built once and the reads
-    stay chunked (with the inter-chunk gc) to bound peak memory on large reads."""
+    Runs entirely under :attr:`_store_lock` — isaura's DuckDB/S3 layer is not thread-safe, so
+    describe (several models at once) must not open concurrent readers. The reader is built once
+    and the reads stay chunked (with the inter-chunk gc) to bound peak memory on large reads."""
     cols = None
     rows = []
+    IsauraReader = _isaura_classes()[0]
     with BinaryStreamClient._store_lock:
       r = IsauraReader(
         model_id=self.model_id,
@@ -769,8 +883,7 @@ class BinaryStreamClient(ZairaBase):
       if checked_input and n_ok == 0:
         raise RuntimeError(
           f"Model '{self.model_id}' returned no descriptors for any of {len(checked_input):,} "
-          f"molecules (server failed in both 'heavy' and JSON modes). Check the model container "
-          f"logs (docker logs) for the underlying error."
+          "molecules. Check the model container logs (docker logs) for the underlying error."
         )
       if h5_store:
         return self._h5_results(any_results, h5_store, cols, checked_input, output_h5)
@@ -856,7 +969,6 @@ class BinaryStreamClient(ZairaBase):
     # (rich permits a single live display at a time) and when a monitor callback is wired (the
     # step's shared live table reports batch progress instead, via ("batch", done, total)).
     show = getattr(self, "_show_progress", True) and getattr(self, "_progress_cb", None) is None
-    n_batches = max(1, -(-len(checked_input) // self.batch_size))  # ceil division
     progress = self._make_progress() if show else None
     try:
       with progress if show else contextlib.nullcontext():
@@ -867,22 +979,40 @@ class BinaryStreamClient(ZairaBase):
           if show
           else None
         )
-        for batch_i, start in enumerate(range(0, len(checked_input), self.batch_size), start=1):
+        start, batch_i = 0, 0
+        # A share of the molecules, but never fewer than a few, so that one molecule the model
+        # cannot process does not fail a small input.
+        max_failed = max(
+          DESCRIBE_MIN_FAILED_ALLOWED, DESCRIBE_MAX_FAILED_FRACTION * len(checked_input)
+        )
+        if not self.splittable:
+          self.batch_size = max(1, len(checked_input))
+        while start < len(checked_input):
           batch = checked_input[start : start + self.batch_size]
-          batch_abs_offset = good_idx[start]
           t0 = time.perf_counter()
-          arrays_out, _, results = self._fetch_or_split(batch, idx_offset=batch_abs_offset)
+          arrays_out, results = self._fetch_batch(batch, idx_offset=good_idx[start])
           total_time += time.perf_counter() - t0
+          if arrays_out is None:
+            continue  # the batch size was halved; re-send from the same molecule
           if results is not None:
             any_results = results
           if h5_store:
             n_ok += self._save_h5_batch(h5_store, arrays_out, checked_input, start)
           else:
             n_ok += self._fill_rows(per_item_rows, arrays_out, good_idx, start)
+          start += len(batch)
+          batch_i += 1
+          if start - n_ok > max_failed:
+            raise DescriptorFailedError(
+              f"Model '{self.model_id}' failed on {start - n_ok:,} of the first {start:,} molecules "
+              f"(limit {DESCRIBE_MAX_FAILED_FRACTION:.0%} of {len(checked_input):,}), even when "
+              "sent in small requests."
+            )
           if show:
             progress.advance(task, len(arrays_out))
           else:
-            self._report("batch", batch_i, n_batches)
+            remaining = -(-(len(checked_input) - start) // self.batch_size)
+            self._report("batch", batch_i, batch_i + remaining)
     finally:
       self.logger.info(f"Total elapsed: {total_time:.4f}s")
     return any_results, n_ok

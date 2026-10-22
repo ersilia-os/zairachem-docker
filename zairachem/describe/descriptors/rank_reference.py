@@ -81,6 +81,17 @@ def matrix_path(eos_id, version):
   return os.path.join(library_dir(), f"{eos_id}_{version}.h5")
 
 
+def treated_path(eos_id, version, transformer):
+  """Where the reference matrix scaled with ``transformer`` is cached (reused by every fit).
+
+  Transformers are pre-fitted on the reference library and fixed per featurizer version, so the
+  scaled matrix is the same on every fit; the file name carries a hash of the transformer, so a
+  different transformer never reuses another's matrix.
+  """
+  key = hashlib.sha256(json.dumps(transformer, sort_keys=True).encode()).hexdigest()[:16]
+  return os.path.join(library_dir(), "treated", f"{eos_id}_{version}_{key}.h5")
+
+
 def _sidecar(h5_path):
   return h5_path[: -len(".h5")] + ".json"
 
@@ -311,25 +322,34 @@ def _resolve_raw(path, eos_id, version, csv, raw_path, batch_size):
     logger.info(f"[rank_reference] {eos_id} downloaded to {hit}")
     link_into_run(hit, raw_path)
     return "downloaded"
-  url = get_model_url(eos_id, path)
-  if url is None:
-    from zairachem.describe.descriptors.describe import Describer
+  from zairachem.describe.descriptors.describe import Describer
 
-    logger.info(f"[rank_reference] {eos_id} server is down; starting the model servers")
-    Describer(path=path).setup_model_servers()
-    url = get_model_url(eos_id, path)
+  # Start this model's server if it is not up (servers are shared and kept up between runs).
   logger.info(f"[rank_reference] {eos_id} computing the 50,000 reference molecules")
+  Describer(path=path).setup_model_servers([eos_id])
   client = BinaryStreamClient(
-    path=path, csv_path=csv, model_id=eos_id, url=url, project_name=os.path.basename(path)
+    path=path,
+    csv_path=csv,
+    model_id=eos_id,
+    url=get_model_url(eos_id),
+    project_name=os.path.basename(path),
   )
   client._provenance_kind = "rank_reference"
-  res = client.run(output_h5=raw_path, isaura_batch_size=batch_size)
+  # The profile keeps the response format this image supports, learned on its first request.
+  from zairachem.base.utils.model_version import _local_image_digest
+  from zairachem.describe.descriptors import profiles
+
+  client.profile = profiles.load(eos_id, _local_image_digest(eos_id))
+  try:
+    res = client.run(output_h5=raw_path, isaura_batch_size=batch_size)
+  finally:
+    profiles.save(client.profile)
   if not res.get("h5_file"):
     if res.get("data") is None:
       raise RuntimeError(f"No rank-reference descriptors returned for model {eos_id}")
     Hdf5Data(res).save(raw_path)
   link_into_run(write_matrix(raw_path, eos_id, version), raw_path)
-  return "computed and cached"
+  return "computed"
 
 
 def prepare(path, eos_ids, batch_size=None):
@@ -365,25 +385,40 @@ def prepare(path, eos_ids, batch_size=None):
   csv = _write_reference_csv(path)
   if csv is None:
     return
+  # Cache hits take no time and get one line together; work done (scaling, a download, the 50,000
+  # molecules computed) gets a line per descriptor, with its time.
+  ready = []
   for eos_id in pending:
     eos_dir = os.path.join(path, DESCRIPTORS_SUBFOLDER, eos_id)
     raw_path = os.path.join(eos_dir, RANK_REFERENCE_RAW_FILENAME)
+    run_treated = os.path.join(eos_dir, RANK_REFERENCE_TREATED_FILENAME)
     t0 = time.perf_counter()
     try:
       version = versions[eos_id]
-      source = _resolve_raw(path, eos_id, version, csv, raw_path, batch_size)
       transformer = load_local_transformer(
         os.path.join(path, TRANSFORMERS_SUBFOLDER, local_transformer_name(eos_id, version))
       )
-      treat_rank_reference(
-        raw_path,
-        os.path.join(eos_dir, RANK_REFERENCE_TREATED_FILENAME),
-        transformer,
-        eos_id,
-        chunk_size=batch_size or DEFAULT_CHUNK_SIZE,
-      )
-      echo(f"Rank reference {eos_id}: {source} · {time.perf_counter() - t0:.1f}s")
+      cached = treated_path(eos_id, version, transformer)
+      if os.path.exists(cached):
+        ready.append(eos_id)
+      else:
+        source = _resolve_raw(path, eos_id, version, csv, raw_path, batch_size)
+        os.makedirs(os.path.dirname(cached), exist_ok=True)
+        treat_rank_reference(  # written atomically into the cache
+          raw_path,
+          cached,
+          transformer,
+          eos_id,
+          chunk_size=batch_size or DEFAULT_CHUNK_SIZE,
+        )
+        what = {"cached": "scaled", "downloaded": "downloaded and scaled"}.get(
+          source, "computed and scaled"
+        )
+        echo(f"Rank reference {eos_id}: {what} · {time.perf_counter() - t0:.1f}s")
+      link_into_run(cached, run_treated)
     except Exception as e:
       echo(f"Rank reference {eos_id} unavailable, trained without rank: {e}", kind="warning")
     finally:
       remove_h5(raw_path)
+  if ready:
+    echo(f"Rank reference ready for {', '.join(ready)}")

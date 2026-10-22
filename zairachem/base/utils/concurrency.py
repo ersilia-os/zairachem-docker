@@ -12,6 +12,8 @@ Two regimes:
 """
 
 import os
+import subprocess
+from functools import lru_cache
 
 #: Ceiling for pure network fan-out (registry checks, downloads) — enough to hide latency, not a flood.
 _IO_CAP = 8
@@ -20,6 +22,44 @@ _IO_CAP = 8
 def cpu_count():
   """Logical CPU count, with a safe fallback when undeterminable."""
   return os.cpu_count() or 4
+
+
+@lru_cache(maxsize=1)
+def _docker_info():
+  """``(cpus, memory_bytes)`` of the Docker engine from one ``docker info`` call, or None."""
+  try:
+    out = subprocess.run(
+      ["docker", "info", "--format", "{{.NCPU}} {{.MemTotal}}"],
+      capture_output=True,
+      text=True,
+      timeout=10,
+    ).stdout.split()
+    return int(out[0]), int(out[1])
+  except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+    return None
+
+
+def docker_cpu_count():
+  """CPUs of the Docker engine (the VM on macOS/Windows), falling back to :func:`cpu_count`.
+
+  Model servers run there, so their concurrency is bounded by it, not by the host's cores.
+  """
+  info = _docker_info()
+  return max(1, info[0]) if info else cpu_count()
+
+
+def docker_memory_gb():
+  """Memory of the Docker engine (the VM on macOS/Windows) in GB, or None when it cannot be read."""
+  info = _docker_info()
+  return info[1] / 1024**3 if info else None
+
+
+def host_memory_gb():
+  """Physical memory of this machine in GB, or None when it cannot be read."""
+  try:
+    return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+  except (ValueError, OSError, AttributeError):
+    return None
 
 
 def _env_int(env):
@@ -37,7 +77,7 @@ def _env_int(env):
 def cpu_workers(n_items=None, cap=None, env=None):
   """Default worker count for CPU-bound fan-out: ~all cores, clamped to ``cap`` and ``n_items``.
 
-  ``env`` (e.g. ``"ZAIRACHEM_ESTIMATE_WORKERS"``) takes precedence when set to a valid int.
+  ``env`` (e.g. ``"ZAIRACHEM_DESCRIBE_WORKERS"``) takes precedence when set to a valid int.
   """
   w = _env_int(env)
   if w is None:

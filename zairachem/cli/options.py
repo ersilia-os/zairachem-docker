@@ -80,8 +80,8 @@ _STORE_HELP_PREDICT = (
 )
 
 _DESCRIBE_WORKERS_HELP = (
-  "How many descriptor models to featurize in parallel (default: 1 = serial). They share host "
-  "CPU/RAM/GPU through Docker, so raise this modestly."
+  "Most descriptor models to featurize at once (default: the Docker VM's CPUs). Models are also "
+  "admitted only while their measured memory and CPU fit in the VM."
 )
 
 
