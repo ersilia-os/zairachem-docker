@@ -13,7 +13,7 @@ joblib        = "1.5.1"
 numpy         = "2.1.3"
 rdkit         = "2024.3.6"
 scikit-learn  = "1.9.1"
-lazyqsar      = { version = "3.7.0", extras = ["fit"] }
+lazyqsar      = { version = "3.8.0", extras = ["fit"] }
 stylia        = "1.0.1"
 matplotlib    = "3.10.0"
 seaborn       = "0.13.2"
