@@ -123,11 +123,14 @@ def _add_lead_sections(sections, output_dir, report_dir, present, assigned, para
     ))
   dataset_section = _dataset_html(output_dir, report_dir, present, assigned)
   if dataset_section:
-    desc = (
-      "Spread of the target value and how it relates to molecular properties."
-      if params.get("task") == "regression"
-      else "Class balance and molecular property distributions of the labelled set."
-    )
+    if params.get("task") != "regression":
+      desc = "Class balance and molecular property distributions of the labelled set."
+    elif _has_truth(output_dir):
+      desc = "Spread of the target value and how it relates to molecular properties."
+    else:
+      # Unlabelled molecules: the panels plot the predicted value, and there is no spread of
+      # observed values to describe.
+      desc = "How the predicted values relate to molecular properties."
     sections.append(("dataset", "Dataset", desc, dataset_section))
 
 
