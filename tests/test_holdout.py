@@ -74,3 +74,75 @@ def test_fold_workspace_has_its_own_descriptor_selection(tmp_path):
   assert (tmp_path / "run" / "folds" / "random_00" / "metadata" / "parameters.json").is_symlink()
   # Rebuilding (a resumed run) keeps it consistent.
   assert effective_descriptors(build_fold_workspace(str(run), "random_00", ["eosA"])) == ["eosA"]
+
+
+# --- Regression folds: continuous targets stratify, and report their own metrics ----------------
+
+VALUES = np.linspace(4.0, 9.0, len(SMILES))
+
+
+@pytest.mark.parametrize("strategy", ["random", "scaffold", "butina"])
+def test_a_continuous_target_splits_too(strategy):
+  """A float target must not be treated as a class label (it used to raise)."""
+  result = split(SMILES, VALUES, strategy, seed=0)
+  if result is None:
+    return
+  train, test = result
+  assert set(train).isdisjoint(test)
+  assert sorted([*train, *test]) == list(range(len(SMILES)))
+
+
+def test_random_folds_stratify_on_value_quantiles():
+  """The test slice should span the target's range, not a corner of it."""
+  train, test = split(SMILES, VALUES, "random", seed=0)
+  held = VALUES[list(test)]
+  # Stratifying on quartiles puts at least one compound from the top and bottom quarter in the
+  # test slice; an unstratified split of a sorted target routinely does not.
+  assert held.min() < np.percentile(VALUES, 50) < held.max()
+
+
+def _reg_record(fold, strategy, r2):
+  return {
+    "fold": fold,
+    "strategy": strategy,
+    "seed": 0,
+    "r2": r2,
+    "rmse": 0.8,
+    "mae": 0.6,
+    "spearman": 0.75,
+    "num_compounds": 2,
+    "_y_true": [7.92, 4.07],
+    "_y_score": [8.1, 4.4],
+  }
+
+
+def test_regression_folds_write_their_own_metrics_and_keep_the_truth(tmp_path):
+  import csv
+
+  write_validation_outputs(str(tmp_path), {"a": {}}, [_reg_record("a", "scaffold", 0.66)])
+  rows = list(csv.DictReader((tmp_path / "report" / "validation_table.csv").open()))
+  assert set(rows[0]) == {
+    "strategy",
+    "fold",
+    "seed",
+    "r2",
+    "rmse",
+    "mae",
+    "spearman",
+    "num_compounds",
+  }
+  assert rows[0]["r2"] == "0.66" and rows[0]["num_compounds"] == "2"
+  # The per-compound file keeps the target's own precision: rounding 7.92 to 7 would be silent
+  # corruption of the only honest held-out record the run keeps.
+  preds = list(csv.DictReader((tmp_path / "report" / "validation_predictions.csv").open()))
+  assert [p["y_true"] for p in preds] == ["7.92", "4.07"]
+
+
+def test_classification_folds_still_report_their_class_split(tmp_path):
+  import csv
+
+  record = {**_record("a", "random", 0.8), "num_compounds": 2, "num_0": 1, "num_1": 1}
+  write_validation_outputs(str(tmp_path), {"a": {}}, [record])
+  rows = list(csv.DictReader((tmp_path / "report" / "validation_table.csv").open()))
+  assert rows[0]["auroc"] == "0.8" and rows[0]["num_1"] == "1" and rows[0]["num_0"] == "1"
+  assert "r2" not in rows[0]

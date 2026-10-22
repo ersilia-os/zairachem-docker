@@ -258,3 +258,56 @@ def test_the_hitlist_ranks_a_regression_run_by_value(tmp_path):
   assert "by predicted value" in out and "Interval" in out
   assert "Call" not in out  # a regression run has no call to make
   assert out.index("CCN") < out.index("CCO")  # ranked by value, best first
+
+
+# --- Pre-screening: the proxy scores a continuous target on its own scale -----------------------
+
+
+def _screen_folds(n=120, seed=0):
+  rng = np.random.default_rng(seed)
+  idx = rng.permutation(n)
+  return [(idx[: n // 2], idx[n // 2 :]), (idx[n // 2 :], idx[: n // 2])]
+
+
+def test_the_proxy_predicts_values_for_a_continuous_target():
+  from zairachem.screen.proxy import _fold_pred
+
+  rng = np.random.default_rng(0)
+  n = 120
+  X = rng.normal(size=(n, 6))
+  y = X[:, 0] * 2.0 + rng.normal(0, 0.2, n)
+  (tr, te), _ = _screen_folds(n)
+  pred = _fold_pred(X, y, tr, te, seed=0, task="regression")
+  assert pred is not None and pred.shape == (len(te),)
+  # A value, not a probability: it must live on the target's scale, not in [0, 1].
+  assert pred.min() < 0.0 < pred.max()
+  # A constant target carries no signal and is refused rather than scored.
+  assert _fold_pred(X, np.ones(n), tr, te, seed=0, task="regression") is None
+
+
+def test_the_ensemble_skill_of_a_regression_screen_is_spearman():
+  from scipy.stats import spearmanr
+
+  from zairachem.screen.proxy import PROXY_CHANCE, _ensemble_skill
+
+  rng = np.random.default_rng(1)
+  n = 120
+  y = rng.normal(size=n)
+  folds = _screen_folds(n)
+  preds = {"a": [y[np.asarray(te)] + rng.normal(0, 0.1, len(te)) for _tr, te in folds]}
+  skill = _ensemble_skill(["a"], preds, y, folds, "regression")
+  expected = np.mean([
+    spearmanr(y[np.asarray(te)], preds["a"][i]).statistic for i, (_tr, te) in enumerate(folds)
+  ])
+  assert skill == pytest.approx(float(expected))
+  # Rho, not AUROC: a descriptor with no signal scores 0, not 0.5.
+  assert PROXY_CHANCE["regression"] == 0.0 and PROXY_CHANCE["classification"] == 0.5
+  assert _ensemble_skill([], {}, y, folds, "regression") == 0.0
+
+
+def test_the_screening_floor_is_the_auroc_floor_on_the_rho_scale():
+  from zairachem.screen.proxy import PROXY_FLOOR
+
+  # AUROC - 0.5 is about rho / 2, so the 0.55 classification floor maps to 0.10 on rho.
+  assert PROXY_FLOOR["classification"] == 0.55
+  assert PROXY_FLOOR["regression"] == pytest.approx((0.55 - 0.5) * 2)
