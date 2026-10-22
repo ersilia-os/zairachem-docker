@@ -406,3 +406,124 @@ def test_the_pooling_summary_does_not_claim_reliability_weighting_when_stacked()
   # Classification is untouched by the new argument.
   assert "percentile reliability" in _tier(has_rank=True, has_ad=True)
   assert _tier(has_rank=False, has_ad=False) == "uniform (no applicability domain)"
+
+
+# --- Every regression panel renders, or declines, without raising -------------------------------
+
+
+def _synthetic_run(root, n=60, descriptors=("eosA", "eosB"), truth=True, predict=False):
+  """A run folder complete enough for the report's fetchers, with no pipeline involved."""
+  import json
+
+  import pandas as pd
+
+  rng = np.random.default_rng(0)
+  y = rng.normal(6.5, 1.2, n)
+  smiles = ["CCO", "CCN", "CCC", "c1ccccc1", "CC(=O)O", "C1CCCCC1"] * (n // 6 + 1)
+  smiles = smiles[:n]
+  cid = [f"CID{i:03d}" for i in range(n)]
+
+  for sub in ("inputs", "metadata", "model/pool", "report"):
+    (root / sub).mkdir(parents=True, exist_ok=True)
+  (root / "metadata" / "parameters.json").write_text(json.dumps({"task": "regression"}))
+  (root / "session.json").write_text(
+    json.dumps({
+      "output_dir": str(root),
+      "model_dir": str(root),
+      "mode": "predict" if predict else "fit",
+    })
+  )
+
+  data = {"compound_id": cid, "smiles": smiles}
+  if truth:
+    data["val"] = y
+  pd.DataFrame(data).to_csv(root / "inputs" / "data.csv", index=False)
+
+  pooled = y + rng.normal(0, 0.4, n)
+  pd.DataFrame({
+    "compound_id": cid,
+    "smiles": smiles,
+    "reg": pooled,
+    "reg_lower": pooled - 1.0,
+    "reg_upper": pooled + 1.0,
+    "train_similarity": rng.random(n),
+    "descriptor_std": rng.random(n) * 0.3,
+  }).to_csv(root / "model" / "pool" / "results_unmapped.csv", index=False)
+
+  (root / "descriptors").mkdir(exist_ok=True)
+  (root / "descriptors" / "done_eos.json").write_text(json.dumps(list(descriptors)))
+  for i, eos in enumerate(descriptors):
+    d = root / "model" / "estimators" / "lq_estimators" / eos
+    d.mkdir(parents=True, exist_ok=True)
+    pred = y + rng.normal(0, 0.5 + 0.2 * i, n)
+    pd.DataFrame({
+      "compound_id": cid,
+      "smiles": smiles,
+      "reg": pred,
+      "reg_rank": rng.random(n),
+      "reg_ad": rng.random(n),
+    }).to_csv(d / "results_unmapped.csv", index=False)
+    (d / "cv_report.json").write_text(
+      json.dumps({
+        "oof_rho": 0.8 - 0.1 * i,
+        "train_rho": 0.95,
+        "overfit_gap": 0.15 + 0.1 * i,
+        "portfolio": ["lr", "xgb"],
+      })
+    )
+    pd.DataFrame({"oof_value": pred, "y": y}).to_csv(d / "oof.csv", index=False)
+
+  proj = [{"name": "umap", "title": "UMAP projection", "x": "umap_x", "y": "umap_y"}]
+  (root / "inputs" / "projections.json").write_text(json.dumps(proj))
+  pd.DataFrame({"umap_x": rng.normal(size=n), "umap_y": rng.normal(size=n)}).to_csv(
+    root / "inputs" / "projections.csv", index=False
+  )
+  return str(root)
+
+
+REGRESSION_PANELS = [
+  "IndividualEstimatorsR2Plot",
+  "RegressionPlotRaw",
+  "ResidualsPlot",
+  "PotencyEnrichmentPlot",
+  "IntervalCoveragePlot",
+  "PredictedValueDistributionPlot",
+  "ErrorVsSimilarityPlot",
+  "ValueConsensusPlot",
+  "PropertyValueMwPlot",
+  "PropertyValueLogpPlot",
+  "CvSpearmanPlot",
+  "CvErrorCurvePlot",
+]
+
+
+@pytest.mark.parametrize("truth", [True, False])
+def test_every_regression_panel_renders_or_declines(tmp_path, truth):
+  """No panel may raise: the renderer logs and drops a failing plot, so a crash is a silent hole."""
+  from zairachem.report import plots as plots_module
+
+  path = _synthetic_run(
+    tmp_path / ("labelled" if truth else "blind"), truth=truth, predict=not truth
+  )
+  drawn = []
+  for name in REGRESSION_PANELS:
+    plot = getattr(plots_module, name)(ax=None, path=path)  # raises if the panel is broken
+    if getattr(plot, "is_available", False):
+      drawn.append(name)
+  if truth:
+    # With observed values in hand, the accuracy panels are the point of the report.
+    assert {"RegressionPlotRaw", "ResidualsPlot", "PotencyEnrichmentPlot"} <= set(drawn)
+    assert "ValueConsensusPlot" not in drawn  # truth present: the error panels say more
+  else:
+    assert "ValueConsensusPlot" in drawn
+    assert "RegressionPlotRaw" not in drawn  # nothing to compare the predictions against
+
+
+def test_the_value_projection_renders_from_a_synthetic_run(tmp_path):
+  from zairachem.report.fetcher import ResultsFetcher
+  from zairachem.report.plots import ProjectionValuePlot
+
+  path = _synthetic_run(tmp_path / "run")
+  projection = ResultsFetcher(path=path).get_projections()[0]
+  plot = ProjectionValuePlot(ax=None, path=path, projection=projection)
+  assert plot.is_available and plot.name == "projection-umap-value"
