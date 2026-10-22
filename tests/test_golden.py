@@ -26,23 +26,8 @@ FIXTURE = os.environ.get("ZAIRACHEM_GOLDEN_MODEL")
 RECORD = os.environ.get("ZAIRACHEM_GOLDEN_RECORD") == "1"
 STEPS = ["estimate", "pool", "report", "finish"]
 
-# Two runs on the same fixture agree bit for bit everywhere except the performance-table columns
-# that depend on the decision cutoff: GHOST picks it from random subsets of the training rows
-# without a seed, so it can land on a neighbouring grid value. Those columns are not compared;
-# AUROC, AUPR and precision-at-k are.
-CUTOFF_DEPENDENT = {
-  "cutoff",
-  "tp",
-  "tn",
-  "fp",
-  "fn",
-  "accuracy",
-  "balanced_accuracy",
-  "precision",
-  "recall",
-  "f1_score",
-  "mcc",
-}
+# Two runs on the same fixture agree bit for bit (descriptor training and the GHOST cutoff are
+# seeded), so every column is compared.
 
 pytestmark = pytest.mark.skipif(
   not FIXTURE, reason="set ZAIRACHEM_GOLDEN_MODEL to a fit made with --keep-intermediate-data"
@@ -107,8 +92,6 @@ def _assert_same(got, ref):
   for name in ("output", "performance", "pooled", "pool_inputs"):
     assert got[name]["columns"] == ref[name]["columns"], name
     for col in ref[name]["columns"]:
-      if name == "performance" and col in CUTOFF_DEPENDENT:
-        continue
       a, b = got[name]["data"][col], ref[name]["data"][col]
       try:
         np.testing.assert_array_equal(np.asarray(a, float), np.asarray(b, float), err_msg=col)

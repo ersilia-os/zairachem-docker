@@ -13,6 +13,7 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE, open_h5
 from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
+  RANDOM_SEED,
   RANK_REFERENCE_SIGNALS_FILENAME,
   Y_HAT_FILE,
 )
@@ -39,6 +40,35 @@ def _percentile(model, X):
   reference-library ``predict_rank`` is an output, not a weight, and is built at pool level.
   """
   return model._oof_percentile(X=X)[:, 1]
+
+
+def _seed_global_rngs(seed=RANDOM_SEED):
+  """Reset Python's and NumPy's global random state before a descriptor is trained.
+
+  Some of the training stack draws from the global generators, so without this a descriptor's model
+  would depend on what ran before it in the same process (its position in the loop, the descriptors
+  trained before it, parallel or serial training).
+  """
+  import random
+
+  random.seed(seed)
+  np.random.seed(seed)
+
+
+def _percentile_from_proba(model, proba, X):
+  """:func:`_percentile` from already computed probabilities, saving a second model pass.
+
+  lazy-qsar's percentile is its out-of-fold ECDF evaluated at the same calibrated probability
+  ``predict_proba`` returns; without those knots (older models) it is recomputed from ``X``.
+  """
+  inner = getattr(model, "_model", None)
+  knots = getattr(inner, "oof_percentile_knots_", None)
+  if knots is None or not len(knots):
+    return _percentile(model, X)
+  from lazyqsar.utils.ranking import prepare_knots, rank_from_knots
+
+  prepared = getattr(inner, "_oof_percentile_prepared_", None) or prepare_knots(knots)
+  return rank_from_knots(proba, prepared=prepared)
 
 
 def _rank_or_warn(ranks, model_id, stage):
@@ -179,16 +209,20 @@ class Fitter(BaseEstimatorIndividual):
     logger.info(
       f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
     )
-    # Held-out folds (score_reference=False) skip the reference inside fit too, not only the
-    # signals written after it: lazy-qsar would otherwise score all 50,000 molecules per fold.
+    # The reference is scored once, after fit (_write_reference_signals), for the pooled rank, which
+    # the pool step builds as lazy-qsar's ensemble does. It is not given to fit: lazy-qsar would
+    # score it again for a per-descriptor rank nothing uses, and move the descriptor's decision
+    # cutoff onto that rank. Held-out folds (score_reference=False) skip it altogether.
     reference_h5 = self._rank_reference_or_warn() if self.score_reference else None
+    _seed_global_rngs()
     model = LazyClassifier()
-    model.fit(X=X_train, y=y_train, reference_h5_file=reference_h5)
+    model.fit(X=X_train, y=y_train)
     # Capture lazy-qsar's internal cross-validation outputs (OOF AUROC etc.) before X_train is
     # freed — they are computed during fit and would otherwise be discarded.
     descriptor_dir = os.path.join(self.trained_path, self.model_id)
     os.makedirs(descriptor_dir, exist_ok=True)
-    self._write_cv_report(model, X_train, y_train, descriptor_dir)
+    channels = self._oof_channels(model, X_train)
+    self._write_cv_report(model, y_train, channels, descriptor_dir)
     # Fit the applicability domain (lazy-qsar's PCA+Mahalanobis AD) on the training descriptor
     # matrix and derive its veto cutoff. Persisted alongside the model for inference. Guarded —
     # AD is an optional pooler signal.
@@ -207,10 +241,10 @@ class Fitter(BaseEstimatorIndividual):
     ads = np.full(n_samples, np.nan, dtype=np.float32)
     train_order_arr = np.asarray(train_order)
     covers_all = train_order_arr.size == n_samples and np.unique(train_order_arr).size == n_samples
-    use_oof = self._fill_train_proba(
-      model, X_train, y_train, train_order_arr, descriptor_dir, preds, preds_raw
+    self._fill_train_proba(
+      model, X_train, channels, train_order_arr, descriptor_dir, preds, preds_raw
     )
-    self._fill_train_rank_ad(model, ad_model, X_train, train_order_arr, use_oof, ranks, ads)
+    self._fill_train_rank_ad(model, ad_model, X_train, train_order_arr, channels, ranks, ads)
     del X_train
     gc.collect()
     model_folder = os.path.join(self.trained_path, self.model_id, t)
@@ -269,37 +303,45 @@ class Fitter(BaseEstimatorIndividual):
       )
     return reference_h5
 
+  def _oof_channels(self, model, X_train):
+    """lazy-qsar's out-of-fold ``(proba, rank, score)`` per training row, or None.
+
+    The same per-row values lazy-qsar pools its own ensemble and reference from: the calibrated
+    probability (prior-corrected per batch), its percentile in the model's out-of-fold distribution,
+    and the uncalibrated score. None when out-of-fold data is unavailable (e.g. tiny sets).
+    """
+    try:
+      channels = model.oof_channels(X=X_train)
+    except Exception as e:
+      logger.debug(f"[lazyqsar:fit] out-of-fold channels unavailable for {self.model_id}: {e}")
+      return None
+    if channels is None or any(len(c) != X_train.shape[0] for c in channels):
+      return None
+    return tuple(np.asarray(c, dtype=np.float32) for c in channels)
+
   def _fill_train_proba(
-    self, model, X_train, y_train, train_order_arr, descriptor_dir, preds, preds_raw
+    self, model, X_train, channels, train_order_arr, descriptor_dir, preds, preds_raw
   ):
-    """Fill the training rows of ``preds`` and ``preds_raw`` in place; return ``use_oof``."""
-    # Honest out-of-fold probabilities for the training rows (already computed inside fit);
-    # falls back to resubstitution when OOF cannot be reconstructed (multi-batch / tiny sets).
+    """Fill the training rows of ``preds`` and ``preds_raw`` in place."""
+    # Honest out-of-fold probabilities for the training rows (computed inside fit); resubstitution
+    # only when lazy-qsar has no out-of-fold data.
     self.substep_cb("out-of-fold + percentile")
-    oof_proba, _ = self._safe_pooled_oof(model, X_train, y_train)
-    use_oof = oof_proba is not None and len(oof_proba) == train_order_arr.size
-    if not use_oof:
+    use_oof = channels is not None
+    if use_oof:
+      preds[train_order_arr] = channels[0]
+      preds_raw[train_order_arr] = channels[2]  # uncalibrated, for the report's raw score lens
+    else:
       logger.warning(
         f"[lazyqsar:fit] {self.model_id}: OOF unavailable, using resubstitution for pooler input"
       )
-    self._record_oof_used(descriptor_dir, use_oof)
-    # Uncalibrated (raw) pooled OOF — for the report's raw score lens. Independent of use_oof; simply
-    # absent (NaN → dropped) when raw OOF can't be reconstructed.
-    oof_raw, _ = self._safe_pooled_oof_raw(model, X_train, y_train)
-    use_raw = oof_raw is not None and len(oof_raw) == train_order_arr.size
-    if use_oof:
-      preds[train_order_arr] = np.asarray(oof_proba, dtype=np.float32)
-    else:
       preds[train_order_arr] = self._batched(lambda xb: model.predict_proba(X=xb)[:, 1], X_train)
-    if use_raw:
-      preds_raw[train_order_arr] = np.asarray(oof_raw, dtype=np.float32)
-    return use_oof
+    self._record_oof_used(descriptor_dir, use_oof)
 
-  def _fill_train_rank_ad(self, model, ad_model, X_train, train_order_arr, use_oof, ranks, ads):
+  def _fill_train_rank_ad(self, model, ad_model, X_train, train_order_arr, channels, ranks, ads):
     """Fill the training rows of ``ranks`` and ``ads`` in place."""
-    oof_rank = self._safe_oof_percentile(model, X_train) if use_oof else None
-    if oof_rank is not None:
-      ranks[train_order_arr] = oof_rank
+    if channels is not None:
+      # The percentile of the same out-of-fold probability the pooler is fitted on.
+      ranks[train_order_arr] = channels[1]
     else:
       ranks[train_order_arr] = self._batched(lambda xb: _percentile(model, xb), X_train, np.nan)
     if ad_model is not None:
@@ -329,7 +371,7 @@ class Fitter(BaseEstimatorIndividual):
     except Exception as e:
       logger.debug(f"[lazyqsar:fit] could not record oof_used in {path}: {e}")
 
-  def _write_cv_report(self, model, X_train, y_train, descriptor_dir):
+  def _write_cv_report(self, model, y_train, channels, descriptor_dir):
     """Persist lazy-qsar's internal cross-validation results for this descriptor.
 
     Writes ``cv_report.json`` (OOF/train AUROC, overfit gap, selected algorithms, decision cutoff,
@@ -346,111 +388,31 @@ class Fitter(BaseEstimatorIndividual):
       )
     except Exception as e:
       logger.warning(f"[lazyqsar:fit] Could not write CV report for {self.model_id}: {e}")
-    self._write_oof_csv(model, X_train, y_train, descriptor_dir)
-
-  def _write_oof_csv(self, model, X_train, y_train, descriptor_dir):
-    """Best-effort ``oof.csv`` of pooled out-of-fold probabilities and labels."""
+    if channels is None:
+      return
     try:
-      oof_proba, oof_y = self._pooled_oof(getattr(model, "_model", None), X_train, y_train)
-      if oof_proba is not None:
-        import pandas as pd
+      import pandas as pd
 
-        pd.DataFrame({"oof_proba": oof_proba, "y": oof_y}).to_csv(
-          os.path.join(descriptor_dir, "oof.csv"), index=False
-        )
+      pd.DataFrame({"oof_proba": channels[0], "y": np.asarray(y_train, dtype=int)}).to_csv(
+        os.path.join(descriptor_dir, "oof.csv"), index=False
+      )
     except Exception as e:
-      logger.debug(f"[lazyqsar:fit] OOF reconstruction skipped for {self.model_id}: {e}")
-
-  @staticmethod
-  def _pooled_oof(inner, X, y):
-    """Reconstruct the pooled out-of-fold probabilities (single-batch case), aligned to X order.
-
-    Mirrors the assembler's ``_compute_oof_auc``: stack per-head OOF probabilities and combine them
-    with the batch pooler weights. Returns ``(None, None)`` for the multi-batch / subsampled case
-    (where OOF rows don't map 1:1 to X) so callers simply omit ``oof.csv``.
-    """
-    models = getattr(inner, "models", None) or []
-    if len(models) != 1:
-      return None, None
-    batch = models[0]
-    heads = getattr(batch, "heads", None) or []
-    if not heads or not all(hasattr(getattr(h, "model", None), "oof_probas_") for h in heads):
-      return None, None
-    S = np.column_stack([h.model.oof_probas_ for h in heads])
-    if S.shape[0] != len(y):
-      return None, None
-    X_prep = batch.prep.transform(X)
-    W = batch.pooler.get_weights(X_prep)
-    pooled = (W * S).sum(axis=1)
-    return np.asarray(pooled, dtype=float), np.asarray(y, dtype=int)
-
-  def _safe_pooled_oof(self, model, X, y):
-    """Guarded ``_pooled_oof``: returns (None, None) instead of raising."""
-    try:
-      return self._pooled_oof(getattr(model, "_model", None), X, y)
-    except Exception as e:
-      logger.debug(f"[lazyqsar:fit] OOF reconstruction failed for {self.model_id}: {e}")
-      return None, None
-
-  @staticmethod
-  def _pooled_oof_raw(inner, X, y):
-    """Pooled UNCALIBRATED out-of-fold scores (single-batch case), aligned to X order.
-
-    Parallel to :meth:`_pooled_oof` but stacks each head's ``oof_raw_`` (the [0,1] pre-calibration OOF
-    probability, exposed by lazy-qsar ≥ 3.4.2) instead of the calibrated ``oof_probas_``, combined with
-    the same batch-pooler weights. Returns ``(None, None)`` when raw OOF is unavailable (older
-    lazy-qsar) or in the multi-batch / subsampled case.
-    """
-    models = getattr(inner, "models", None) or []
-    if len(models) != 1:
-      return None, None
-    batch = models[0]
-    heads = getattr(batch, "heads", None) or []
-    if not heads or not all(hasattr(getattr(h, "model", None), "oof_raw_") for h in heads):
-      return None, None
-    S = np.column_stack([h.model.oof_raw_ for h in heads])
-    if S.shape[0] != len(y):
-      return None, None
-    X_prep = batch.prep.transform(X)
-    W = batch.pooler.get_weights(X_prep)
-    pooled = (W * S).sum(axis=1)
-    return np.asarray(pooled, dtype=float), np.asarray(y, dtype=int)
-
-  def _safe_pooled_oof_raw(self, model, X, y):
-    """Guarded ``_pooled_oof_raw``: returns (None, None) instead of raising."""
-    try:
-      return self._pooled_oof_raw(getattr(model, "_model", None), X, y)
-    except Exception as e:
-      logger.debug(f"[lazyqsar:fit] raw OOF reconstruction failed for {self.model_id}: {e}")
-      return None, None
-
-  def _safe_oof_percentile(self, model, X):
-    """OOF percentile of each training row's OOF probability (lazy-qsar ``oof_channels``), or None.
-
-    Pairs with the OOF ``preds``: the percentile of a resubstituted probability would describe a
-    different prediction from the one the pooler is fitted on.
-    """
-    try:
-      channels = model.oof_channels(X=X)
-      if channels is not None and len(channels[1]) == X.shape[0]:
-        return np.asarray(channels[1], dtype=np.float32)
-    except Exception as e:
-      logger.debug(f"[lazyqsar:fit] OOF percentile unavailable for {self.model_id}: {e}")
-    return None
+      logger.debug(f"[lazyqsar:fit] could not write oof.csv for {self.model_id}: {e}")
 
   def _write_reference_signals(self, model, ad_model, reference_h5, descriptor_dir):
     """Score the rank-reference library and save ``(proba, percentile, ad)`` for the pooler.
 
     The pooler pushes these through its fitted weighting to get the pooled probability of every
-    reference molecule, which is what the pooled ``rank`` is a position against (lazy-qsar's
-    ``build_pooled_rank_knots``). Best-effort: without the file the pooled rank is unavailable.
+    reference molecule, which is what the pooled ``rank`` is a position against (as in lazy-qsar's
+    ensemble). Best-effort: without the file the pooled rank is unavailable.
     """
     try:
       parts = {"proba": [], "percentile": [], "ad": []}
       for chunk in open_h5(reference_h5).iter_values(self.batch_size):
         chunk = np.asarray(chunk, dtype=np.float32)
-        parts["proba"].append(model.predict_proba(X=chunk)[:, 1])
-        parts["percentile"].append(_percentile(model, chunk))
+        proba = model.predict_proba(X=chunk)[:, 1]
+        parts["proba"].append(proba)
+        parts["percentile"].append(_percentile_from_proba(model, proba, chunk))
         if ad_model is not None:
           parts["ad"].append(ad_model.score(chunk))
       out = {k: np.concatenate(v).astype(np.float32) for k, v in parts.items() if v}
@@ -678,16 +640,14 @@ class Estimator(ZairaBase):
   def _read_cv_result(self, model_id):
     """Per-descriptor result for the live table, read from persisted artifacts.
 
-    Returns a dict ``{oof, portfolio, ad, rank}``: OOF AUROC and selected algorithms from
-    ``cv_report.json``, plus whether this descriptor produced an applicability-domain model and a
-    rank→error reliability curve (from ``pool_signals.joblib``). Best-effort; missing files are fine.
+    Returns a dict ``{oof, portfolio}``: OOF AUROC and selected algorithms from ``cv_report.json``
+    (a fit artifact; both stay empty at predict, whose table hides those columns). Best-effort;
+    missing files are fine.
     """
     from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
     out = self.get_output_dir() if self.path is None else self.path
-    res = {"oof": None, "portfolio": [], "ad": False, "rank": False}
-    # cv_report (OOF / portfolio) is a FIT artifact — only in the run that trained. At predict the
-    # current dir has none, so these stay None (the predict table hides those columns anyway).
+    res = {"oof": None, "portfolio": []}
     cv_dir = os.path.join(out, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER, model_id)
     try:
       with open(os.path.join(cv_dir, "cv_report.json")) as f:
@@ -696,15 +656,6 @@ class Estimator(ZairaBase):
       res["portfolio"] = r.get("portfolio", [])
     except (OSError, ValueError) as e:
       logger.debug(f"[lazyqsar] {model_id}: no CV report for the live table: {e}")
-    # Pooler signals (AD / rank) live with the trained model — read from the trained dir at predict.
-    sig_base = self.get_trained_dir() if self.is_predict() else out
-    sig_dir = os.path.join(sig_base, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER, model_id)
-    try:
-      sig = joblib.load(os.path.join(sig_dir, "pool_signals.joblib"))
-      res["ad"] = sig.get("ad_hard_cutoff") is not None
-      res["rank"] = sig.get("rank_error_curve") is not None
-    except Exception as e:  # unpickling can raise many types
-      logger.debug(f"[lazyqsar] {model_id}: no pool signals for the live table: {e}")
     return res
 
   def run(self):
@@ -716,13 +667,26 @@ class Estimator(ZairaBase):
     from zairachem.estimate.estimators.lazy_qsar.monitor import TrainingMonitor
 
     model_ids = self._get_model_ids()
-    n_success = 0
     monitor = TrainingMonitor(
       model_ids,
       color=STEP_COLORS.get("estimate", "yellow"),
       result_reader=self._read_cv_result,
       predict=self.is_predict(),
     )
+    # One descriptor at a time, in this process: training them in parallel processes gave
+    # different, and lower, out-of-fold AUROCs from run to run, while this loop is reproducible.
+    n_success = self._run_serial(model_ids, monitor)
+    if n_success == 0:
+      raise RuntimeError(
+        "No descriptor produced a valid estimator — cannot build a model. All "
+        "descriptors failed (e.g. non-predictive features were entirely eliminated). "
+        "Check the dataset and the chosen descriptors."
+      )
+    logger.info(f"[lazyqsar] {n_success}/{len(model_ids)} descriptors produced a valid estimator")
+
+  def _run_serial(self, model_ids, monitor):
+    """Fit or predict the descriptors one at a time; returns how many produced an estimator."""
+    n_success = 0
     with monitor.live():
       for model_id in model_ids:
         logger.info(f"[lazyqsar] Processing model {model_id}")
@@ -751,10 +715,4 @@ class Estimator(ZairaBase):
         finally:
           monitor.finish(model_id, ok=ok)
         gc.collect()
-    if n_success == 0:
-      raise RuntimeError(
-        "No descriptor produced a valid estimator — cannot build a model. All "
-        "descriptors failed (e.g. non-predictive features were entirely eliminated). "
-        "Check the dataset and the chosen descriptors."
-      )
-    logger.info(f"[lazyqsar] {n_success}/{len(model_ids)} descriptors produced a valid estimator")
+    return n_success

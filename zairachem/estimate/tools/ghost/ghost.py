@@ -3,6 +3,8 @@ import sys
 
 import numpy as np
 
+from zairachem.base.vars import RANDOM_SEED
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(ROOT)
 
@@ -25,7 +27,9 @@ class GhostLight(object):
     """
     max_prop = np.max([self._get_class_balance(y), 0.6])
     thresholds = np.round(np.arange(0.05, max_prop, 0.05), 2)  # TODO revise intervals
+    # Seeded: GHOST scores the thresholds on random subsets of the rows, so an unseeded run could
+    # land on a neighbouring threshold.
     threshold = ghostml.optimize_threshold_from_predictions(
-      y, y_hat, thresholds, ThOpt_metrics="Kappa"
+      y, y_hat, thresholds, ThOpt_metrics="Kappa", random_seed=RANDOM_SEED
     )
     return threshold
