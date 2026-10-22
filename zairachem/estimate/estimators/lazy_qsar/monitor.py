@@ -62,9 +62,9 @@ class TrainingMonitor(LiveTableMonitor):
   running_verb = "training"
   show_activity = True  # stream lazy-qsar's raw loguru line in a trailing dim column
   # Width of all non-activity columns so Activity gets exactly the leftover terminal width (no column
-  # shrink). Fit columns: Descriptor 10 + Status 28 + Algorithms 24 + OOF 9 + Signals 9 + Time 8 = 88
-  # content, plus 6 inter-column gaps × 4 padding = 24 → 112. (Predict drops Algorithms+OOF: see below.)
-  reserved_width = 112
+  # shrink). Fit columns: Descriptor 10 + Status 28 + Algorithms 24 + OOF 9 + Time 8 = 79 content,
+  # plus 5 columns × 2 padding = 10 → 89. (Predict drops Algorithms+OOF: see below.)
+  reserved_width = 89
 
   def __init__(self, model_ids, color="yellow", result_reader=None, predict=False):
     super().__init__(model_ids, color=color, result_reader=result_reader)
@@ -75,9 +75,9 @@ class TrainingMonitor(LiveTableMonitor):
     if predict:
       self.title = "Applying models per descriptor"
       self.running_verb = "applying"
-      # Predict drops Algorithms + OOF: Descriptor 10 + Status 28 + Signals 9 + Time 8 = 55 content,
-      # plus 4 inter-column gaps × 4 = 16 → 71. More width is therefore free for Activity.
-      self.reserved_width = 71
+      # Predict drops Algorithms + OOF: Descriptor 10 + Status 28 + Time 8 = 46 content, plus 3
+      # columns × 2 padding = 6 → 52. More width is therefore free for Activity.
+      self.reserved_width = 52
 
   # --- estimate-specific columns ---
 
@@ -85,16 +85,7 @@ class TrainingMonitor(LiveTableMonitor):
     if not self.predict:
       table.add_column("Algorithms", width=24, no_wrap=True, overflow="ellipsis")
       table.add_column("OOF AUC", justify="right", width=9, no_wrap=True)
-    # Pooler reliability signals each descriptor produces (applicability domain, rank→error
-    # reliability curve) — lit when present, dim when absent.
-    table.add_column("Signals", width=9, no_wrap=True)
     table.add_column("Time", justify="right", width=8, no_wrap=True)
-
-  def _signals_cell(self, s):
-    def tok(label, on):
-      return f"[{self.color}]{label}[/]" if on else f"[dim]{label}[/]"
-
-    return f"{tok('AD', s['extra'].get('ad'))} {tok('rank', s['extra'].get('rank'))}"
 
   def _row_cells(self, item_id, s):
     cells = []
@@ -103,7 +94,6 @@ class TrainingMonitor(LiveTableMonitor):
       oof = s["extra"].get("oof")
       cells.append("  ".join(portfolio) if portfolio else "[dim]—[/]")
       cells.append(f"[bold]{oof:.3f}[/]" if isinstance(oof, (int, float)) else "[dim]—[/]")
-    cells.append(self._signals_cell(s))
     cells.append(self._fmt_time(s))
     return cells
 
@@ -124,20 +114,14 @@ class TrainingMonitor(LiveTableMonitor):
     from zairachem.base.utils.console import echo
 
     el = f"{s['elapsed']:.1f}s" if s and s["elapsed"] is not None else "—"
-    sig = []
-    if s and s["extra"].get("ad"):
-      sig.append("AD")
-    if s and s["extra"].get("rank"):
-      sig.append("rank")
-    sig_txt = ("+" + ",".join(sig)) if sig else ""
     status = s["status"] if s else "done"
     if self.predict:
-      echo(f"{status} {item_id}  {sig_txt}  [dim]{el}[/]", kind="info")
+      echo(f"{status} {item_id}  [dim]{el}[/]", kind="info")
       return
     oof = s["extra"].get("oof") if s else None
     oof_txt = f"OOF {oof:.3f}" if isinstance(oof, (int, float)) else ""
     algos = " ".join(s["extra"].get("portfolio") or []) if s else ""
-    echo(f"{status} {item_id}  {algos}  {oof_txt}  {sig_txt}  [dim]{el}[/]", kind="info")
+    echo(f"{status} {item_id}  {algos}  {oof_txt}  [dim]{el}[/]", kind="info")
 
   # --- loguru capture (installed for the lifetime of live()) ---
 

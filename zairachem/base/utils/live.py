@@ -49,7 +49,10 @@ def _resource_caption():
   try:
     cpu = psutil.cpu_percent(interval=None)
     vm = psutil.virtual_memory()
-    return f"CPU {cpu:.0f}%  ·  RAM {vm.used / 1e9:.1f}/{vm.total / 1e9:.1f} GB ({vm.percent:.0f}%)"
+    # In use = total − available, the memory the system cannot hand out now (psutil's ``used``
+    # leaves out compressed and wired memory on macOS, so it disagrees with ``percent``).
+    in_use = (vm.total - vm.available) / 1e9
+    return f"CPU {cpu:.0f}%  ·  RAM {in_use:.1f}/{vm.total / 1e9:.1f} GB"
   except Exception:
     return None
 
@@ -199,6 +202,11 @@ class SetupProgress:
     return False
 
 
+#: Columns a live table leaves free at the right edge: a line as wide as the terminal is wrapped by
+#: some terminals (and symbols one counts wider than rich does push a line to that width).
+_TABLE_MARGIN = 3
+
+
 class LiveTableMonitor:
   """A transient, fixed-height live table — one row per work item — shared across pipeline steps.
 
@@ -236,6 +244,8 @@ class LiveTableMonitor:
   #: Fixed width of the Status column. Status text varies as work progresses (substep, spinner); a
   #: fixed width stops it pushing later columns around. Truncated with an ellipsis if longer.
   status_width = 28
+  #: Narrowest the Status column gets on a narrow terminal (see :meth:`__rich__`).
+  _min_status_width = 12
   #: Shared minimum width for the first (item) column. A floor common to every step's table so their
   #: later columns line up vertically across steps (ids are ~7 chars, labels ≤ ~10, so 12 fits all
   #: without truncation); a longer id still widens just that table.
@@ -387,7 +397,7 @@ class LiveTableMonitor:
     columns. Returns 0 (column hidden) when the subclass hasn't opted in or too little space remains."""
     if not self.show_activity:
       return 0
-    avail = console.width - self.reserved_width
+    avail = console.width - self.reserved_width - _TABLE_MARGIN
     return avail if avail >= self._min_activity_width else 0
 
   def _activity_cell(self, s):
@@ -399,6 +409,21 @@ class LiveTableMonitor:
     return f"[dim]{escape(str(txt))}[/]" if txt else ""
 
   def __rich__(self):
+    # The table must fit the terminal: a row the terminal wraps by itself makes the live region
+    # taller than rich counts, and every refresh then leaves a stale line (the title) behind. The
+    # Status column (truncated with an ellipsis) gives up what is missing.
+    from rich.measure import Measurement
+
+    fit = console.width - _TABLE_MARGIN
+    table = self._table(self.status_width)
+    excess = Measurement.get(console, console.options, table).maximum - fit
+    if excess > 0:
+      table = self._table(max(self._min_status_width, self.status_width - excess))
+      if Measurement.get(console, console.options, table).maximum > fit:
+        table.width = fit  # rich squeezes the other truncating columns into it
+    return table
+
+  def _table(self, status_width):
     # No caption: the table height must stay constant across refreshes, otherwise a transient Live
     # miscounts lines when clearing (a blinking CPU/RAM caption left a doubled title/header behind on
     # fast, frequently-toggling steps). Host CPU/RAM is shown on the step banner and the ✓ done line.
@@ -407,7 +432,8 @@ class LiveTableMonitor:
       title_justify="left",
       box=None,
       pad_edge=False,
-      padding=(0, 2),
+      # One space each side: two between columns keeps every step's table inside ~100 columns.
+      padding=(0, 1),
       expand=False,
     )
     # Fixed widths + no_wrap throughout so columns never reflow as cell contents change length.
@@ -419,7 +445,7 @@ class LiveTableMonitor:
       min_width=max(self._item_width, self.item_col_min),
       no_wrap=True,
     )
-    table.add_column("Status", width=self.status_width, no_wrap=True, overflow="ellipsis")
+    table.add_column("Status", width=status_width, no_wrap=True, overflow="ellipsis")
     self._columns(table)
     activity_w = self._activity_width()
     if activity_w:

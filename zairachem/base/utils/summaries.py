@@ -315,7 +315,13 @@ def summarize_screen(output_dir=None):
   sel = os.path.join(d, "metadata", "selected_eos.json")
   scores = os.path.join(d, "metadata", "proxy_scores.json")
   if not os.path.exists(sel):
-    return ""
+    done = os.path.join(d, "descriptors", "done_eos.json")
+    try:
+      with open(done) as f:
+        n = len(json.load(f))
+    except (OSError, ValueError):
+      return ""
+    return f"not needed · all {_plurals(n, 'descriptor')} kept"
   try:
     with open(sel) as f:
       n_sel = len(json.load(f))
@@ -373,7 +379,7 @@ def summarize_finish(output_dir=None):
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
-  return f"model ready · {_collapse(d)}"
+  return "outputs written"
 
 
 SUMMARIES = {
@@ -666,19 +672,24 @@ def final_summary_panel(output_dir=None):
     if task == "classification":
       rows.append((
         "Performance",
-        f"AUROC [bold green]{fmt('auroc')}[/] · accuracy [bold green]{fmt('accuracy')}[/] · MCC [bold green]{fmt('mcc')}[/]",
+        f"AUROC [bold green]{fmt('auroc')}[/] · accuracy [bold green]{fmt('accuracy')}[/] · MCC "
+        f"[bold green]{fmt('mcc')}[/]{'' if _is_predict(d) else '  [dim](out-of-fold)[/]'}",
       ))
     else:
       rows.append(("Performance", f"R² [bold green]{fmt('r2')}[/]"))
 
   plots = _count_plots(d)
-  from zairachem.base.vars import REPORT_SUBFOLDER
+  from zairachem.base.vars import OUTPUT_FILENAME, REPORT_SUBFOLDER
 
+  # Paths below are relative to Output, which is shown once in full.
+  if os.path.exists(os.path.join(d, OUTPUT_FILENAME)):
+    rows.append(("Results", f"[bold]{OUTPUT_FILENAME}[/]"))
   html_path = os.path.join(d, REPORT_SUBFOLDER, "report.html")
   if os.path.exists(html_path):
     suffix = f"  [dim]({_plurals(plots, 'plot')})[/]" if plots else ""
-    rows.append(("Report", f"[dim]{_collapse(html_path)}[/]{suffix}"))
+    rows.append(("Report", f"[bold]{REPORT_SUBFOLDER}/report.html[/]{suffix}"))
   elif plots:
-    rows.append(("Report", f"{_plurals(plots, 'plot')} in [dim]{_collapse(d)}/report[/]"))
+    rows.append(("Report", f"{_plurals(plots, 'plot')} in [bold]{REPORT_SUBFOLDER}/[/]"))
 
-  summary_panel("ZairaChem · model ready", rows, border_style="bright_green", icon="✓")
+  title = "ZairaChem · predictions ready" if _is_predict(d) else "ZairaChem · model ready"
+  summary_panel(title, rows, border_style="bright_green", icon="✓")

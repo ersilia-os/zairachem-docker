@@ -83,7 +83,7 @@ class PipelineStep(ZairaBase):
 
       rec["cpu"] = psutil.cpu_percent(interval=None)
       vm = psutil.virtual_memory()
-      rec["ram_used_gb"] = round(vm.used / 1e9, 2)
+      rec["ram_used_gb"] = round((vm.total - vm.available) / 1e9, 2)  # as the console shows
       rec["ram_total_gb"] = round(vm.total / 1e9, 2)
       rec["ram_pct"] = vm.percent
     except Exception as e:  # psutil raises its own exception types

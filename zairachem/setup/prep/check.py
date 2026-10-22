@@ -173,10 +173,10 @@ class SetupChecker(object):
     logger.info(f"[check] Found {discrepancies:,} activity discrepancies")
     if conflicts:
       # Just a count of compounds whose duplicate rows disagreed on activity. Informational.
-      from zairachem.base.utils.console import echo
+      from zairachem.base.utils.console import echo, plural
 
       echo(
-        f"{len(conflicts):,} compound(s) had duplicate rows with differing activities.",
+        f"{plural(len(conflicts), 'compound')} had duplicate rows with differing activities.",
         kind="warning",
       )
 

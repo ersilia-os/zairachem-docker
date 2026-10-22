@@ -54,8 +54,8 @@ from zairachem.cli.steps import process_group
   "--keep-intermediate-data",
   is_flag=True,
   default=False,
-  help="Keep intermediate data (descriptor matrices, 2-D projections, raw input copies) instead of "
-  "cleaning it at the end. The trained model and results/report are always kept either way.",
+  help="Keep the descriptor matrices, which are otherwise removed at the end (the trained model, "
+  "results and report are always kept).",
 )
 @click.option(
   "--anonymize",
@@ -67,30 +67,26 @@ from zairachem.cli.steps import process_group
   is_flag=False,
   flag_value=_EVALUATE_SENTINEL,
   default=None,
-  help="Run held-out validation: define 80:20 splits at setup and, after the final model is trained, "
-  "re-fit + score the pooled model on each held-out fold (adds a report section; classification only). "
-  "Bare --evaluate runs all schemas (random, scaffold, scaffold_det, butina); or pass a comma-separated "
-  "subset, e.g. --evaluate scaffold,random.",
+  help="Also score the pipeline on 80:20 held-out folds, refitting it on each (a report section; "
+  "classification only). Bare --evaluate uses every schema (random, scaffold, scaffold_det, butina); "
+  "or name some, e.g. --evaluate scaffold,random.",
 )
 @click.option(
   "--repeats",
   "evaluate_repeats",
   default=3,
   type=int,
-  help="Held-out repeats per schema (random/scaffold/Butina) when --evaluate is set (default: 3). "
-  "Total folds = 1 + 3 × repeats (so --repeats 0 leaves only the deterministic scaffold_det). Lower "
-  "it to cut compute proportionally — each fold still refits the exact production pipeline.",
+  help="Folds per seeded schema (random, scaffold, butina) with --evaluate (default: 3); "
+  "scaffold_det is always one. Fewer folds, less compute.",
 )
 @click.option(
   "--max-descriptors",
   "max_descriptors",
   default=DEFAULT_MAX_DESCRIPTORS,
   type=int,
-  help=f"Cap the ensemble at the top-K descriptors (default: {DEFAULT_MAX_DESCRIPTORS}). They are "
-  "pre-screened by mean held-out "
-  "AUROC across the chemistry-aware splits (shallow proxy model, floor 0.55) and only the top-K are "
-  "fully trained — cutting training cost and yielding a leaner model. Set it ≥ the number of "
-  "descriptors you provide (e.g. 10) to train them all. Classification only; the hard cap is 10.",
+  help=f"Most descriptors in the model (default: {DEFAULT_MAX_DESCRIPTORS}, at most 10). Chosen "
+  "before training with a quick proxy on held-out folds, keeping each only if it improves the "
+  "ensemble; classification only. Set it to the number of descriptors to train them all.",
 )
 def fit(
   input_file,

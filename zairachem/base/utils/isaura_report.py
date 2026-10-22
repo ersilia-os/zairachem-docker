@@ -12,7 +12,7 @@ import re
 import socket
 from urllib.parse import urlparse
 
-from zairachem.base.utils.console import active_color, console, echo
+from zairachem.base.utils.console import active_color, console, echo, plural
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.model_version import ersilia_model_version
 from zairachem.base.utils.progress import LiveTableMonitor
@@ -328,7 +328,8 @@ def check_isaura_version_consistency(bucket, featurizer_ids, projection_ids):
     table.add_row(m, mh, ", ".join(have))
   console.print(table)
   echo(
-    f"{len(mismatches)} model(s) have isaura precalculations from a different version — ZairaChem cannot continue.",
+    f"{plural(len(mismatches), 'model')} {'has' if len(mismatches) == 1 else 'have'} isaura "
+    "precalculations from a different version — ZairaChem cannot continue.",
     kind="error",
   )
   echo(
@@ -559,11 +560,15 @@ def report_data_provenance(output_dir):
   By the time Describe runs, any lake→project migration has already happened, so every row is either
   **read from the project store** or **computed via Ersilia** (a cache miss). The bar reflects that
   two-way split. (How the project itself was seeded from the lake is shown separately by the setup
-  "Migrating isaura-public → project" table.) Reads provenance.json; skips quietly if absent.
+  "Migrating isaura-public → project" table.) Reads provenance.json; skips quietly if absent, and
+  when no molecule came from the store.
   """
   data = _load_provenance(output_dir) if os.path.exists(_provenance_path(output_dir)) else None
   if not data or not (data.get("featurizers") or data.get("projections")):
     return
+  entries = [*(data.get("featurizers") or {}).values(), *(data.get("projections") or {}).values()]
+  if not any(e.get("n_from_project") for e in entries):
+    return  # everything was computed (no store, or nothing in it yet): nothing to break down
 
   from rich import box
   from rich.table import Table

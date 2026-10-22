@@ -45,6 +45,11 @@ _ICONS = {
 }
 
 
+def plural(n, word, many=None):
+  """``"1 model"`` / ``"3 models"``: ``n`` and ``word``, pluralised (``many`` for irregular plurals)."""
+  return f"{n:,} {word if n == 1 else (many or word + 's')}"
+
+
 def echo(text, kind="info"):
   """Print a one-line status message with an Ersilia-style icon and color."""
   icon, style = _ICONS.get(kind, _ICONS["info"])
