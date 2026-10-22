@@ -38,18 +38,63 @@ class HoldoutValidationPipeline(ZairaBase):
     ZairaBase.__init__(self)
     self.path = path
     self.batch_size = batch_size
-    # Per-fold time predictor: the just-finished training step's wall-clock (a fold refits the same
-    # descriptor stack). Used for the upfront estimate and the live ETA.
+    # Per-fold time predictor: the just-finished training step's wall-clock (a fold refits as many
+    # descriptors, at most). Used for the upfront estimate and the live ETA.
     self.est_seconds = est_seconds
     self.params = self._load_params()
+    self._select = None  # per-fold descriptor selection (see _fold_selector), set by run()
 
   def _model_ids(self):
     # The descriptors the production model uses — the --max-descriptors selection when screened, else
-    # all of done_eos. Folds reuse the global selection (screen-once-reuse-in-folds), so each fold
-    # trains and pools exactly the descriptors the shipped model does.
+    # all of done_eos (folds that are not screened again train exactly these).
     from zairachem.base.utils.descriptors import effective_descriptors
 
     return effective_descriptors(self.path)
+
+  def _fold_selector(self):
+    """``spec -> descriptor ids`` choosing each fold's descriptors on its training rows, or None.
+
+    When the production model was screened (``--max-descriptors``), the selection looked at every
+    molecule's label, the held-out ones included; reusing it in the folds would make their metrics
+    optimistic. Each fold therefore repeats the same greedy selection on its own training rows, with
+    inner folds built on them, so the held-out metrics measure the whole procedure. None when the
+    run was not screened.
+    """
+    from zairachem.screen.pipe import screening_applies
+
+    if not screening_applies(self.path, self.params):
+      return None
+    import numpy as np
+    import pandas as pd
+
+    from zairachem.base.vars import (
+      DATA_FILENAME,
+      DATA_SUBFOLDER,
+      DESCRIPTORS_SUBFOLDER,
+      SMILES_COLUMN,
+    )
+    from zairachem.holdout.splits import build_fold_definitions
+    from zairachem.screen.pipe import SCREEN_REPEATS, candidates
+    from zairachem.screen.proxy import select_descriptors
+
+    df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
+    y, smiles = np.asarray(df["bin"]), list(df[SMILES_COLUMN])
+    pool = candidates(self.path)
+
+    def select(spec):
+      train = np.asarray(spec["train_idx"])
+      inner = build_fold_definitions([smiles[i] for i in train], y[train], repeats=SCREEN_REPEATS)
+      pairs = [(train[f["train_idx"]], train[f["test_idx"]]) for f in inner.values()]
+      selected, _ = select_descriptors(
+        os.path.join(self.path, DESCRIPTORS_SUBFOLDER),
+        pool,
+        y,
+        pairs,
+        self.params["max_descriptors"],
+      )
+      return selected
+
+    return select
 
   def _announce(self, n):
     """Echo the upfront fold count (with a time estimate when training took long enough)."""
@@ -77,6 +122,9 @@ class HoldoutValidationPipeline(ZairaBase):
       counts=f"{len(spec['train_idx'])}/{len(spec['test_idx'])}",
     )
     try:
+      if self._select is not None:
+        monitor.set_substep(fold_name, "selecting descriptors")
+        model_ids = self._select(spec)
       rec = run_one_fold(
         self.path,
         fold_name,
@@ -159,6 +207,7 @@ class HoldoutValidationPipeline(ZairaBase):
     with open(splits_path) as f:
       folds = json.load(f)
     model_ids = self._model_ids()
+    self._select = self._fold_selector()
     fetcher = ResultsFetcher(path=self.path)
 
     n = len(folds)

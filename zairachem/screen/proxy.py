@@ -103,23 +103,28 @@ def select_descriptors(
   -------
   tuple(list of str, dict)
     ``(selected_ordered, scores)`` — selected ids in add order, and ``{eos_id: solo_held_out_auroc}``
-    for every candidate. Never empty (the single best descriptor is kept when nothing clears ``floor``).
+    for every candidate. Never empty: the best descriptor is kept when nothing clears ``floor``, and
+    every candidate when none could be scored.
   """
   y = np.asarray(y)
   preds, scores = {}, {}
   for eos_id in eos_ids:
-    X = _load_treated(descriptors_dir, eos_id)
-    if X is None:
-      logger.warning(f"[screen] {eos_id}: no treated matrix; scoring 0.5")
+    try:
+      X = _load_treated(descriptors_dir, eos_id)
+      if X is None:
+        raise ValueError("no treated matrix")
+      preds[eos_id] = [_fold_pred(X, y, tr, te, RANDOM_SEED) for tr, te in folds]
+      scores[eos_id] = _ensemble_auc([eos_id], preds, y, folds)  # solo AUROC: a 1-member ensemble
+    except Exception as e:  # one unreadable descriptor must not stop the screen
+      logger.warning(f"[screen] {eos_id}: not scored ({e}); left out of the selection")
       preds[eos_id], scores[eos_id] = None, 0.5
-      continue
-    fold_preds = [_fold_pred(X, y, tr, te, RANDOM_SEED) for tr, te in folds]
-    preds[eos_id] = fold_preds
-    scores[eos_id] = _ensemble_auc([eos_id], preds, y, folds)  # solo AUROC = single-member ensemble
 
   usable = [e for e in eos_ids if preds[e] is not None]
   if not usable:
-    return [eos_ids[0]] if eos_ids else [], scores
+    # Nothing could be scored, so there is no basis for choosing: keep every descriptor and let the
+    # estimate step train (or skip) each one.
+    logger.warning("[screen] no descriptor could be scored; keeping all of them")
+    return list(eos_ids), scores
   eligible = [e for e in usable if scores[e] >= floor]
   order = sorted(eligible or usable, key=lambda e: scores[e], reverse=True)
 

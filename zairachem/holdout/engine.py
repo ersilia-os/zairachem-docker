@@ -87,7 +87,7 @@ def run_one_fold(model_dir, fold_name, spec, model_ids, fetcher, batch_size=None
   ``substep_cb(text)`` — optional callback fired with the current sub-phase (per-descriptor fit, then
   pooling/scoring) so a live monitor can show intra-fold progress.
   """
-  fold_path = build_fold_workspace(model_dir, fold_name)
+  fold_path = build_fold_workspace(model_dir, fold_name, model_ids)
   _fit_descriptors(fold_path, model_ids, spec["train_idx"], batch_size, substep_cb=substep_cb)
   if substep_cb:
     substep_cb("pooling + scoring")

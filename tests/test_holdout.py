@@ -51,3 +51,26 @@ def test_summary_counts_defined_and_scored_folds(tmp_path):
   assert summary["n_folds_defined"] == 2
   assert summary["n_folds_run"] == 1
   assert (tmp_path / "report" / "validation_table.csv").exists()
+
+
+def test_fold_workspace_has_its_own_descriptor_selection(tmp_path):
+  import json
+
+  from zairachem.base.utils.descriptors import effective_descriptors
+  from zairachem.holdout.workspace import build_fold_workspace
+
+  run = tmp_path / "run"
+  for sub in ("metadata", "descriptors", "inputs"):
+    (run / sub).mkdir(parents=True)
+  (run / "metadata" / "parameters.json").write_text("{}")
+  (run / "metadata" / "selected_eos.json").write_text(json.dumps(["eosA", "eosB"]))
+  (run / "descriptors" / "done_eos.json").write_text(json.dumps(["eosA", "eosB", "eosC"]))
+
+  fold = build_fold_workspace(str(run), "random_00", ["eosB", "eosC"])
+  # Every step resolving the fold's descriptors (estimate, pool) sees the fold's own selection,
+  assert effective_descriptors(fold) == ["eosB", "eosC"]
+  # the parent's is untouched, and the other metadata is shared.
+  assert effective_descriptors(str(run)) == ["eosA", "eosB"]
+  assert (tmp_path / "run" / "folds" / "random_00" / "metadata" / "parameters.json").is_symlink()
+  # Rebuilding (a resumed run) keeps it consistent.
+  assert effective_descriptors(build_fold_workspace(str(run), "random_00", ["eosA"])) == ["eosA"]

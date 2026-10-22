@@ -1,14 +1,16 @@
-"""Descriptor pre-screening step: keep the top-K descriptors to fully train.
+"""Descriptor pre-screening step: choose at most ``max_descriptors`` descriptors to fully train.
 
-Runs after ``treat`` (needs the treated matrices) and before ``estimate``. Scores each computed
-descriptor by its mean held-out AUROC across the chemistry-aware evaluate folds (the standard 10-fold
-menu — random / scaffold / Butina at 3 repeats — built here regardless of ``--evaluate`` and its
-``--repeats``), keeps the top ``params["max_descriptors"]`` (floor 0.55, ≥1), and writes
-``metadata/selected_eos.json`` (which ``effective_descriptors`` then applies to estimate / pool /
-report / the held-out folds) plus ``metadata/proxy_scores.json`` for the report.
+Runs after ``treat`` (needs the treated matrices) and before ``estimate``. Each computed descriptor
+gets a quick held-out AUROC from a shallow proxy model on the chemistry-aware folds (random /
+scaffold / Butina at 3 repeats, built here whatever ``--evaluate`` says), and descriptors are added
+greedily while they improve the ensemble (:func:`~zairachem.screen.proxy.select_descriptors`). The
+choice goes to ``metadata/selected_eos.json``, which ``effective_descriptors`` applies to estimate,
+pool, report and predict, with the scores in ``metadata/proxy_scores.json``. Held-out folds
+(``--evaluate``) repeat the selection on their own training rows.
 
 Self-gated: a no-op at predict, for regression, or when there is nothing to prune
-(``max_descriptors ≥ #descriptors``). Screening is on by default (``--max-descriptors`` defaults to ``DEFAULT_MAX_DESCRIPTORS``, 5).
+(``max_descriptors ≥ #descriptors``). On by default (``--max-descriptors`` defaults to
+``DEFAULT_MAX_DESCRIPTORS``, 5).
 """
 
 import json
@@ -35,6 +37,20 @@ from zairachem.base.vars import (
 SCREEN_REPEATS = 3
 
 
+def candidates(path):
+  """Descriptors computed for the run (``descriptors/done_eos.json``), the screening candidates."""
+  with open(os.path.join(path, DESCRIPTORS_SUBFOLDER, "done_eos.json")) as f:
+    return list(json.load(f))
+
+
+def screening_applies(path, params):
+  """Whether a fit run screens its descriptors: classification with more than ``max_descriptors``."""
+  k = params.get("max_descriptors")
+  if params.get("task") != "classification" or not k:
+    return False
+  return len(candidates(path)) > k
+
+
 class ScreenPipeline(ZairaBase):
   """Pre-screen the descriptors and keep the best ``max_descriptors`` for training.
 
@@ -51,10 +67,6 @@ class ScreenPipeline(ZairaBase):
     self.path = path
     self.params = self._load_params()
 
-  def _candidates(self):
-    with open(os.path.join(self.path, DESCRIPTORS_SUBFOLDER, "done_eos.json")) as f:
-      return list(json.load(f))
-
   def run(self):
     """Score each descriptor on held-out folds and write the selection.
 
@@ -67,9 +79,9 @@ class ScreenPipeline(ZairaBase):
     if step.is_done():
       logger.info("[screen] Descriptor pre-screening already done — skipping.")
       return
-    candidates = self._candidates()
-    if len(candidates) <= k:
-      logger.info(f"[screen] {len(candidates)} descriptors ≤ max ({k}); training all — no pruning.")
+    pool = candidates(self.path)
+    if not screening_applies(self.path, self.params):
+      logger.info(f"[screen] {len(pool)} descriptors ≤ max ({k}); training all — no pruning.")
       step.update()
       return
 
@@ -79,13 +91,13 @@ class ScreenPipeline(ZairaBase):
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
     y = np.asarray(df["bin"])
     logger.info(
-      f"[screen] Scoring {len(candidates)} descriptors on the evaluate splits "
+      f"[screen] Scoring {len(pool)} descriptors on the evaluate splits "
       f"({SCREEN_REPEATS} repeats, all schemas) → greedily keeping up to {k} that add to the pool"
     )
     folds = build_fold_definitions(list(df[SMILES_COLUMN]), list(y), repeats=SCREEN_REPEATS)
     fold_pairs = [(f["train_idx"], f["test_idx"]) for f in folds.values()]
     selected, scores = select_descriptors(
-      os.path.join(self.path, DESCRIPTORS_SUBFOLDER), candidates, y, fold_pairs, k
+      os.path.join(self.path, DESCRIPTORS_SUBFOLDER), pool, y, fold_pairs, k
     )
     meta_dir = os.path.join(self.path, METADATA_SUBFOLDER)
     with open(os.path.join(meta_dir, SELECTED_EOS_FILENAME), "w") as f:
@@ -94,7 +106,7 @@ class ScreenPipeline(ZairaBase):
       json.dump(scores, f, indent=4)
     self._print_table(scores, set(selected), PROXY_FLOOR)
     logger.success(
-      f"[screen] Selected {len(selected)} of {len(candidates)} descriptors for full training."
+      f"[screen] Selected {len(selected)} of {len(pool)} descriptors for full training."
     )
     step.update()
 

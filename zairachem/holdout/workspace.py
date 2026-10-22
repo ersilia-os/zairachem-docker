@@ -2,11 +2,13 @@
 
 A fold is executed as a miniature model directory under ``folds/<fold_name>/``: its estimators and
 pooler are written there (mirroring the production ``model/`` layout), while the heavy, already-computed
-``descriptors/`` and the ``inputs/``/``metadata/`` are *symlinked* back to the parent run so nothing is
-recomputed or duplicated. Pointing an estimator/pooler at this directory therefore reads the shared
-artifacts and writes only the fold's own results.
+``descriptors/`` and ``inputs/`` are *symlinked* back to the parent run, and ``metadata/`` links the
+parent's files but holds the fold's own descriptor selection. Nothing is recomputed or duplicated;
+pointing an estimator/pooler at this directory reads the shared artifacts and writes only the fold's
+own results.
 """
 
+import json
 import os
 
 from zairachem.base.vars import (
@@ -16,15 +18,20 @@ from zairachem.base.vars import (
   FOLDS_SUBFOLDER,
   METADATA_SUBFOLDER,
   POOL_SUBFOLDER,
+  SELECTED_EOS_FILENAME,
 )
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
 # Shared, read-only dirs symlinked from each fold back to the parent run (all single-segment).
-_SHARED = (DATA_SUBFOLDER, METADATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER)
+_SHARED = (DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER)
 
 
-def build_fold_workspace(model_dir, fold_name):
+def build_fold_workspace(model_dir, fold_name, descriptors):
   """Create ``<model_dir>/folds/<fold_name>/`` with shared dirs symlinked in, and return its path.
+
+  ``metadata/`` is a folder of links to the parent's files except ``selected_eos.json``, which holds
+  the fold's own ``descriptors``: every step that resolves the run's descriptors (estimate, pool)
+  then uses the fold's, which may differ from the parent's when the run was screened.
 
   Parameters
   ----------
@@ -32,6 +39,8 @@ def build_fold_workspace(model_dir, fold_name):
     The run's top-level directory (holds the shared ``descriptors/``, ``inputs/``, ``metadata/``).
   fold_name : str
     Fold identifier (e.g. ``scaffold_det`` or ``random_00``).
+  descriptors : list of str
+    Descriptor ids the fold trains and pools.
 
   Returns
   -------
@@ -46,6 +55,20 @@ def build_fold_workspace(model_dir, fold_name):
       continue
     target = os.path.join(model_dir, shared)
     os.symlink(os.path.relpath(target, fold_path), link)
+  meta = os.path.join(fold_path, METADATA_SUBFOLDER)
+  if os.path.islink(meta):  # a fold built before metadata/ became per-file
+    os.remove(meta)
+  os.makedirs(meta, exist_ok=True)
+  parent_meta = os.path.join(model_dir, METADATA_SUBFOLDER)
+  for name in os.listdir(parent_meta):
+    link = os.path.join(meta, name)
+    if name != SELECTED_EOS_FILENAME and not os.path.lexists(link):
+      os.symlink(os.path.relpath(os.path.join(parent_meta, name), meta), link)
+  selected = os.path.join(meta, SELECTED_EOS_FILENAME)
+  if os.path.lexists(selected):
+    os.remove(selected)
+  with open(selected, "w") as f:
+    json.dump(list(descriptors), f, indent=4)
   # The fold's own outputs (mirror the production model/ layout).
   os.makedirs(
     os.path.join(fold_path, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER), exist_ok=True

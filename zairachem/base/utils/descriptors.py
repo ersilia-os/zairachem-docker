@@ -3,9 +3,9 @@
 ``done_eos.json`` (under ``descriptors/``) records every featurizer that was successfully computed.
 When ``--max-descriptors`` pre-screening runs, it writes a chosen subset to
 ``metadata/selected_eos.json``; that subset then overrides ``done_eos.json`` everywhere downstream.
-Keeping the two separate means ``done_eos.json`` stays an honest record of what was featurized, and a
-held-out fold can hold its OWN ``selected_eos.json`` (its ``metadata/`` is a copy, not a symlink of the
-parent's) without disturbing the shared, symlinked ``descriptors/``.
+Keeping the two separate means ``done_eos.json`` stays an honest record of what was featurized.
+Each held-out fold has its own ``metadata/selected_eos.json`` (its other metadata files link to the
+run's): the run's descriptors, or a selection made on the fold's training rows when it was screened.
 """
 
 import json

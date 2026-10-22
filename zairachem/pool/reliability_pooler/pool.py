@@ -60,7 +60,7 @@ def _build_reference_rank(params, ref, p_valid, y_valid):
 
   ``ref`` is the rank-reference library's per-descriptor ``(P, R, A)``. It goes through the same
   fitted weighting a query does, so its pooled probabilities are on the query scale; their knots are
-  what ``rank`` is a position against (``lazyqsar.ensemble.reference.build_pooled_rank_knots``).
+  what ``rank`` is a position against, as in lazy-qsar's ensemble (``LazyClassifierQSAR``).
   The top of the scale is pinned on p95 of the validation actives' pooled probability, and the
   decision cutoff is :data:`~lazyqsar.utils.ranking.DECISION_RANK` (top 1% of the library) mapped
   back to a probability. Leaves ``params`` without a rank when there is no usable reference.
@@ -299,6 +299,22 @@ class Predictor(BasePooler):
     reduced["descriptor_columns"] = keep
     reduced["base_scores"] = [params["base_scores"][p] for p in pos]
     if keep != saved:
+      reduced["pooled_rank_knots"] = None
+    missing = [
+      name
+      for name, fitted, now in (
+        ("rank", params.get("has_rank"), R),
+        ("AD", params.get("has_ad"), A),
+      )
+      if fitted and now is None
+    ]
+    if missing and reduced.get("pooled_rank_knots") is not None:
+      # The reference was pooled with these signals; without them the queries are weighted
+      # differently, so a position against the reference would not mean what it does at fit.
+      logger.warning(
+        f"[reliability_pool:predict] no {' or '.join(missing)} signals for these molecules; "
+        "`clf_rank` is unavailable (the reference was pooled with them)"
+      )
       reduced["pooled_rank_knots"] = None
     if params.get("rank_error_curves") is not None:
       reduced["rank_error_curves"] = [params["rank_error_curves"][p] for p in pos]

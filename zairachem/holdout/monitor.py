@@ -37,7 +37,7 @@ class EvaluateMonitor(LiveTableMonitor):
 
   def __init__(self, item_ids, color="bright_blue", est_seconds=None):
     super().__init__(item_ids, color=color)
-    # Per-fold time predictor from the training step (a fold refits the same descriptor stack). Only
+    # Per-fold time predictor from the training step (a fold refits as many descriptors, at most). Only
     # trusted if meaningfully large — a resumed run whose estimate step was skipped reports ~0s.
     self._est_seconds = est_seconds if (est_seconds and est_seconds > 5) else None
 
