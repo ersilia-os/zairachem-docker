@@ -178,15 +178,54 @@ def _descriptor_ranks(cutoffs, P, y, reference_P):
   return ranks
 
 
+def _fit_regression(spec, P, R, S, A, y, pruned_columns):
+  """Finish a regression fit from the pruned matrices; return ``(params, result)``.
+
+  Two things happen here that have no classification counterpart. The descriptor weights are
+  lazy-qsar's 3.8 default -- one fixed weight each, fitted by non-negative least squares on the
+  out-of-fold predictions -- which replaces the skill and reliability terms while leaving the
+  per-compound applicability-domain veto in force. And the pooled out-of-fold residuals calibrate
+  split-conformal prediction intervals, binned by applicability domain so a compound unlike the
+  training set is handed a wider one.
+
+  There is no reference library, so no rank, no screening cutoff and no cutoffs of any kind: the
+  ``cutoffs`` and ``cutoff_ranks`` a classification model carries are empty by construction.
+  """
+  weights = stacking_weights(np.asarray(P, dtype=np.float64), np.asarray(y, dtype=np.float64))
+  spec = dataclasses.replace(spec, descriptor_weights=tuple(float(w) for w in weights))
+  p_train = _pooled(pool(P, R, S, A, spec, _outputs(REGRESSION)), spec)
+  intervals = fit_intervals(np.asarray(y, dtype=np.float64), p_train, ad_summary(A))
+  if intervals:
+    spec = dataclasses.replace(spec, intervals=intervals)
+  params = {
+    "version": ARTIFACT_VERSION,
+    "task": REGRESSION,
+    "descriptor_columns": list(spec.descriptor_names),
+    "pruned_columns": pruned_columns,
+    "spec": spec,
+    "has_rank": R is not None,
+    "has_ad": A is not None,
+    "has_score": False,
+    "cutoffs": {},
+    "cutoff_ranks": {},
+  }
+  return params, predict(params, P, R, S, A)
+
+
 def fit(P, R, S, A, y, names, meta, reference=None, kappa=None, task=CLASSIFICATION):
   """Fit the pooled model on the training rows; return ``(params, result)``.
 
   ``meta`` holds the per-descriptor ``oof_aucs``, ``train_aucs``, ``proxy_aucs``, ``curves`` and
-  ``ad_cutoffs`` (aligned to ``names``). Weak descriptors are pruned first; the matrices, including
-  the rank-reference library's ``(P, R, A)`` in ``reference``, are then pooled over the active ones
-  only. With a reference, the pooled probability gets its rank and the screening cutoff; ``kappa``
-  (``(y, p) -> cutoff``) sets the kappa cutoff on the pooled training scores. ``result`` holds the
-  training rows' outputs (``proba``, ``binary``, and ``rank``/``score`` when available).
+  ``ad_cutoffs`` (aligned to ``names``). Weak descriptors are pruned first and the matrices are
+  pooled over the active ones only; from there the two tasks part company.
+
+  Classification also pools the rank-reference library's ``(P, R, A)`` given in ``reference``,
+  which is what gives the pooled probability its rank and the screening cutoff, and ``kappa``
+  (``(y, p) -> cutoff``) sets the kappa cutoff on the pooled training scores. ``result`` then holds
+  the training rows' ``proba`` and ``binary``, plus ``rank``/``score`` where available.
+
+  Regression has no reference library and no cutoff of any kind (see :func:`_fit_regression`), so
+  ``reference`` and ``kappa`` are ignored and ``result`` holds ``value`` with its interval.
   """
   mask = active_mask(meta["oof_aucs"], task)
   keep = [j for j, m in enumerate(mask) if m]
@@ -209,35 +248,12 @@ def fit(P, R, S, A, y, names, meta, reference=None, kappa=None, task=CLASSIFICAT
     float(np.mean(y)) if len(y) and task == CLASSIFICATION else 0.5,
     task=task,
   )
+  pruned_columns = [n for n, m in zip(names, mask) if not m]
   if task == REGRESSION:
-    # lazy-qsar's 3.8 default: one fixed weight per descriptor, fitted by non-negative least
-    # squares on the out-of-fold predictions. It replaces the skill and reliability terms, while
-    # the per-compound applicability-domain veto still applies.
-    weights = stacking_weights(np.asarray(P_a, dtype=np.float64), np.asarray(y, dtype=np.float64))
-    spec = dataclasses.replace(spec, descriptor_weights=tuple(float(w) for w in weights))
+    return _fit_regression(spec, P_a, R_a, S_a, A_a, y, pruned_columns)
   p_train = _pooled(pool(P_a, R_a, S_a, A_a, spec, _outputs(task)), spec)
 
   updates, info = {}, {}
-  if task == REGRESSION:
-    # Split-conformal intervals from the pooled out-of-fold residuals, binned by applicability
-    # domain so a compound unlike the training set gets a wider one.
-    intervals = fit_intervals(np.asarray(y, dtype=np.float64), p_train, ad_summary(A_a))
-    if intervals:
-      updates["intervals"] = intervals
-    spec = dataclasses.replace(spec, **updates)
-    params = {
-      "version": ARTIFACT_VERSION,
-      "task": task,
-      "descriptor_columns": list(spec.descriptor_names),
-      "pruned_columns": [n for n, m in zip(names, mask) if not m],
-      "spec": spec,
-      "has_rank": R_a is not None,
-      "has_ad": A_a is not None,
-      "has_score": False,
-      "cutoffs": {},
-      "cutoff_ranks": {},
-    }
-    return params, predict(params, P_a, R_a, S_a, A_a)
   if S_a is not None:
     updates["pooled_score_knots"] = build_pooled_score_knots(P_a, _ranks(R_a), S_a, A_a, spec)
   screening = None
@@ -278,7 +294,7 @@ def fit(P, R, S, A, y, names, meta, reference=None, kappa=None, task=CLASSIFICAT
   params = {
     "version": ARTIFACT_VERSION,
     "descriptor_columns": list(spec.descriptor_names),
-    "pruned_columns": [n for n, m in zip(names, mask) if not m],
+    "pruned_columns": pruned_columns,
     "spec": spec,
     "has_rank": R_a is not None,
     "has_ad": A_a is not None,

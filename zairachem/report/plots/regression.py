@@ -1,8 +1,14 @@
-"""Regression report plots: how close the predictions are, and where they stop being trustworthy.
+"""Regression report plots, grouped by the question each one answers.
 
-At fit the truth is known for every compound, so the panels compare predicted with observed. At
-predict there is usually no truth, and the useful questions become where the predictions sit
-relative to what the model was trained on, and how wide their intervals are.
+Three groups, in the order a reader works through them. **Accuracy** compares predicted with
+observed and needs the truth, so it renders at fit and at predict against a labelled test set.
+**Confidence** needs no truth at all -- where the predictions sit relative to the training set,
+how much the descriptors disagreed, how wide the intervals are -- which is what makes it the core
+of a prediction run on molecules nobody has measured. **Chemistry** puts both on the molecules
+themselves: the projections and the physico-chemical properties, coloured by value.
+
+Every panel here renders only for a regression run, and every classification panel only for a
+classification one, so the two reports are the same report with a different vocabulary.
 """
 
 import numpy as np
@@ -30,15 +36,18 @@ def _finite_pair(a, b):
   return a[m], b[m]
 
 
+# --- Accuracy: predicted against observed (needs the truth) ------------------------------------
+
+
 class IndividualEstimatorsR2Plot(BasePlot):
   """Per-descriptor R² against the observed target (regression only)."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
+    self.name = "r2-individual"
     self.is_available = False
     if not self.has_reg_data():
       return
-    self.name = "r2-individual"
     fetcher = ResultsFetcher(path=path)
     yt = fetcher.get_true_reg()
     df = fetcher._read_individual_estimator_results(fetcher.get_reg_tasks()[0])
@@ -78,10 +87,10 @@ class RegressionPlotRaw(BasePlot):
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "regression-raw"
     self.is_available = False
     if not self.has_reg_data():
       return
-    self.name = "regression-raw"
     fetcher = ResultsFetcher(path=path)
     yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
     if yt is None or len(yt) < 2:
@@ -102,10 +111,10 @@ class ResidualsPlot(BasePlot):
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "regression-residuals"
     self.is_available = False
     if not self.has_reg_data():
       return
-    self.name = "regression-residuals"
     fetcher = ResultsFetcher(path=path)
     yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
     if yt is None or len(yt) < 2:
@@ -120,15 +129,121 @@ class ResidualsPlot(BasePlot):
     self.is_available = True
 
 
+class PotencyEnrichmentPlot(BasePlot):
+  """If you took the top k% by prediction, how potent would they actually be?
+
+  The screening question, and the one a correlation coefficient does not answer. The curve is the
+  mean *observed* value of the top k% ranked by prediction, against the dataset mean (dashed): the
+  gap at small k is what the model buys over picking compounds at random. Needs the observed
+  values, so it renders at fit and at predict with truth.
+  """
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "potency-enrichment"
+    self.is_available = False
+    if not self.is_regression():
+      return
+    fetcher = ResultsFetcher(path=path)
+    try:
+      yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
+    except Exception:
+      return
+    if yt is None or len(yt) < 20:
+      return
+    order = np.argsort(-yp)  # best predicted first
+    observed = yt[order]
+    n = observed.size
+    # Mean observed value of the top k%, for every k -- a cumulative mean over the ranked list.
+    running = np.cumsum(observed) / np.arange(1, n + 1)
+    pct = np.arange(1, n + 1) / n * 100.0
+    keep = pct >= 1.0  # the first few compounds are too noisy a mean to plot
+    ax = self.ax
+    ax.plot(pct[keep], running[keep], color=named_colors.green, lw=1.8, zorder=3)
+    ax.axhline(float(yt.mean()), color=named_colors.gray, lw=1, ls="--", zorder=1)
+    top10 = float(running[max(0, int(0.1 * n) - 1)])
+    ax.set_xlabel("Top % by predicted value")
+    ax.set_ylabel("Mean observed value")
+    ax.set_title(f"Selection quality · top 10% averages {top10:.2f}")
+    self.is_available = True
+
+
+class IntervalCoveragePlot(BasePlot):
+  """Does the prediction interval keep its promise, and does it keep it everywhere?
+
+  The intervals are Mondrian split-conformal: the training residuals are split into bins by
+  applicability-domain score and each bin gets its own half-width, so every compound is handed the
+  width of the bin it falls in. The guarantee is only worth anything if it holds *within* each bin,
+  which is what this checks -- one bar per distinct interval width (i.e. per bin), against the
+  nominal level. Needs the observed values, so it renders at fit and at predict with truth.
+  """
+
+  NOMINAL = 0.9
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "interval-coverage"
+    self.is_available = False
+    if not self.is_regression():
+      return
+    fetcher = ResultsFetcher(path=path)
+    lower, upper = fetcher.get_pred_interval_reg()
+    if lower is None:
+      return
+    try:
+      truth = np.asarray(fetcher.get_true_reg(), dtype=float)
+    except Exception:
+      return  # no truth: nothing to check the interval against
+    lo = np.asarray(lower, dtype=float)
+    hi = np.asarray(upper, dtype=float)
+    if truth.shape != lo.shape:
+      return
+    ok = np.isfinite(truth) & np.isfinite(lo) & np.isfinite(hi)
+    if ok.sum() < 2:
+      return
+    truth, lo, hi = truth[ok], lo[ok], hi[ok]
+    covered = (truth >= lo) & (truth <= hi)
+    width = np.round(hi - lo, 6)
+    # One bar per Mondrian bin (a bin is exactly one half-width), narrowest -- most typical
+    # chemistry -- first, then an "All" bar for the pooled coverage.
+    bins = sorted(set(width.tolist()))
+    labels, values = [], []
+    for w in bins:
+      m = width == w
+      if m.sum() == 0:
+        continue
+      labels.append(f"{w:.2f}")
+      values.append(float(covered[m].mean()))
+    labels.append("All")
+    values.append(float(covered.mean()))
+    ax = self.ax
+    x = list(range(len(labels)))
+    bar_colors = [named_colors.blue] * (len(labels) - 1) + [named_colors.green]
+    ax.bar(x, values, color=bar_colors, alpha=0.9, width=0.6, zorder=2)
+    ax.axhline(self.NOMINAL, color=named_colors.gray, lw=1, ls="--", zorder=3)
+    for i, v in enumerate(values):
+      ax.text(i, v + 0.02, f"{v:.2f}", ha="center", va="bottom", fontsize=7, zorder=4)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylim(0, 1.12)
+    ax.set_xlabel("Interval width")
+    ax.set_ylabel("Observed coverage")
+    ax.set_title(f"Interval coverage by width · nominal {self.NOMINAL:.0%} (--)")
+    self.is_available = True
+
+
+# --- Confidence: how far the predictions are from what the model has seen (no truth needed) ----
+
+
 class PredictedValueDistributionPlot(BasePlot):
   """Predicted values against the training distribution (regression only)."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "regression-distribution"
     self.is_available = False
     if not self.is_regression():
       return
-    self.name = "regression-distribution"
     fetcher = ResultsFetcher(path=path)
     yp = fetcher.get_pred_value_reg()
     if yp is None:
@@ -183,10 +298,10 @@ class ErrorVsSimilarityPlot(BasePlot):
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "regression-error-similarity"
     self.is_available = False
     if not self.is_regression():
       return
-    self.name = "regression-error-similarity"
     fetcher = ResultsFetcher(path=path)
     try:
       similarity = fetcher.get_train_similarity()
@@ -217,6 +332,61 @@ class ErrorVsSimilarityPlot(BasePlot):
     ax.set_ylabel(label)
     ax.set_title(f"{label} vs training similarity")
     self.is_available = True
+
+
+class ValueConsensusPlot(BasePlot):
+  """Pooled predicted value against how much the descriptors disagreed about it (regression only).
+
+  The regression counterpart of the classification consensus panel. A prediction the descriptors
+  agree on is worth more than one they do not, whatever its value, so the spread is the second
+  number to read beside the hitlist. Needs no truth, which is the point: it is a triage signal for
+  compounds nobody has measured.
+  """
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "value-consensus"
+    self.is_available = False
+    if not self.is_regression():
+      return
+    fetcher = ResultsFetcher(path=path)
+    pooled = fetcher.get_pred_value_reg()
+    if pooled is None:
+      return
+    try:
+      per_descriptor = fetcher._read_individual_estimator_results(fetcher.get_reg_tasks()[0])
+    except Exception:
+      return
+    if per_descriptor is None or per_descriptor.shape[1] < 2:
+      return  # one descriptor cannot disagree with itself
+    values = per_descriptor.values.astype(float)
+    spread = np.nanstd(values, axis=1)
+    pooled = np.asarray(pooled, dtype=float)
+    if pooled.size != values.shape[0]:
+      pooled = np.nanmean(values, axis=1)
+    pooled, spread = _finite_pair(pooled, spread)
+    if pooled is None or pooled.size == 0:
+      return
+    ax = self.ax
+    idx, alpha = _subsample(pooled.size)
+    sc = ax.scatter(
+      pooled[idx],
+      spread[idx],
+      c=pooled[idx],
+      cmap=_npg_cmap(hexcol("active"), hexcol("neutral")),
+      s=12,
+      alpha=alpha,
+      edgecolors="none",
+    )
+    cb = ax.figure.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+    cb.set_label("Predicted value")
+    ax.set_xlabel("Pooled predicted value")
+    ax.set_ylabel("Descriptor disagreement (std)")
+    ax.set_title("Descriptor consensus")
+    self.is_available = True
+
+
+# --- Chemistry: the molecules themselves, coloured by value ------------------------------------
 
 
 class ProjectionValuePlot(BasePlot):
@@ -335,158 +505,3 @@ class PropertyValueLogpPlot(_PropertyValuePlot):
   stem = "property-logp-value"
   label = "LogP"
   prop_index = 1
-
-
-class IntervalCoveragePlot(BasePlot):
-  """Does the prediction interval keep its promise, and does it keep it everywhere?
-
-  The intervals are Mondrian split-conformal: the training residuals are split into bins by
-  applicability-domain score and each bin gets its own half-width, so every compound is handed the
-  width of the bin it falls in. The guarantee is only worth anything if it holds *within* each bin,
-  which is what this checks -- one bar per distinct interval width (i.e. per bin), against the
-  nominal level. Needs the observed values, so it renders at fit and at predict with truth.
-  """
-
-  NOMINAL = 0.9
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.is_available = False
-    if not self.is_regression():
-      return
-    self.name = "interval-coverage"
-    fetcher = ResultsFetcher(path=path)
-    lower, upper = fetcher.get_pred_interval_reg()
-    if lower is None:
-      return
-    try:
-      truth = np.asarray(fetcher.get_true_reg(), dtype=float)
-    except Exception:
-      return  # no truth: nothing to check the interval against
-    lo = np.asarray(lower, dtype=float)
-    hi = np.asarray(upper, dtype=float)
-    if truth.shape != lo.shape:
-      return
-    ok = np.isfinite(truth) & np.isfinite(lo) & np.isfinite(hi)
-    if ok.sum() < 2:
-      return
-    truth, lo, hi = truth[ok], lo[ok], hi[ok]
-    covered = (truth >= lo) & (truth <= hi)
-    width = np.round(hi - lo, 6)
-    # One bar per Mondrian bin (a bin is exactly one half-width), narrowest -- most typical
-    # chemistry -- first, then an "All" bar for the pooled coverage.
-    bins = sorted(set(width.tolist()))
-    labels, values = [], []
-    for w in bins:
-      m = width == w
-      if m.sum() == 0:
-        continue
-      labels.append(f"{w:.2f}")
-      values.append(float(covered[m].mean()))
-    labels.append("All")
-    values.append(float(covered.mean()))
-    ax = self.ax
-    x = list(range(len(labels)))
-    bar_colors = [named_colors.blue] * (len(labels) - 1) + [named_colors.green]
-    ax.bar(x, values, color=bar_colors, alpha=0.9, width=0.6, zorder=2)
-    ax.axhline(self.NOMINAL, color=named_colors.gray, lw=1, ls="--", zorder=3)
-    for i, v in enumerate(values):
-      ax.text(i, v + 0.02, f"{v:.2f}", ha="center", va="bottom", fontsize=7, zorder=4)
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
-    ax.set_ylim(0, 1.12)
-    ax.set_xlabel("Interval width")
-    ax.set_ylabel("Observed coverage")
-    ax.set_title(f"Interval coverage by width · nominal {self.NOMINAL:.0%} (--)")
-    self.is_available = True
-
-
-class PotencyEnrichmentPlot(BasePlot):
-  """If you took the top k% by prediction, how potent would they actually be?
-
-  The screening question, and the one a correlation coefficient does not answer. The curve is the
-  mean *observed* value of the top k% ranked by prediction, against the dataset mean (dashed): the
-  gap at small k is what the model buys over picking compounds at random. Needs the observed
-  values, so it renders at fit and at predict with truth.
-  """
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.is_available = False
-    if not self.is_regression():
-      return
-    self.name = "potency-enrichment"
-    fetcher = ResultsFetcher(path=path)
-    try:
-      yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
-    except Exception:
-      return
-    if yt is None or len(yt) < 20:
-      return
-    order = np.argsort(-yp)  # best predicted first
-    observed = yt[order]
-    n = observed.size
-    # Mean observed value of the top k%, for every k -- a cumulative mean over the ranked list.
-    running = np.cumsum(observed) / np.arange(1, n + 1)
-    pct = np.arange(1, n + 1) / n * 100.0
-    keep = pct >= 1.0  # the first few compounds are too noisy a mean to plot
-    ax = self.ax
-    ax.plot(pct[keep], running[keep], color=named_colors.green, lw=1.8, zorder=3)
-    ax.axhline(float(yt.mean()), color=named_colors.gray, lw=1, ls="--", zorder=1)
-    top10 = float(running[max(0, int(0.1 * n) - 1)])
-    ax.set_xlabel("Top % by predicted value")
-    ax.set_ylabel("Mean observed value")
-    ax.set_title(f"Selection quality · top 10% averages {top10:.2f}")
-    self.is_available = True
-
-
-class ValueConsensusPlot(BasePlot):
-  """Pooled predicted value against how much the descriptors disagreed about it (regression only).
-
-  The regression counterpart of the classification consensus panel. A prediction the descriptors
-  agree on is worth more than one they do not, whatever its value, so the spread is the second
-  number to read beside the hitlist. Needs no truth, which is the point: it is a triage signal for
-  compounds nobody has measured.
-  """
-
-  def __init__(self, ax, path):
-    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
-    self.is_available = False
-    if not self.is_regression():
-      return
-    self.name = "value-consensus"
-    fetcher = ResultsFetcher(path=path)
-    pooled = fetcher.get_pred_value_reg()
-    if pooled is None:
-      return
-    try:
-      per_descriptor = fetcher._read_individual_estimator_results(fetcher.get_reg_tasks()[0])
-    except Exception:
-      return
-    if per_descriptor is None or per_descriptor.shape[1] < 2:
-      return  # one descriptor cannot disagree with itself
-    values = per_descriptor.values.astype(float)
-    spread = np.nanstd(values, axis=1)
-    pooled = np.asarray(pooled, dtype=float)
-    if pooled.size != values.shape[0]:
-      pooled = np.nanmean(values, axis=1)
-    pooled, spread = _finite_pair(pooled, spread)
-    if pooled is None or pooled.size == 0:
-      return
-    ax = self.ax
-    idx, alpha = _subsample(pooled.size)
-    sc = ax.scatter(
-      pooled[idx],
-      spread[idx],
-      c=pooled[idx],
-      cmap=_npg_cmap(hexcol("active"), hexcol("neutral")),
-      s=12,
-      alpha=alpha,
-      edgecolors="none",
-    )
-    cb = ax.figure.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
-    cb.set_label("Predicted value")
-    ax.set_xlabel("Pooled predicted value")
-    ax.set_ylabel("Descriptor disagreement (std)")
-    ax.set_title("Descriptor consensus")
-    self.is_available = True

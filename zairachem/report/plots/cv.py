@@ -10,6 +10,7 @@ from sklearn.metrics import (
   roc_curve,
 )
 
+from zairachem.base.vars import CV_SKILL
 from zairachem.report import BasePlot
 from zairachem.report.colors import (
   descriptor_colors_rgb,
@@ -330,4 +331,64 @@ class CvPrPlot(BasePlot):
     ax.set_ylabel("Precision")
     ax.set_title("Cross-validation precision-recall")
     ax.legend(loc="lower left", fontsize=6)
+    self.is_available = True
+
+
+class CvErrorCurvePlot(BasePlot):
+  """Per-descriptor out-of-fold error curves: what fraction of compounds land within an error.
+
+  The regression counterpart of the cross-validation ROC and PR curves, and read the same way --
+  up and to the left is better, and the spread between the lines is how much the choice of
+  descriptor matters. Built from each descriptor's own out-of-fold predictions, so a descriptor
+  that memorised its training rows cannot flatter itself here. The dashed line is the error you
+  would get by predicting the training mean for everything.
+  """
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "cv-error-curve"
+    self.is_available = False
+    rf = ResultsFetcher(path=path)
+    stats = rf.get_cv_stats()
+    if skill_keys(stats)[0] != CV_SKILL["regression"][0]:
+      return  # a classification run: its ROC and PR curves say this instead
+    color_of = _descriptor_color_map(stats)
+    curves, baseline = [], None
+    for s in stats:
+      oof = rf.get_cv_oof_values(s["descriptor"])
+      if oof is None:
+        continue
+      pred = np.asarray(oof[0], dtype=float)
+      truth = np.asarray(oof[1], dtype=float)
+      keep = np.isfinite(pred) & np.isfinite(truth)
+      if keep.sum() < 2:
+        continue
+      err = np.sort(np.abs(truth[keep] - pred[keep]))
+      curves.append((s["descriptor"], err))
+      if baseline is None:
+        baseline = np.sort(np.abs(truth[keep] - truth[keep].mean()))
+    if not curves:
+      return
+    ax = self.ax
+    frac = None
+    for name, err in curves:
+      frac = np.arange(1, err.size + 1) / err.size
+      ax.plot(err, frac, color=color_of[name], lw=1.6, alpha=0.9, label=name, zorder=3)
+    if baseline is not None and baseline.size:
+      ax.plot(
+        baseline,
+        np.arange(1, baseline.size + 1) / baseline.size,
+        color=named_colors.gray,
+        lw=1,
+        ls="--",
+        zorder=1,
+        label="train mean",
+      )
+    # Clip to where the curves are informative; the long tail is a handful of bad predictions.
+    ax.set_xlim(0, float(max(np.percentile(e, 98) for _n, e in curves)))
+    ax.set_ylim(0, 1.02)
+    ax.set_xlabel("Absolute out-of-fold error")
+    ax.set_ylabel("Fraction of compounds within")
+    ax.set_title("Cross-validation error curve")
+    ax.legend(loc="lower right", fontsize=6)
     self.is_available = True

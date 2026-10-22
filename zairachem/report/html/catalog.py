@@ -112,6 +112,7 @@ _TITLES = {
   "cv-cutoff": "Ideal decision cutoff",
   "cv-roc": "Cross-validation ROC",
   "cv-pr": "Cross-validation precision-recall",
+  "cv-error-curve": "Cross-validation error curve",
   "projection-mwlogp": "Molecular weight vs LogP",
   "projection-umap": "UMAP projection",
   "projection-tsne": "t-SNE projection",
@@ -376,6 +377,6 @@ _DIAG_GROUPS = [
   {
     "key": "diag-curves",
     "title": "Cross-validation curves",
-    "members": ["cv-roc", "cv-pr"],
+    "members": ["cv-roc", "cv-pr", "cv-error-curve"],
   },
 ]

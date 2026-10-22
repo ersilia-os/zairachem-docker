@@ -165,6 +165,21 @@ class ResultsFetcher(ZairaBase):
           return list(df["oof_proba"]), list(df["y"])
     return None
 
+  def get_cv_oof_values(self, descriptor):
+    """``(oof_value, y)`` lists for a regression descriptor's out-of-fold predictions, or None.
+
+    The sibling of :meth:`get_cv_oof`: a regression run records a predicted value where a
+    classification one records a probability.
+    """
+    d = self._cv_dirs().get(descriptor)
+    if d is not None:
+      f = os.path.join(d, "oof.csv")
+      if os.path.exists(f):
+        df = self._read_csv_cached(f)
+        if "oof_value" in df.columns:
+          return list(df["oof_value"]), list(df["y"])
+    return None
+
   def get_tasks(self):
     """Return the ``clf``/``reg`` task column names of the run's ``data.csv``."""
     df = self._read_data()
