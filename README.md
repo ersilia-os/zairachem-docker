@@ -86,6 +86,12 @@ non-commercial use only; pass `-f` without it to exclude it.
 probability (`proba`), the 0/1 `call` (`rank` ≥ 0.65), the per-descriptor probabilities
 (`proba_<eos_id>`) and the 2-D projections.
 
+A regression model (`fit -r`) predicts the value itself, so there is no rank, no call and no
+`cutoffs.json`. `output.csv` carries `value` in place of `score` (plus `similarity`, `spread` and
+`label` as above), `output_table.csv` adds the `lower`/`upper` conformal interval and the
+per-descriptor values (`value_<eos_id>`), and `performance_table.csv` is one row per model with R²,
+RMSE, MAE and the Pearson and Spearman correlations.
+
 `results/cutoffs.json` gives each named cutoff as a probability and as a rank, the scale of `score`:
 `screening` (the call: rank 0.65), `kappa` (Cohen's kappa on the training out-of-fold scores),
 `balanced` (each descriptor's balanced-accuracy cutoff) and `default` (0.5).

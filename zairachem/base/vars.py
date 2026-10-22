@@ -140,21 +140,34 @@ REPORT_SUBFOLDER = "report"
 # RESULTS_SUBFOLDER.
 OUTPUT_FILENAME = "results/output.csv"
 OUTPUT_TABLE_FILENAME = "output_table.csv"
-# Columns of results/output.csv, from the internal pooled-results names (in this order). The
-# similarity and spread exist only at predict; `label` (the input's truth, when it has one) is added
-# from data.csv. The full output table (report/table.py) keeps proba, call and rank as well.
+# Columns of results/output.csv per task, from the internal pooled-results names (in this order).
+# Classification delivers `score`, the rank against the reference library; regression delivers
+# `value`, the prediction in the target's own units (it has no rank, and its interval is in the
+# output table). The similarity and spread exist only at predict; `label` (the input's truth, when
+# it has one) is added from data.csv. The full output table (report/table.py) keeps more.
 OUTPUT_COLUMNS = {
-  "compound_id": "compound_id",
-  "smiles": "smiles",
-  "clf_rank": "score",
-  "train_similarity": "similarity",
-  "descriptor_std": "spread",
+  "classification": {
+    "compound_id": "compound_id",
+    "smiles": "smiles",
+    "clf_rank": "score",
+    "train_similarity": "similarity",
+    "descriptor_std": "spread",
+  },
+  "regression": {
+    "compound_id": "compound_id",
+    "smiles": "smiles",
+    "reg": "value",
+    "train_similarity": "similarity",
+    "descriptor_std": "spread",
+  },
 }
 OUTPUT_LABEL_COLUMN = "label"
-# Decimals of the scores in results/output.csv.
+# Decimals of the scores in results/output.csv. Classification scores are in [0, 1], so four
+# decimals are more than they resolve; a regression value is in the target's own units, where
+# rounding to four decimals is harmless but rounding to fewer would not be.
 OUTPUT_DECIMALS = 4
-# Prefix of the per-descriptor probability columns in the output table (proba_<eos_id>).
-OUTPUT_DESCRIPTOR_PREFIX = "proba_"
+# Prefix of the per-descriptor columns in the output table, by task (proba_<eos_id> / value_<eos_id>).
+OUTPUT_DESCRIPTOR_PREFIX = {"classification": "proba_", "regression": "value_"}
 # Columns blanked by `finish --anonymize`.
 OUTPUT_SENSITIVE_COLUMNS = ("input_smiles", "smiles", "inchikey")
 PERFORMANCE_TABLE_FILENAME = "performance_table.csv"

@@ -47,7 +47,9 @@ _CATEGORIES = [
       "topk-overlap-curve",
       "r2-individual",
       "regression-raw",
-      "regression-trans",
+      "regression-residuals",
+      "regression-distribution",
+      "regression-error-similarity",
     ],
   ),
   (
@@ -63,12 +65,6 @@ _CATEGORIES = [
       "heldout-metric-bars",
       "heldout-confusion",
     ],
-  ),
-  (
-    "transform",
-    "Value transformation",
-    "How raw activity values were transformed for modeling.",
-    ["transformation"],
   ),
 ]
 
@@ -95,9 +91,10 @@ _TITLES = {
   "roc-curve": "ROC curve",
   "confusion-matrix": "Confusion matrix",
   "r2-individual": "R² by estimator",
-  "regression-raw": "Predicted vs observed (raw)",
-  "regression-trans": "Predicted vs observed (transformed)",
-  "transformation": "Value transformation",
+  "regression-raw": "Predicted vs observed",
+  "regression-residuals": "Residuals",
+  "regression-distribution": "Predicted values",
+  "regression-error-similarity": "Error vs training similarity",
   "cv-auroc": "Inner CV AUROC by descriptor",
   "cv-aupr": "Inner CV AUPR by descriptor",
   "cv-mcc": "MCC at ideal cutoff",
@@ -215,7 +212,7 @@ _GROUPS = [
     "key": "regression",
     "title": "Predicted vs observed",
     "home": "performance",
-    "members": ["regression-trans", "regression-raw"],
+    "members": ["regression-raw", "regression-residuals"],
   },
   {
     "key": "descriptor-agreement",

@@ -22,10 +22,11 @@ from zairachem.report.fetcher import ResultsFetcher
 class PerformanceTable(BaseTable, ResultsFetcher):
   """Writes ``report/performance_table.csv``: the pooled and per-descriptor metrics, per cutoff.
 
-  One row per (model, cutoff): the pooled model at the ``screening``, ``kappa`` and ``default``
-  cutoffs, each descriptor at its ``balanced`` cutoff and at ``default`` (see
-  ``results/cutoffs.json``). Classification only. Skips quietly when there is no labelled truth
-  with both classes (e.g. predict without ground truth).
+  For classification, one row per (model, cutoff): the pooled model at the ``screening``, ``kappa``
+  and ``default`` cutoffs, each descriptor at its ``balanced`` cutoff and at ``default`` (see
+  ``results/cutoffs.json``). For regression there are no cutoffs, so it is one row per model — the
+  pooled model and each descriptor — with R2, RMSE, MAE and the two correlations. Skips quietly
+  when there is no usable labelled truth (e.g. predict without ground truth).
   """
 
   def __init__(self, path):
@@ -70,22 +71,36 @@ class PerformanceTable(BaseTable, ResultsFetcher):
         ),
       )
 
+  def _reg_rows(self):
+    y = list(self.get_true_reg())
+    yield ("pooled", self.regression_performance_report(y, self.get_pred_value_reg()))
+    df = self._read_individual_estimator_results(self.get_reg_tasks()[0])
+    for col in df.columns:
+      yield (col, self.regression_performance_report(y, list(df[col])))
+
   def run(self):
     """Compute every model's metrics and write the performance table CSV (no-op if metrics skip)."""
-    if not self.is_clf:
-      return  # regression: not implemented
-    # Validation needs at least two classes among the labelled (current-run) compounds. At predict
-    # with no, partial or single-class truth this is degenerate: skip metrics, don't crash.
-    yt_labeled = self.clf_truth_proba()[0]
-    if len(yt_labeled) == 0 or len(set(yt_labeled.tolist())) < 2:
-      from zairachem.base.utils.logging import logger
+    from zairachem.base.utils.logging import logger
 
+    if self.is_clf:
+      # Validation needs at least two classes among the labelled (current-run) compounds. At
+      # predict with no, partial or single-class truth this is degenerate: skip, don't crash.
+      yt_labeled = self.clf_truth_proba()[0]
+      degenerate = len(yt_labeled) == 0 or len(set(yt_labeled.tolist())) < 2
+    else:
+      # The regression analogue of "both classes present": at least two distinct observed values.
+      try:
+        yt = pd.to_numeric(pd.Series(self.get_true_reg()), errors="coerce").dropna()
+      except Exception:
+        yt = pd.Series(dtype=float)
+      degenerate = len(yt) < 2 or yt.nunique() < 2
+    if degenerate:
       logger.warning(
-        "[report] Ground-truth labels are absent or single-class — skipping performance metrics."
+        "[report] Ground-truth labels are absent or degenerate — skipping performance metrics."
       )
       return
     data = collections.defaultdict(list)
-    for model, row in self._rows():
+    for model, row in self._rows() if self.is_clf else self._reg_rows():
       data["model"].append(model)
       for k, v in row.items():
         data[k].append(v)
@@ -136,33 +151,31 @@ class OutputTable(BaseTable, ResultsFetcher):
     return self.map_to_original(smiles)
 
   def _get_true_value_column(self):
-    if self.is_clf:
-      values = self.get_true_clf()
-      return self.map_to_original(values)
-    else:
+    """The observed truth per compound: the 0/1 label, or the target value."""
+    try:
+      values = self.get_true_clf() if self.is_clf else self.get_true_reg()
+    except Exception:
       return None
+    return self.map_to_original(values)
 
   def _get_pred_value_column(self):
+    """The pooled prediction per compound: the probability, or the value in the target's units."""
     try:
-      values = self.get_pred_proba_clf()
-      return self.map_to_original(values)
-      # values = self.get_pred_reg_trans()
+      values = self.get_pred_proba_clf() if self.is_clf else self.get_pred_value_reg()
+      return None if values is None else self.map_to_original(values)
     except Exception:
       return None
 
   def _get_ensemble_predictions_columns(self):
-    try:
-      tasks = self.get_clf_tasks()
-    except Exception:
-      tasks = self.get_reg_tasks()
-    task = tasks[0]
+    task = (self.get_clf_tasks() if self.is_clf else self.get_reg_tasks())[0]
     df = self._read_individual_estimator_results(task)
     columns = list(df.columns)
     for col in columns:
       v = list(df[col])
       v = self.map_to_original(v)
-      # "lq_estimators-<eos_id>" -> "proba_<eos_id>"
-      yield (OUTPUT_DESCRIPTOR_PREFIX + col.split("-")[-1], v)
+      # "lq_estimators-<eos_id>" -> "proba_<eos_id>" / "value_<eos_id>"
+      prefix = OUTPUT_DESCRIPTOR_PREFIX["classification" if self.is_clf else "regression"]
+      yield (prefix + col.split("-")[-1], v)
 
   def _get_manifolds_columns(self):
     # Every projection (always at least MW-vs-LogP) contributes both axes, named after its own
@@ -182,14 +195,25 @@ class OutputTable(BaseTable, ResultsFetcher):
     data["inchikey"] = self._get_inchikey_column()
     data["smiles"] = self._get_smiles_column()
     data["label"] = self._get_true_value_column()
-    data["proba"] = self._get_pred_value_column()
+    data["proba" if self.is_clf else "value"] = self._get_pred_value_column()
+    if not self.is_clf:
+      lower, upper = self.get_pred_interval_reg()
+      if lower is not None:
+        # The conformal interval: wider where the compound is unlike the training set.
+        data["lower"] = self.map_to_original(lower)
+        data["upper"] = self.map_to_original(upper)
     if self.is_predict():
-      # Predict-only enrichments (feed the hitlist): the binary call, the pooled reference rank,
-      # the Tanimoto similarity to the training set and the spread of the per-descriptor
-      # probabilities. Gated on is_predict() so a fit run's output_table.csv is unchanged.
+      # Predict-only enrichments (feed the hitlist): for classification the binary call and the
+      # pooled reference rank, and for both the Tanimoto similarity to the training set and the
+      # spread of the per-descriptor predictions. Gated on is_predict() so a fit run's
+      # output_table.csv is unchanged.
+      clf_only = (
+        (("call", self.get_pred_binary_clf), ("rank", self.get_pred_rank_clf))
+        if self.is_clf
+        else ()
+      )
       for key, getter in (
-        ("call", self.get_pred_binary_clf),
-        ("rank", self.get_pred_rank_clf),
+        *clf_only,
         ("similarity", self.get_train_similarity),
         ("spread", self.get_descriptor_std),
       ):

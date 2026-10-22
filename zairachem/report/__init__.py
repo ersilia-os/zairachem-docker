@@ -64,6 +64,14 @@ class BaseResults(ZairaBase):
     """Return True if ``data.csv`` has a regression (``val``) task column (not skip/aux)."""
     return any("val" in c and "_skip" not in c and "_aux" not in c for c in self._columns())
 
+  def is_regression(self):
+    """Return True when the run's task is regression.
+
+    Unlike :meth:`has_reg_data` this does not depend on the truth being present, so the plots that
+    need only the predictions still render at predict time.
+    """
+    return self._load_params().get("task", "classification") == "regression"
+
 
 class BaseTable(BaseResults):
   """Base for the report's tables (performance and per-compound output tables)."""

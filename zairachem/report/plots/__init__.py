@@ -76,10 +76,11 @@ from zairachem.report.plots.properties import (
   PropertyMwPlot,
 )
 from zairachem.report.plots.regression import (
+  ErrorVsSimilarityPlot,
   IndividualEstimatorsR2Plot,
+  PredictedValueDistributionPlot,
   RegressionPlotRaw,
-  RegressionPlotTransf,
-  Transformation,
+  ResidualsPlot,
 )
 
 __all__ = [
@@ -138,12 +139,13 @@ __all__ = [
   "ProvenanceBarPlot",
   "RankDistributionPlot",
   "RegressionPlotRaw",
-  "RegressionPlotTransf",
+  "ResidualsPlot",
+  "PredictedValueDistributionPlot",
+  "ErrorVsSimilarityPlot",
   "ResourceTimelinePlot",
   "RocCurvePlot",
   "ScoreRankCurvePlot",
   "StepTimingPlot",
   "ThresholdSweepPlot",
   "TopKOverlapCurvePlot",
-  "Transformation",
 ]

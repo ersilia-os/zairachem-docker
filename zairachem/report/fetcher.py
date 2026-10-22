@@ -151,13 +151,18 @@ class ResultsFetcher(ZairaBase):
     return stats
 
   def get_cv_oof(self, descriptor):
-    """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None."""
+    """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None.
+
+    A regression run writes ``oof_value`` instead, so there is no probability to return and the
+    classification cross-validation plots skip themselves.
+    """
     d = self._cv_dirs().get(descriptor)
     if d is not None:
       f = os.path.join(d, "oof.csv")
       if os.path.exists(f):
         df = self._read_csv_cached(f)
-        return list(df["oof_proba"]), list(df["y"])
+        if "oof_proba" in df.columns:
+          return list(df["oof_proba"]), list(df["y"])
     return None
 
   def get_tasks(self):
@@ -167,10 +172,14 @@ class ResultsFetcher(ZairaBase):
     return tasks
 
   def get_reg_tasks(self):
-    """Return the regression value (``val``) column names of the run's ``data.csv``."""
-    df = self._read_data()
-    tasks = [c for c in list(df.columns) if "val" in c]
-    return tasks
+    """Return the regression task columns, read from the pooled results (``reg``).
+
+    The truth column in ``data.csv`` is ``val``, but the per-descriptor and pooled *prediction*
+    columns are named ``reg``, and it is those the per-descriptor lookups key on. The derived
+    interval columns (``reg_lower``, ``reg_upper``) are not tasks.
+    """
+    df = self._read_pooled_results()
+    return [c for c in list(df.columns) if "reg" in c and not c.endswith(("_lower", "_upper"))]
 
   def get_clf_tasks(self, data=None):
     """Return the classification task columns, falling back to the pooled ``clf`` column.
@@ -207,13 +216,6 @@ class ResultsFetcher(ZairaBase):
     """Return the raw regression target (``val`` column) of the run's ``data.csv``."""
     df = self._read_data()
     return list(df[self.reg_task])
-
-  def get_transformed(self):  # TODO adapt for REG final
-    """Return the first transformed regression target (``reg`` column) of ``data.csv``, or None."""
-    df = self._read_data()
-    for c in list(df.columns):
-      if "reg" in c:
-        return list(df[c])
 
   def get_true_clf(self):
     """Return the binary truth labels; alias of :meth:`get_actives_inactives`."""
@@ -263,33 +265,30 @@ class ResultsFetcher(ZairaBase):
     df = self._read_pooled_results()
     return list(df["clf_rank"]) if "clf_rank" in df.columns else None
 
-  def get_pred_reg_trans(self):  # TODO ADAPT FOR REG
-    """Return the run's pooled regression prediction on the transformed (``reg``) scale."""
+  def get_pred_value_reg(self):
+    """Per-compound pooled predicted value (``reg``), in the target's own units, else None."""
     df = self._read_pooled_results()
-    for c in list(df.columns):
-      if "reg" in c and "raw" not in c:
-        return list(df[c])
+    return list(df["reg"]) if "reg" in df.columns else None
 
-  def get_pred_reg_trans_trained(self):  # TODO Adapt for Reg
-    """Return the trained model's pooled regression prediction on the transformed scale."""
+  def get_pred_value_reg_trained(self):
+    """The trained model's pooled predicted values (its out-of-fold predictions), else None."""
     df = self._read_pooled_results_train()
-    for c in list(df.columns):
-      if "reg" in c and "raw" not in c:
-        return list(df[c])
+    return list(df["reg"]) if "reg" in df.columns else None
 
-  def get_pred_reg_raw(self):
-    """Return the run's pooled regression prediction on the raw target scale (``reg_raw``)."""
+  def get_pred_interval_reg(self):
+    """``(lower, upper)`` of the pooled conformal prediction interval, else ``(None, None)``."""
     df = self._read_pooled_results()
-    for c in list(df.columns):
-      if "reg" in c and "raw" in c:
-        return list(df[c])
+    if "reg_lower" not in df.columns:
+      return None, None
+    return list(df["reg_lower"]), list(df["reg_upper"])
 
-  def get_pred_reg_raw_trained(self):
-    """Return the trained model's pooled regression prediction on the raw target scale."""
-    df = self._read_pooled_results_train()
-    for c in list(df.columns):
-      if "reg" in c and "raw" in c:
-        return list(df[c])
+  def get_true_reg(self):
+    """Return the observed target values (the ``val`` column) of the run's ``data.csv``."""
+    return list(self._read_data()[self.reg_task])
+
+  def get_true_reg_trained(self):
+    """Return the observed target values of the trained model's ``data.csv``."""
+    return list(self._read_data_train()[self.reg_task])
 
   @staticmethod
   def _humanize_axis(col):

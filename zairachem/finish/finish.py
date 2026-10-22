@@ -31,6 +31,7 @@ from zairachem.base.vars import (
   RESULTS_SUBFOLDER,
   RESULTS_UNMAPPED_FILENAME,
   SMILES_LIST_FILENAME,
+  TARGET_COLUMN,
 )
 
 # Anonymization scope constants. Cleaner and Anonymizer still use these internally; the public
@@ -363,8 +364,10 @@ class Finisher(ZairaBase):
     if not os.path.exists(src):
       return
     # The deliverable subset of the pooled results, renamed (OUTPUT_COLUMNS), plus the truth label.
+    task = self._load_params().get("task", "classification")
+    columns = OUTPUT_COLUMNS[task]
     df = pd.read_csv(src)
-    if "clf_rank" not in df.columns:
+    if task == "classification" and "clf_rank" not in df.columns:
       from zairachem.base.utils.console import echo
 
       echo(
@@ -372,16 +375,15 @@ class Finisher(ZairaBase):
         f"column; the pooled probability is in {RESULTS_SUBFOLDER}/{OUTPUT_TABLE_FILENAME}.",
         kind="warning",
       )
-    df = df[[c for c in OUTPUT_COLUMNS if c in df.columns]].rename(columns=OUTPUT_COLUMNS)
-    # Scores in [0, 1]: four decimals are more than they can resolve (the full precision stays in
-    # the output table).
+    df = df[[c for c in columns if c in df.columns]].rename(columns=columns)
+    # The full precision stays in the output table.
     df = df.round(OUTPUT_DECIMALS)
     data_path = os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME)
     if os.path.exists(data_path):
       data = pd.read_csv(data_path)
-      if "bin" in data.columns:
-        labels = data.set_index("compound_id")["bin"]
-        df[OUTPUT_LABEL_COLUMN] = df["compound_id"].map(labels)
+      truth = TARGET_COLUMN[task]
+      if truth in data.columns:
+        df[OUTPUT_LABEL_COLUMN] = df["compound_id"].map(data.set_index("compound_id")[truth])
     df.to_csv(dst, index=False)
 
   def _output_table_file(self):
