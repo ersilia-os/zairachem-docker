@@ -334,3 +334,74 @@ def test_no_regression_figure_shows_its_slug_as_a_title():
   ]
   slugged = [s for s in stems if _humanize(s) == " ".join(w.capitalize() for w in s.split("-"))]
   assert not slugged, f"no catalogue title, so the report shows the slug: {slugged}"
+
+
+# --- The small task-aware helpers behind the report and the terminal ---------------------------
+
+
+def _write_run(root, task, rows):
+  """A minimal run folder: metadata/parameters.json plus inputs/data.csv."""
+  import csv
+
+  (root / "metadata").mkdir(parents=True, exist_ok=True)
+  (root / "inputs").mkdir(parents=True, exist_ok=True)
+  (root / "metadata" / "parameters.json").write_text(f'{{"task": "{task}"}}')
+  with open(root / "inputs" / "data.csv", "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=list(rows[0]))
+    w.writeheader()
+    w.writerows(rows)
+  return str(root)
+
+
+def test_a_run_knows_whether_it_has_observed_values(tmp_path):
+  from zairachem.report.html.render import _has_truth
+
+  labelled = _write_run(tmp_path / "a", "regression", [{"compound_id": "c1", "val": "5.0"}])
+  unlabelled = _write_run(tmp_path / "b", "regression", [{"compound_id": "c1"}])
+  assert _has_truth(labelled) and not _has_truth(unlabelled)
+  # The same question for classification, and a folder that is not a run at all.
+  assert _has_truth(
+    _write_run(tmp_path / "c", "classification", [{"compound_id": "c", "bin": "1"}])
+  )
+  assert not _has_truth(str(tmp_path / "nowhere"))
+
+
+def test_the_dataset_block_summarises_a_continuous_target(tmp_path):
+  from zairachem.report.html.sections import _class_counts, _value_summary
+
+  run = _write_run(
+    tmp_path / "r",
+    "regression",
+    [{"compound_id": f"c{i}", "val": v} for i, v in enumerate("456789")],
+  )
+  summary = _value_summary(run)
+  assert summary["total"] == 6 and summary["min"] == 4.0 and summary["max"] == 9.0
+  assert summary["median"] == pytest.approx(6.5)
+  # There is no class balance to report, and no value summary on a classification run.
+  assert _class_counts(run) is None
+  clf = _write_run(tmp_path / "c", "classification", [{"compound_id": "c", "bin": "1"}])
+  assert _value_summary(clf) is None
+
+
+def test_the_terminal_headline_names_the_task_s_skill():
+  from zairachem.base.utils.summaries import _cv_headline
+
+  clf = [{"descriptor": "a", "oof_auc": 0.80}, {"descriptor": "b", "oof_auc": 0.90}]
+  reg = [{"descriptor": "a", "oof_rho": 0.60}, {"descriptor": "b", "oof_rho": 0.80}]
+  label, mean, best, best_skill = _cv_headline(clf)
+  assert (label, best, best_skill) == ("AUROC", "b", 0.90) and mean == pytest.approx(0.85)
+  label, mean, best, best_skill = _cv_headline(reg)
+  assert label.startswith("Spearman") and best == "b" and mean == pytest.approx(0.70)
+  assert _cv_headline([{"descriptor": "a"}]) is None
+
+
+def test_the_pooling_summary_does_not_claim_reliability_weighting_when_stacked():
+  from zairachem.pool.reliability_pooler.pool import _tier
+
+  assert (
+    _tier(has_rank=True, has_ad=True, stacked=True) == "stacking weights + applicability domain"
+  )
+  assert _tier(has_rank=True, has_ad=False, stacked=True) == "stacking weights"
+  # Classification is untouched by the new argument.
+  assert "percentile reliability" in _tier(has_rank=True, has_ad=True)
+  assert _tier(has_rank=False, has_ad=False) == "uniform (no applicability domain)"
