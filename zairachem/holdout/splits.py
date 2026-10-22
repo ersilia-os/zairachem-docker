@@ -7,7 +7,9 @@ balanced, mutually independent ones are selected (:func:`select_folds`); indepen
 low pairwise Jaccard overlap of the held-out sets, so the chosen folds cover different chemical space.
 
 The functions here are pure (they take ``smiles`` + ``labels`` and return row-index arrays) so they can
-be unit-tested without the rest of the pipeline. Classification only.
+be unit-tested without the rest of the pipeline. Both tasks are supported: folds are balanced on the
+class for binary labels and on quantile bins of the target for a continuous one, so no fold holds
+out only the potent compounds (the same strata lazy-qsar splits its own out-of-fold folds on).
 """
 
 import numpy as np
@@ -44,8 +46,8 @@ def split(smiles, labels, strategy, seed, test_fraction=_DEFAULT_TEST_FRACTION, 
   ----------
   smiles : list of str
     Molecule SMILES, row-aligned with ``labels``.
-  labels : array-like of int
-    Binary class labels (0/1).
+  labels : array-like
+    Binary class labels (0/1), or a continuous target.
   strategy : {"random", "scaffold", "butina"}
     Splitting strategy.
   seed : int
@@ -59,8 +61,8 @@ def split(smiles, labels, strategy, seed, test_fraction=_DEFAULT_TEST_FRACTION, 
   Returns
   -------
   tuple of numpy.ndarray or None
-    ``(train_idx, test_idx)`` sorted index arrays, or ``None`` if the split does not place both
-    classes in each side.
+    ``(train_idx, test_idx)`` sorted index arrays, or ``None`` when the split leaves a side
+    without a usable spread of the target (see :func:`_both_classes`).
   """
   labels = np.asarray(labels)
   if strategy not in STRATEGIES:
@@ -132,7 +134,6 @@ def select_folds(
     ``mean_jaccard``. Empty if no valid candidate exists.
   """
   labels = np.asarray(labels)
-  p = float(labels.mean())
   candidates = []
   groups = strategy_groups(smiles, strategy)
   for seed in range(pool):
@@ -140,7 +141,7 @@ def select_folds(
     if res is None:
       continue
     train_idx, test_idx = res
-    balance = abs(labels[train_idx].mean() - p) + abs(labels[test_idx].mean() - p)
+    balance = _balance(labels, train_idx, test_idx)
     size_penalty = abs(len(test_idx) / len(labels) - test_fraction)
     candidates.append({
       "seed": seed,
@@ -152,7 +153,7 @@ def select_folds(
     })
   if not candidates:
     logger.warning(
-      f"[evaluate] strategy '{strategy}' produced no valid split (class balance); skipping."
+      f"[evaluate] strategy '{strategy}' produced no valid split (target balance); skipping."
     )
     return []
 
@@ -228,8 +229,8 @@ def build_fold_definitions(
     tr, te = scaffold_deterministic(smiles, labels, test_fraction)
     if not _both_classes(labels, tr, te):
       logger.warning(
-        "[evaluate] deterministic scaffold split has a class entirely on one side; "
-        "its held-out metrics may be undefined."
+        "[evaluate] deterministic scaffold split leaves one side without a usable spread of the "
+        "target; its held-out metrics may be undefined."
       )
     folds["scaffold_det"] = {
       "strategy": "scaffold_det",
@@ -245,12 +246,13 @@ def build_fold_definitions(
 
 
 def _split_random(labels, seed, test_fraction):
-  """Stratified random 80/20 split (both classes guaranteed by construction)."""
+  """Stratified random 80/20 split: on the class for binary labels, on quantile bins of a
+  continuous target (every value is its own class otherwise, which stratifies nothing)."""
   from sklearn.model_selection import StratifiedShuffleSplit
 
   try:
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_fraction, random_state=seed)
-    train_idx, test_idx = next(sss.split(np.zeros(len(labels)), labels))
+    train_idx, test_idx = next(sss.split(np.zeros(len(labels)), strata(labels)))
   except ValueError:
     return None, None
   return np.array(sorted(train_idx)), np.array(sorted(test_idx))
@@ -325,12 +327,53 @@ def _assign_by_groups(group_ids, seed, test_fraction):
   return train_idx, test_idx
 
 
+#: Quantile bins a continuous target is balanced on.
+N_STRATA = 4
+
+
+def is_binary(labels):
+  """Whether ``labels`` are a 0/1 classification target (as opposed to a continuous one)."""
+  return set(np.unique(np.asarray(labels, dtype=float)).tolist()) <= {0.0, 1.0}
+
+
+def strata(labels):
+  """Per-molecule stratum to balance folds on: the class, or a quantile bin of the target."""
+  labels = np.asarray(labels, dtype=float)
+  if is_binary(labels):
+    return labels.astype(int)
+  edges = np.quantile(labels, np.linspace(0, 1, N_STRATA + 1)[1:-1])
+  return np.digitize(labels, edges)
+
+
+def _balance(labels, train_idx, test_idx):
+  """How far a split's target distribution strays from the whole set's (lower is better)."""
+  labels = np.asarray(labels)
+  if is_binary(labels):
+    p = float(labels.astype(float).mean())
+    return abs(labels[train_idx].astype(float).mean() - p) + abs(
+      labels[test_idx].astype(float).mean() - p
+    )
+  st = strata(labels)
+  total = 0.0
+  for s in np.unique(st):
+    share = float((st == s).mean())
+    total += abs(float((st[train_idx] == s).mean()) - share)
+    total += abs(float((st[test_idx] == s).mean()) - share)
+  return total
+
+
 def _both_classes(labels, train_idx, test_idx):
-  """True iff both classes 0 and 1 appear in train AND in test."""
+  """Whether a split is usable: both classes on each side, or at least two strata of a
+  continuous target (a fold covering one slice of the value range scores nothing meaningful)."""
   labels = np.asarray(labels)
   if len(train_idx) == 0 or len(test_idx) == 0:
     return False
-  return set(labels[train_idx].tolist()) >= {0, 1} and set(labels[test_idx].tolist()) >= {0, 1}
+  if is_binary(labels):
+    return set(labels.tolist()) >= {0, 1} and (
+      set(labels[train_idx].tolist()) >= {0, 1} and set(labels[test_idx].tolist()) >= {0, 1}
+    )
+  st = strata(labels)
+  return len(set(st[train_idx].tolist())) >= 2 and len(set(st[test_idx].tolist())) >= 2
 
 
 def _jaccard(a, b):

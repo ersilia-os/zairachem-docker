@@ -64,7 +64,9 @@ def write_validation_outputs(model_dir, folds, records, failures=None):
     logger.error(f"[evaluate] Held-out validation: 0/{len(folds)} folds scored")
     return
 
-  table_cols = ["strategy", "fold", "seed", "auroc", "aupr", "num_train", "num_test", "num_test_1"]
+  # Classification and regression report different metrics; keep whichever the folds produced.
+  metrics = ["auroc", "aupr"] if "auroc" in records[0] else ["r2", "rmse", "mae", "spearman"]
+  table_cols = ["strategy", "fold", "seed", *metrics, "num_train", "num_test", "num_test_1"]
   with open(os.path.join(report_dir, VALIDATION_TABLE_FILENAME), "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=table_cols, extrasaction="ignore")
     writer.writeheader()
@@ -94,8 +96,7 @@ def write_validation_outputs(model_dir, folds, records, failures=None):
     rows = by_strategy[strat]
     strategies[strat] = {
       "n_folds": len(rows),
-      "auroc": _stats([r.get("auroc") for r in rows]),
-      "aupr": _stats([r.get("aupr") for r in rows]),
+      **{m: _stats([r.get(m) for r in rows]) for m in metrics},
     }
   _write_summary(report_dir, folds, records, strategies, failures)
   message = (

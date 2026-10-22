@@ -8,6 +8,9 @@ the transient Live miscount its height (see :meth:`LiveTableMonitor.__rich__`).
 
 from zairachem.base.utils.live import LiveTableMonitor
 
+#: Column heading per metric.
+_METRIC_LABEL = {"auroc": "AUROC", "aupr": "AUPR", "r2": "R²", "spearman": "rho"}
+
 
 def _fmt_metric(v):
   try:
@@ -27,16 +30,24 @@ def _fmt_duration(seconds):
   return f"{m}m{s:02d}s" if m < 10 else f"{m}m"
 
 
+#: The two per-fold metrics the live table shows, by task.
+FOLD_METRICS = {"classification": ("auroc", "aupr"), "regression": ("r2", "spearman")}
+
+
 class EvaluateMonitor(LiveTableMonitor):
-  """Per-fold live validation table. Columns: Fold | Status | Split | Train/Test | AUROC | AUPR | Time."""
+  """Per-fold live validation table: Fold | Status | Split | Train/Test | two metrics | Time.
+
+  The metrics are AUROC and AUPR for classification, R2 and Spearman's rho for regression.
+  """
 
   item_label = "Fold"
   running_verb = "evaluating"
   # Wider than the default so substeps like "model 3/6: eos4u6p" fit without ellipsis.
   status_width = 34
 
-  def __init__(self, item_ids, color="bright_blue", est_seconds=None):
+  def __init__(self, item_ids, color="bright_blue", est_seconds=None, task="classification"):
     super().__init__(item_ids, color=color)
+    self.metrics = FOLD_METRICS[task]
     # Per-fold time predictor from the training step (a fold refits as many descriptors, at most). Only
     # trusted if meaningfully large — a resumed run whose estimate step was skipped reports ~0s.
     self._est_seconds = est_seconds if (est_seconds and est_seconds > 5) else None
@@ -44,8 +55,8 @@ class EvaluateMonitor(LiveTableMonitor):
   def _columns(self, table):
     table.add_column("Split", width=13, no_wrap=True)
     table.add_column("Train/Test", justify="right", width=11, no_wrap=True)
-    table.add_column("AUROC", justify="right", width=7, no_wrap=True)
-    table.add_column("AUPR", justify="right", width=7, no_wrap=True)
+    for name in self.metrics:
+      table.add_column(_METRIC_LABEL[name], justify="right", width=8, no_wrap=True)
     table.add_column("Time", justify="right", width=8, no_wrap=True)
 
   def _row_cells(self, item_id, s):
@@ -53,8 +64,7 @@ class EvaluateMonitor(LiveTableMonitor):
     return [
       e.get("split", "[dim]—[/]"),
       e.get("counts", "[dim]—[/]"),
-      _fmt_metric(e.get("auroc")),
-      _fmt_metric(e.get("aupr")),
+      *(_fmt_metric(e.get(name)) for name in self.metrics),
       self._fmt_time(s),
     ]
 

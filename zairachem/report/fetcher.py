@@ -439,9 +439,33 @@ class ResultsFetcher(ZairaBase):
       )
     return data
 
-  def regression_performance_report(self):
-    """Return None; regression performance reporting is not implemented."""
-    pass
+  def regression_performance_report(self, y_true, y_pred):
+    """Regression metrics of predictions ``y_pred`` against observed values ``y_true``.
+
+    Unlabelled (NaN truth) positions are dropped first. The ordered dict holds the compound count,
+    R2, RMSE, MAE and the Pearson and Spearman correlations. Spearman matters in its own right:
+    ranking compounds correctly is usually what a screen is for, and a model can order them well
+    while its units are off.
+    """
+    from scipy.stats import pearsonr, spearmanr
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+    y_true, y_pred = self._aligned_truth_pred(y_true, y_pred)
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    data = collections.OrderedDict()
+    data["num_compounds"] = len(y_true)
+    if len(y_true) < 2 or np.ptp(y_true) == 0:
+      # R2 and the correlations are undefined against a constant or a single value.
+      data.update({k: np.nan for k in ("r2", "rmse", "mae", "pearson", "spearman")})
+      return data
+    data["r2"] = float(r2_score(y_true, y_pred))
+    data["rmse"] = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+    data["mae"] = float(mean_absolute_error(y_true, y_pred))
+    constant = np.ptp(y_pred) == 0
+    data["pearson"] = np.nan if constant else float(pearsonr(y_true, y_pred).statistic)
+    data["spearman"] = np.nan if constant else float(spearmanr(y_true, y_pred).statistic)
+    return data
 
   def _dedupe_to_original_index(self):
     """``(n_original, {dedupe_row -> [original_rows]})`` for remapping result rows back to the input.

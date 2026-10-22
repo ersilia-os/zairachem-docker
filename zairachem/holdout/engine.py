@@ -58,26 +58,37 @@ def _fit_descriptors(fold_path, model_ids, train_idxs, batch_size, substep_cb=No
 def _score_fold(fold_path, train_idx, test_idx, fetcher, batch_size):
   """Fit the pooled model on train, apply it to the held-out slice, score it with the shared metrics.
 
-  The fold has no rank reference, so its metrics are at the ``kappa`` cutoff (tuned on the fold's
-  training rows) and at ``default``.
+  A classification fold has no rank reference, so its metrics are at the ``kappa`` cutoff (tuned on
+  the fold's own training rows) and at ``default``. A regression fold is scored on R2, RMSE, MAE
+  and the correlations, which need no cutoff.
   """
   from zairachem.pool.reliability_pooler.pool import _kappa_cutoff
 
   io = BasePooler(path=fold_path, batch_size=batch_size)
+  task = io.task
+  clf = task == "classification"
   df_X = io._get_X()  # per-descriptor predictions for all rows (also writes model/pool/data.csv)
   y = np.asarray(io._get_y())
-  pred_cols = io._get_pred_columns(df_X, "classification")
+  pred_cols = io._get_pred_columns(df_X, task)
   if not pred_cols:
     raise RuntimeError("no per-descriptor prediction columns to pool")
   P = np.asarray(df_X[pred_cols], dtype=np.float64)
   R, _ = io._get_rank_matrix(df_X, pred_cols)
   A, _ = io._get_ad_matrix(df_X, pred_cols)
-  S, _ = io._get_signal_matrix(df_X, pred_cols, "_raw")
-  meta = io._get_descriptor_meta(pred_cols, "classification")
+  S, _ = io._get_signal_matrix(df_X, pred_cols, "_raw") if clf else (None, False)
+  meta = io._get_descriptor_meta(pred_cols, task)
 
   tr, te = np.asarray(train_idx), np.asarray(test_idx)
   params, _ = pooler.fit(
-    P[tr], _slice(R, tr), _slice(S, tr), _slice(A, tr), y[tr], pred_cols, meta, kappa=_kappa_cutoff
+    P[tr],
+    _slice(R, tr),
+    _slice(S, tr),
+    _slice(A, tr),
+    y[tr],
+    pred_cols,
+    meta,
+    kappa=_kappa_cutoff if clf else None,
+    task=task,
   )
   pos = [pred_cols.index(c) for c in params["descriptor_columns"]]
 
@@ -85,6 +96,9 @@ def _score_fold(fold_path, train_idx, test_idx, fetcher, batch_size):
     return None if M is None else M[te][:, pos]
 
   result = pooler.predict(params, held_out(P), held_out(R), held_out(S), held_out(A))
+  if not clf:
+    yhat_test = result.values["value"]
+    return fetcher.regression_performance_report(y[te], yhat_test), y[te], yhat_test
   yhat_test = result.values["proba"][:, 1]
   report = fetcher.classification_performance_report(
     y[te], yhat_test, CUTOFF_KAPPA, params["cutoffs"][CUTOFF_KAPPA]

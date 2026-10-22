@@ -136,7 +136,7 @@ class HoldoutValidationPipeline(ZairaBase):
         proxy_scores=proxy_scores,
         substep_cb=lambda text, f=fold_name: monitor.set_substep(f, text),
       )
-      monitor.update_fields(fold_name, auroc=rec.get("auroc"), aupr=rec.get("aupr"))
+      monitor.update_fields(fold_name, **{m: rec.get(m) for m in monitor.metrics})
       records.append(rec)
       monitor.finish(fold_name, ok=True)
     except Exception as e:
@@ -152,7 +152,10 @@ class HoldoutValidationPipeline(ZairaBase):
   def _run_folds(self, run_one_fold, folds, model_ids, fetcher):
     """Run every fold behind the live monitor table; return ``(records, failures)``."""
     monitor = EvaluateMonitor(
-      list(folds), color=STEP_COLORS.get("holdout", "bright_blue"), est_seconds=self.est_seconds
+      list(folds),
+      color=STEP_COLORS.get("holdout", "bright_blue"),
+      est_seconds=self.est_seconds,
+      task=self.params.get("task", "classification"),
     )
     records = []
     failures = []

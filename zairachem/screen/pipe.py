@@ -31,6 +31,7 @@ from zairachem.base.vars import (
   PROXY_SCORES_FILENAME,
   SELECTED_EOS_FILENAME,
   SMILES_COLUMN,
+  TARGET_COLUMN,
 )
 
 #: Screening always scores on the standard 10-fold menu (independent of --evaluate / --repeats).
@@ -44,9 +45,9 @@ def candidates(path):
 
 
 def screening_applies(path, params):
-  """Whether a fit run screens its descriptors: classification with more than ``max_descriptors``."""
+  """Whether a fit run screens its descriptors: it has more than ``max_descriptors`` of them."""
   k = params.get("max_descriptors")
-  if params.get("task") != "classification" or not k:
+  if not k:
     return False
   return len(candidates(path)) > k
 
@@ -73,7 +74,7 @@ class ScreenPipeline(ZairaBase):
     A no-op at predict, for regression, or when ``max_descriptors`` is not set.
     """
     k = self.params.get("max_descriptors")
-    if self.is_predict() or self.params.get("task") != "classification" or not k:
+    if self.is_predict() or not k:
       return
     step = PipelineStep("screen", self.path)
     if step.is_done():
@@ -88,8 +89,9 @@ class ScreenPipeline(ZairaBase):
     from zairachem.holdout.splits import build_fold_definitions
     from zairachem.screen.proxy import PROXY_FLOOR, select_descriptors
 
+    task = self.params["task"]
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    y = np.asarray(df["bin"])
+    y = np.asarray(df[TARGET_COLUMN[task]])
     logger.info(
       f"[screen] Scoring {len(pool)} descriptors on the evaluate splits "
       f"({SCREEN_REPEATS} repeats, all schemas) → greedily keeping up to {k} that add to the pool"
@@ -97,29 +99,31 @@ class ScreenPipeline(ZairaBase):
     folds = build_fold_definitions(list(df[SMILES_COLUMN]), list(y), repeats=SCREEN_REPEATS)
     fold_pairs = [(f["train_idx"], f["test_idx"]) for f in folds.values()]
     selected, scores = select_descriptors(
-      os.path.join(self.path, DESCRIPTORS_SUBFOLDER), pool, y, fold_pairs, k
+      os.path.join(self.path, DESCRIPTORS_SUBFOLDER), pool, y, fold_pairs, k, task
     )
     meta_dir = os.path.join(self.path, METADATA_SUBFOLDER)
     with open(os.path.join(meta_dir, SELECTED_EOS_FILENAME), "w") as f:
       json.dump(selected, f, indent=4)
     with open(os.path.join(meta_dir, PROXY_SCORES_FILENAME), "w") as f:
       json.dump(scores, f, indent=4)
-    self._print_table(scores, set(selected), PROXY_FLOOR)
+    self._print_table(scores, set(selected), PROXY_FLOOR[task], task)
     logger.success(
       f"[screen] Selected {len(selected)} of {len(pool)} descriptors for full training."
     )
     step.update()
 
   @staticmethod
-  def _print_table(scores, selected, floor):
-    """Descriptors ranked by proxy AUROC, colored by score, with the selected ones marked."""
+  def _print_table(scores, selected, floor, task="classification"):
+    """Descriptors ranked by proxy skill, colored by score, with the selected ones marked."""
     table = themed_table("Descriptor pre-screening")
-    for col, just in (("Descriptor", "left"), ("Held-out AUROC", "right"), ("Kept", "center")):
+    measure = "Held-out AUROC" if task == "classification" else "Held-out rho"
+    for col, just in (("Descriptor", "left"), (measure, "right"), ("Kept", "center")):
       table.add_column(col, justify=just, no_wrap=True)
     for eos_id in sorted(scores, key=lambda e: scores[e], reverse=True):
       auroc = scores[eos_id]
-      # Color high→green, low→red: map AUROC in [0.5, 1] onto the green→red ramp (1.0→green, ≤0.5→red).
-      color = heat_hex(max(0.0, min(1.0, (1.0 - auroc) / 0.5)))
+      # Color high→green, low→red, over each task's useful range (AUROC 0.5-1, rho 0-1).
+      span = 0.5 if task == "classification" else 1.0
+      color = heat_hex(max(0.0, min(1.0, (1.0 - auroc) / span)))
       keep = eos_id in selected
       table.add_row(
         f"[{'bold' if keep else 'dim'}]{eos_id}[/]",

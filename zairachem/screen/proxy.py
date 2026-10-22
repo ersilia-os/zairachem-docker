@@ -18,10 +18,14 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import ChunkedH5Store, open_h5
 from zairachem.base.vars import RANDOM_SEED, TREATED_DESC_FILENAME
 
-#: A candidate must clear this solo held-out AUROC to enter the greedy pool (else it can't be the seed
-#: either — but the single best descriptor is always kept, so a run is never empty).
-PROXY_FLOOR = 0.55
-#: Minimum ensemble-AUROC gain for a descriptor to be added to the pool (strict improvement; guards
+#: A candidate must clear this solo held-out skill to enter the greedy pool (else it can't be the
+#: seed either — but the single best descriptor is always kept, so a run is never empty). The
+#: regression floor is the classification one on Spearman rho, as lazy-qsar scales it: AUROC - 0.5
+#: is about rho / 2.
+PROXY_FLOOR = {"classification": 0.55, "regression": 0.10}
+#: Skill of a descriptor that carries no signal: chance for AUROC, no correlation for rho.
+PROXY_CHANCE = {"classification": 0.5, "regression": 0.0}
+#: Minimum ensemble-skill gain for a descriptor to be added to the pool (strict improvement; guards
 #: against adding redundant descriptors on noise).
 PROXY_MARGIN = 1e-3
 PROXY_MAX_DEPTH = 3
@@ -42,45 +46,68 @@ def _load_treated(descriptors_dir, eos_id):
   return h5.values()
 
 
-def _fold_pred(X, y, train_idx, test_idx, seed):
-  """Held-out probabilities of a shallow RF (fit on the fold's train slice) over its test slice.
+def _fold_pred(X, y, train_idx, test_idx, seed, task):
+  """Held-out predictions of a shallow random forest (fit on the fold's train slice).
 
-  Returns ``None`` when the fold's train or test slice is single-class (no usable signal).
+  Probabilities for classification, values for regression. Returns ``None`` when the fold carries
+  no usable signal: a single-class slice (classification) or a constant one (regression).
   """
-  from sklearn.ensemble import RandomForestClassifier
+  from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
   tr, te = np.asarray(train_idx), np.asarray(test_idx)
-  if len(set(y[tr].tolist())) < 2 or len(set(y[te].tolist())) < 2:
+  if task == "classification":
+    if len(set(y[tr].tolist())) < 2 or len(set(y[te].tolist())) < 2:
+      return None
+  elif np.ptp(y[tr]) == 0 or np.ptp(y[te]) == 0:
     return None
-  clf = RandomForestClassifier(
+  forest = RandomForestClassifier if task == "classification" else RandomForestRegressor
+  model = forest(
     n_estimators=PROXY_N_ESTIMATORS, max_depth=PROXY_MAX_DEPTH, random_state=seed, n_jobs=-1
   )
-  clf.fit(X[tr], y[tr])
-  return clf.predict_proba(X[te])[:, 1].astype(np.float64)
+  model.fit(X[tr], y[tr])
+  if task == "classification":
+    return model.predict_proba(X[te])[:, 1].astype(np.float64)
+  return model.predict(X[te]).astype(np.float64)
 
 
-def _ensemble_auc(members, preds, y, folds):
-  """Mean-across-folds AUROC of the mean-of-probabilities ensemble over ``members`` (descriptor ids)."""
+def _ensemble_skill(members, preds, y, folds, task):
+  """Mean-across-folds skill of the mean-of-predictions ensemble over ``members``.
+
+  AUROC for classification; Spearman's rho for regression, because what a regression model is
+  asked for in a screen is the right ordering of compounds, not the right units.
+  """
+  from scipy.stats import spearmanr
   from sklearn.metrics import roc_auc_score
 
-  aucs = []
+  chance = PROXY_CHANCE[task]
+  scores = []
   for fi, (_, test_idx) in enumerate(folds):
     cols = [preds[m][fi] for m in members if preds[m][fi] is not None]
     yte = y[np.asarray(test_idx)]
-    if not cols or len(set(yte.tolist())) < 2:
+    if not cols:
       continue
-    aucs.append(roc_auc_score(yte, np.mean(cols, axis=0)))
-  return float(np.mean(aucs)) if aucs else 0.5
+    pooled = np.mean(cols, axis=0)
+    if task == "classification":
+      if len(set(yte.tolist())) < 2:
+        continue
+      scores.append(roc_auc_score(yte, pooled))
+    else:
+      if np.ptp(yte) == 0 or np.ptp(pooled) == 0:
+        continue
+      rho = spearmanr(yte, pooled).statistic
+      scores.append(chance if np.isnan(rho) else rho)
+  return float(np.mean(scores)) if scores else chance
 
 
 def select_descriptors(
-  descriptors_dir, eos_ids, y, folds, k, floor=PROXY_FLOOR, margin=PROXY_MARGIN
+  descriptors_dir, eos_ids, y, folds, k, task="classification", floor=None, margin=PROXY_MARGIN
 ):
   """Greedy ensemble-aware descriptor selection over the evaluate ``folds``.
 
-  Seeds the pool with the best solo descriptor, then walks the rest in descending solo AUROC, adding a
-  candidate only if it lifts the ensemble held-out AUROC by ≥ ``margin``. Redundant descriptors (high
-  solo score but no marginal pool gain) are skipped, so fewer than ``k`` may be kept.
+  Seeds the pool with the best solo descriptor, then walks the rest in descending solo skill, adding
+  a candidate only if it lifts the ensemble held-out skill by ≥ ``margin``. Redundant descriptors
+  (high solo score but no marginal pool gain) are skipped, so fewer than ``k`` may be kept. The
+  skill is AUROC for classification and Spearman's rho for regression.
 
   Parameters
   ----------
@@ -89,35 +116,40 @@ def select_descriptors(
   eos_ids : list of str
     Candidate descriptor ids (typically the full ``done_eos.json``).
   y : array-like
-    Binary labels, row-aligned with the descriptor matrices.
+    Labels (binary) or target values (continuous), row-aligned with the descriptor matrices.
   folds : list of tuple
     ``(train_idx, test_idx)`` pairs (the evaluate splits) the proxy is scored on.
   k : int
     Maximum number of descriptors to keep.
+  task : str
+    ``"classification"`` or ``"regression"``.
   floor : float, optional
-    Minimum solo held-out AUROC to be eligible (default 0.55).
+    Minimum solo held-out skill to be eligible (default: the task's ``PROXY_FLOOR``).
   margin : float, optional
-    Minimum ensemble-AUROC gain to add a descriptor (default 1e-3).
+    Minimum ensemble-skill gain to add a descriptor (default 1e-3).
 
   Returns
   -------
   tuple(list of str, dict)
-    ``(selected_ordered, scores)`` — selected ids in add order, and ``{eos_id: solo_held_out_auroc}``
+    ``(selected_ordered, scores)`` — selected ids in add order, and ``{eos_id: solo_held_out_skill}``
     for every candidate. Never empty: the best descriptor is kept when nothing clears ``floor``, and
     every candidate when none could be scored.
   """
   y = np.asarray(y)
+  floor = PROXY_FLOOR[task] if floor is None else floor
+  chance = PROXY_CHANCE[task]
   preds, scores = {}, {}
   for eos_id in eos_ids:
     try:
       X = _load_treated(descriptors_dir, eos_id)
       if X is None:
         raise ValueError("no treated matrix")
-      preds[eos_id] = [_fold_pred(X, y, tr, te, RANDOM_SEED) for tr, te in folds]
-      scores[eos_id] = _ensemble_auc([eos_id], preds, y, folds)  # solo AUROC: a 1-member ensemble
+      preds[eos_id] = [_fold_pred(X, y, tr, te, RANDOM_SEED, task) for tr, te in folds]
+      # Solo skill: a one-member ensemble.
+      scores[eos_id] = _ensemble_skill([eos_id], preds, y, folds, task)
     except Exception as e:  # one unreadable descriptor must not stop the screen
       logger.warning(f"[screen] {eos_id}: not scored ({e}); left out of the selection")
-      preds[eos_id], scores[eos_id] = None, 0.5
+      preds[eos_id], scores[eos_id] = None, chance
 
   usable = [e for e in eos_ids if preds[e] is not None]
   if not usable:
@@ -129,20 +161,21 @@ def select_descriptors(
   order = sorted(eligible or usable, key=lambda e: scores[e], reverse=True)
 
   selected = [order[0]]  # seed with the best solo descriptor
-  ens_auc = scores[order[0]]
-  trace = [f"{order[0]}=seed({ens_auc:.3f})"]
+  ens_skill = scores[order[0]]
+  trace = [f"{order[0]}=seed({ens_skill:.3f})"]
   for cand in order[1:]:
     if len(selected) >= k:
       break
-    cand_auc = _ensemble_auc(selected + [cand], preds, y, folds)
-    if cand_auc >= ens_auc + margin:
+    cand_skill = _ensemble_skill(selected + [cand], preds, y, folds, task)
+    if cand_skill >= ens_skill + margin:
       selected.append(cand)
-      trace.append(f"+{cand}(ens {ens_auc:.3f}→{cand_auc:.3f})")
-      ens_auc = cand_auc
+      trace.append(f"+{cand}(ens {ens_skill:.3f}→{cand_skill:.3f})")
+      ens_skill = cand_skill
     else:
       trace.append(f"–{cand}(solo {scores[cand]:.3f}, no gain)")
+  measure = "AUROC" if task == "classification" else "rho"
   logger.info(
     f"[screen] greedy kept {len(selected)}/{len(eos_ids)} descriptors "
-    f"(k={k}, ensemble AUROC {ens_auc:.3f}): {' '.join(trace)}"
+    f"(k={k}, ensemble {measure} {ens_skill:.3f}): {' '.join(trace)}"
   )
   return selected, scores
