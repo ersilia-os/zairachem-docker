@@ -4,9 +4,6 @@ import random
 import warnings
 from time import time
 
-import numpy as np
-import pandas as pd
-
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
   DATA_FILENAME,
@@ -101,6 +98,9 @@ class ZairaBase(object):
     return not self.is_predict()
 
   def _dummy_indices(self, path):
+    import numpy as np  # imported here: this package is on the CLI's start-up path
+    import pandas as pd
+
     df = pd.read_csv(os.path.join(path, DATA_SUBFOLDER, DATA_FILENAME))
     idxs = np.array(list(range(df.shape[0])))
     random.shuffle(idxs)

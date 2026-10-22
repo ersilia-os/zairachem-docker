@@ -14,11 +14,6 @@ from zairachem.base.vars import (
   PREDEFINED_COLUMN_FILE,
 )
 
-try:
-  from isaura.manage import IsauraInspect
-except ImportError:
-  IsauraInspect = None
-
 
 def write_smiles_list(data_dir, smiles):
   """Write a bare one-column (``smiles``) CSV of the run's compounds for ad-hoc manual use.
@@ -158,5 +153,7 @@ def post(data, url):
 
 def get_bucket_records(bucket):
   """Return the isaura inspection records of the models stored in ``bucket``."""
+  from isaura.manage import IsauraInspect  # optional and slow to import; only for --store
+
   insp = IsauraInspect(model_id="_", model_version="_", cloud=False)
   return insp.inspect_models(bucket, prefix_filter="")

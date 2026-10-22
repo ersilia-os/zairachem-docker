@@ -4,7 +4,6 @@ from collections import OrderedDict
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import PowerTransformer, QuantileTransformer
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
@@ -94,6 +93,8 @@ class RegTasks(object):
   def pwr(self):
     """Fit and save a Yeo-Johnson power transform; return the transformed values."""
     raw = self.raw().reshape(-1, 1)
+    from sklearn.preprocessing import PowerTransformer  # regression only; kept off start-up
+
     tr = PowerTransformer(method="yeo-johnson")
     tr.fit(raw)
     joblib.dump(tr, os.path.join(self.path, DATA_SUBFOLDER, "pwr_transformer.joblib"))
@@ -102,6 +103,8 @@ class RegTasks(object):
   def rnk(self):
     """Fit and save a uniform quantile transform; return the ranked values."""
     raw = self.raw().reshape(-1, 1)
+    from sklearn.preprocessing import QuantileTransformer  # regression only
+
     tr = QuantileTransformer(output_distribution="uniform")
     tr.fit(raw)
     joblib.dump(tr, os.path.join(self.path, DATA_SUBFOLDER, "rnk_transformer.joblib"))
@@ -110,6 +113,8 @@ class RegTasks(object):
   def qnt(self):
     """Fit and save a normal quantile transform; return the transformed values."""
     raw = self.raw().reshape(-1, 1)
+    from sklearn.preprocessing import QuantileTransformer  # regression only
+
     tr = QuantileTransformer(output_distribution="normal")
     tr.fit(raw)
     joblib.dump(tr, os.path.join(self.path, DATA_SUBFOLDER, "qnt_transformer.joblib"))

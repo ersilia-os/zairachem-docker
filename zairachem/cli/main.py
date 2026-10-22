@@ -1,6 +1,5 @@
 import random
-
-import numpy as np
+import sys
 
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import RANDOM_SEED
@@ -14,10 +13,13 @@ def main():
   # imports wipe loguru's handlers, so logger.configure() is re-asserted after each lazy import.
   logger.configure()
   # Fixed seed so the fit-time row shuffle (get_train_indices) and other RNG draws are
-  # reproducible across runs. Note: lazyqsar's internal models expose no seed, so
-  # predictions may still vary slightly; descriptor/setup ordering is now deterministic.
+  # reproducible across runs; each descriptor's training is seeded again just before it starts
+  # (estimate), so a trained model does not depend on what ran before it.
   random.seed(RANDOM_SEED)
-  np.random.seed(RANDOM_SEED)
+  if not _help_only(sys.argv[1:]):
+    import numpy as np  # not needed (nor imported, ~60 ms) just to print a help screen
+
+    np.random.seed(RANDOM_SEED)
   try:
     cli()
   except Exception:
@@ -25,6 +27,11 @@ def main():
     # leaves a diagnosable record instead of only a transient terminal message.
     logger.exception("ZairaChem terminated with an unhandled error")
     raise
+
+
+def _help_only(args):
+  """Whether the command line only asks for a help screen (nothing will be computed)."""
+  return not args or any(a in ("-h", "--help") for a in args)
 
 
 if __name__ == "__main__":

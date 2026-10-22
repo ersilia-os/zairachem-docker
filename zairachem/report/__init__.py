@@ -1,10 +1,10 @@
 import os
 
 import pandas as pd
-import stylia
 
 from zairachem.base import ZairaBase
 from zairachem.base.vars import DATA_FILENAME, DATA_SUBFOLDER, REPORT_SUBFOLDER
+from zairachem.report._stylia import stylia  # keeps matplotlib's font cache (see the module)
 
 # stylia 1.0.1 dropped the TWO_COLUMNS_WIDTH constant; keep the original figure proportions.
 TWO_COLUMNS_WIDTH = 7.09

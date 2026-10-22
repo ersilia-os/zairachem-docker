@@ -3,8 +3,6 @@ import collections
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import QuantileTransformer
 
 ALPHA_DETECT_TAIL_CENTER = 0.05
 ALPHA_REPEATS = 0.01
@@ -132,6 +130,10 @@ class SmoothenY(object):
     X = fps.calculate(smiles_list)
     X_f = X[idxs]
     y_f = y[idxs]
+    # sklearn only for regression smoothing; imported here, off the classification path.
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.preprocessing import QuantileTransformer
+
     ranker = QuantileTransformer(output_distribution="uniform")
     ranker.fit(y_f.reshape(-1, 1))
     y_f = ranker.transform(y_f.reshape(-1, 1)).ravel()

@@ -245,14 +245,23 @@ class Reporter(ZairaBase):
           os.remove(f)
 
   def _render_plots(self, jobs):
-    """Render all figures, in process and one at a time, under a single compact progress bar.
-    (Parallel rendering across processes was tried but matplotlib's global pyplot state plus stylia's
-    destructive import-time side effects made it fragile, for a step that is not the run's bottleneck —
-    so it stays serial.) A single bad figure is logged and skipped rather than sinking the whole
-    report."""
+    """Render all figures under a single compact progress bar, in parallel processes when worth it.
+
+    Each worker process has its own pyplot state (spawned, Agg backend), so figures cannot interfere,
+    and stylia's import no longer wipes matplotlib's font cache (see ``report/_stylia.py``); if the
+    pool cannot run, figures are rendered here one at a time. A single bad figure is logged and
+    skipped rather than sinking the whole report."""
     if not jobs:
       return
     self._clean_figure_dirs()
+    workers = _render_workers(len(jobs))
+    if workers > 1:
+      try:
+        self._render_parallel(jobs, workers)
+        return
+      except Exception as e:  # e.g. a job that cannot be pickled: render serially instead
+        self.logger.debug(f"[report] parallel rendering unavailable ({e}); rendering serially")
+        self._clean_figure_dirs()
     bar = LiveProgressBar(
       "Rendering plots",
       total=len(jobs),
@@ -284,6 +293,39 @@ class Reporter(ZairaBase):
         extras.append(f"{n_na} n/a")
       if n_fail:
         extras.append(f"{n_fail} failed")
+      bar.set_note(" · ".join(extras))
+    self._write_figure_cells(cells_map)
+
+  def _render_parallel(self, jobs, workers):
+    """Render ``jobs`` on ``workers`` spawned processes (see :meth:`_render_plots`)."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    bar = LiveProgressBar(
+      "Rendering plots",
+      total=len(jobs),
+      color=STEP_COLORS.get("report", "cyan"),
+      discrete=True,
+      show_bar=False,
+    )
+    n_na, n_fail, cells_map = 0, 0, {}
+    ctx = multiprocessing.get_context("spawn")
+    with bar.live(), ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+      futures = {
+        ex.submit(_render_one, cls, self.path, kwargs): label for label, cls, kwargs in jobs
+      }
+      for fut in as_completed(futures):
+        status, name, cells = fut.result()
+        bar.set_note(futures[fut])
+        if status == "ok":
+          cells_map[name] = cells
+        elif status == "na":
+          n_na += 1
+        else:
+          n_fail += 1
+          self.logger.warning(f"[report] plot {name}")
+        bar.advance()
+      extras = [f"{n} {what}" for n, what in ((n_na, "n/a"), (n_fail, "failed")) if n]
       bar.set_note(" · ".join(extras))
     self._write_figure_cells(cells_map)
 
@@ -330,3 +372,25 @@ class Reporter(ZairaBase):
       self.logger.info("Report already done — skipping.")
 
     self.logger.info("Reporting successfully completed!")
+
+
+def _render_workers(n_jobs):
+  """Processes for rendering ``n_jobs`` figures: up to 4, about one per 8 figures, 1 = serial."""
+  from zairachem.base.utils.concurrency import cpu_count
+
+  return max(1, min(4, cpu_count() - 1, n_jobs // 8))
+
+
+def _render_one(cls, path, kwargs):
+  """Render one figure in a worker process: ``(status, name, cells)``, status ok / na / fail."""
+  import matplotlib
+
+  matplotlib.use("Agg")
+  try:
+    plot = cls(ax=None, path=path, **kwargs)
+    if not getattr(plot, "is_available", True):
+      return "na", None, None
+    plot.save()
+    return "ok", plot.name, list(getattr(plot, "cells", (2, 2)))
+  except Exception as e:
+    return "fail", f"{cls.__name__} failed: {e}", None
