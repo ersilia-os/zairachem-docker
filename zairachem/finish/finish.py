@@ -7,6 +7,7 @@ import pandas as pd
 from zairachem.base import ZairaBase
 from zairachem.base.utils.pipeline import PipelineStep
 from zairachem.base.vars import (
+  CUTOFFS_FILENAME,
   DATA_FILENAME,
   DATA_SUBFOLDER,
   DESCRIPTORS_SUBFOLDER,
@@ -398,12 +399,18 @@ class Finisher(ZairaBase):
       os.path.join(self.path, RESULTS_SUBFOLDER, PERFORMANCE_TABLE_FILENAME),
     )
 
+  def _cutoffs_file(self):
+    src = os.path.join(self.path, POOL_SUBFOLDER, CUTOFFS_FILENAME)
+    if os.path.exists(src):
+      shutil.copy(src, os.path.join(self.path, RESULTS_SUBFOLDER, CUTOFFS_FILENAME))
+
   def run_all(self):
-    """Write the prediction and summary tables, then anonymize and clean up as requested."""
+    """Write the prediction, summary and cutoff tables, then anonymize and clean up as requested."""
     self.logger.debug("Finishing")
     self._predictions_file()
     self._output_table_file()
     self._performance_table_file()
+    self._cutoffs_file()
     if self.anonymize:
       self.logger.info("Anonymizing outputs")
       self._anonymize()

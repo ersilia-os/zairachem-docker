@@ -18,6 +18,7 @@ from zairachem.base.vars import (
   FOLDS_SUBFOLDER,
   METADATA_SUBFOLDER,
   POOL_SUBFOLDER,
+  PROXY_SCORES_FILENAME,
   SELECTED_EOS_FILENAME,
 )
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
@@ -26,12 +27,13 @@ from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 _SHARED = (DATA_SUBFOLDER, DESCRIPTORS_SUBFOLDER)
 
 
-def build_fold_workspace(model_dir, fold_name, descriptors):
+def build_fold_workspace(model_dir, fold_name, descriptors, proxy_scores=None):
   """Create ``<model_dir>/folds/<fold_name>/`` with shared dirs symlinked in, and return its path.
 
-  ``metadata/`` is a folder of links to the parent's files except ``selected_eos.json``, which holds
-  the fold's own ``descriptors``: every step that resolves the run's descriptors (estimate, pool)
-  then uses the fold's, which may differ from the parent's when the run was screened.
+  ``metadata/`` is a folder of links to the parent's files except the screening's: its
+  ``selected_eos.json`` holds the fold's own ``descriptors`` and its ``proxy_scores.json`` the
+  fold's own ``proxy_scores`` (when the fold was screened). Every step that reads them (estimate,
+  pool) then uses the fold's, which were chosen without its held-out molecules.
 
   Parameters
   ----------
@@ -41,6 +43,8 @@ def build_fold_workspace(model_dir, fold_name, descriptors):
     Fold identifier (e.g. ``scaffold_det`` or ``random_00``).
   descriptors : list of str
     Descriptor ids the fold trains and pools.
+  proxy_scores : dict, optional
+    The fold's screening proxy AUROC per descriptor.
 
   Returns
   -------
@@ -60,15 +64,18 @@ def build_fold_workspace(model_dir, fold_name, descriptors):
     os.remove(meta)
   os.makedirs(meta, exist_ok=True)
   parent_meta = os.path.join(model_dir, METADATA_SUBFOLDER)
+  own = (SELECTED_EOS_FILENAME, PROXY_SCORES_FILENAME)
   for name in os.listdir(parent_meta):
     link = os.path.join(meta, name)
-    if name != SELECTED_EOS_FILENAME and not os.path.lexists(link):
+    if name not in own and not os.path.lexists(link):
       os.symlink(os.path.relpath(os.path.join(parent_meta, name), meta), link)
-  selected = os.path.join(meta, SELECTED_EOS_FILENAME)
-  if os.path.lexists(selected):
-    os.remove(selected)
-  with open(selected, "w") as f:
-    json.dump(list(descriptors), f, indent=4)
+  for name, content in zip(own, (list(descriptors), proxy_scores)):
+    path = os.path.join(meta, name)
+    if os.path.lexists(path):
+      os.remove(path)
+    if content is not None:
+      with open(path, "w") as f:
+        json.dump(content, f, indent=4)
   # The fold's own outputs (mirror the production model/ layout).
   os.makedirs(
     os.path.join(fold_path, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER), exist_ok=True

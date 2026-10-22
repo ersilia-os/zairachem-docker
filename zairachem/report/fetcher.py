@@ -32,7 +32,6 @@ from zairachem.base.vars import (
   RESULTS_UNMAPPED_FILENAME,
   SMILES_COLUMN,
 )
-from zairachem.estimate.tools.ghost.ghost import GhostLight
 from zairachem.report.utils import ResultsIterator
 
 RAW_INPUT_FILENAME += ".csv"
@@ -103,9 +102,6 @@ class ResultsFetcher(ZairaBase):
     for i in range(len(R)):
       d[prefixes[i]] = R[i]
     return pd.DataFrame(d)
-
-  def _read_individual_estimator_results_train(self, task):
-    return self._read_individual_estimator_results(task=task, path=self.trained_path)
 
   # --- lazy-qsar internal cross-validation (captured at fit time) --------------------------------
 
@@ -400,57 +396,47 @@ class ResultsFetcher(ZairaBase):
     yt, yp = self._aligned_truth_pred(self.get_actives_inactives(), self.get_pred_binary_clf())
     return yt.astype(int), yp.astype(int)
 
-  def classification_performance_report(self, y_true_train, y_pred_train, y_true_test, y_pred_test):
-    """Return classification metrics of test scores at a cutoff learnt on the train scores.
+  def classification_performance_report(
+    self, y_true, y_pred, cutoff_name, cutoff, cutoff_rank=None
+  ):
+    """Classification metrics of scores ``y_pred`` against labels ``y_true`` at a named cutoff.
 
-    Unlabelled (NaN truth) positions are dropped first. The cutoff is the GHOST threshold fitted on
-    the train scores. The ordered dict holds class counts, AUROC, AUPR, the cutoff, confusion-matrix
-    counts, the thresholded metrics (accuracy, balanced accuracy, precision, recall, F1, MCC) and
-    precision among the top 1/5/10/50/100 scored compounds.
+    Unlabelled (NaN truth) positions are dropped first. The ordered dict holds the cutoff (name,
+    probability and the same cutoff as a rank, the scale of the score), class counts, AUROC, AUPR, the confusion-matrix counts and the thresholded
+    metrics (accuracy, balanced accuracy, precision, recall, F1, MCC) at ``y_pred >= cutoff``, and
+    precision among the top 1/5/10/50/100 scored compounds. With no cutoff (e.g. no rank
+    reference for ``screening``) the thresholded metrics are NaN.
     """
-    # Drop unlabelled positions (NaN truth) so partial predict-time ground truth is handled, and
-    # ensure numpy arrays so the class-count comparisons below are elementwise.
-    y_true_train, y_pred_train = self._aligned_truth_pred(y_true_train, y_pred_train)
-    y_true_test, y_pred_test = self._aligned_truth_pred(y_true_test, y_pred_test)
-    n_tr = len(y_true_train)
-    n_te = len(y_true_test)
-    n_tr_0 = int(np.sum(y_true_train == 0))
-    n_tr_1 = int(np.sum(y_true_train == 1))
-    n_te_0 = int(np.sum(y_true_test == 0))
-    n_te_1 = int(np.sum(y_true_test == 1))
-    fpr, tpr, _ = roc_curve(y_true_test, y_pred_test)
-    auroc = auc(fpr, tpr)
-    prec, rec, _ = precision_recall_curve(y_true_test, y_pred_test)
-    aupr = auc(rec, prec)
-    ghost = GhostLight()
-    cutoff = ghost.get_threshold(y_true_train, y_pred_train)
-    b_pred_test = (np.asarray(y_pred_test) >= cutoff).astype(int)
-    tn, fp, fn, tp = confusion_matrix(y_true_test, b_pred_test).ravel()
+    y_true, y_pred = self._aligned_truth_pred(y_true, y_pred)
+    y_pred = np.asarray(y_pred, dtype=float)
+    fpr, tpr, _ = roc_curve(y_true, y_pred)
+    prec, rec, _ = precision_recall_curve(y_true, y_pred)
     data = collections.OrderedDict()
-    data["num_train"] = n_tr
-    data["num_test"] = n_te
-    data["num_train_0"] = n_tr_0
-    data["num_train_1"] = n_tr_1
-    data["num_test_0"] = n_te_0
-    data["num_test_1"] = n_te_1
-    data["auroc"] = auroc
-    data["aupr"] = aupr
-    data["cutoff"] = cutoff
-    data["tp"] = tp
-    data["tn"] = tn
-    data["fp"] = fp
-    data["fn"] = fn
-    data["accuracy"] = accuracy_score(y_true_test, b_pred_test)
-    data["balanced_accuracy"] = balanced_accuracy_score(y_true_test, b_pred_test)
-    data["precision"] = precision_score(y_true_test, b_pred_test)
-    data["recall"] = recall_score(y_true_test, b_pred_test)
-    data["f1_score"] = f1_score(y_true_test, b_pred_test)
-    data["mcc"] = matthews_corrcoef(y_true_test, b_pred_test)
-    data["precision_at_1"] = precision_score(y_true_test, self._top_binarizer(y_pred_test, 1))
-    data["precision_at_5"] = precision_score(y_true_test, self._top_binarizer(y_pred_test, 5))
-    data["precision_at_10"] = precision_score(y_true_test, self._top_binarizer(y_pred_test, 10))
-    data["precision_at_50"] = precision_score(y_true_test, self._top_binarizer(y_pred_test, 50))
-    data["precision_at_100"] = precision_score(y_true_test, self._top_binarizer(y_pred_test, 100))
+    data["cutoff"] = cutoff_name
+    data["cutoff_value"] = cutoff
+    data["cutoff_rank"] = cutoff_rank
+    data["num_compounds"] = len(y_true)
+    data["num_0"] = int(np.sum(y_true == 0))
+    data["num_1"] = int(np.sum(y_true == 1))
+    data["auroc"] = auc(fpr, tpr)
+    data["aupr"] = auc(rec, prec)
+    thresholded = ("tp", "tn", "fp", "fn", "accuracy", "balanced_accuracy", "precision", "recall")
+    if cutoff is None:
+      data.update({k: np.nan for k in (*thresholded, "f1_score", "mcc")})
+    else:
+      b_pred = (y_pred >= cutoff).astype(int)
+      tn, fp, fn, tp = confusion_matrix(y_true, b_pred, labels=[0, 1]).ravel()
+      data.update(tp=tp, tn=tn, fp=fp, fn=fn)
+      data["accuracy"] = accuracy_score(y_true, b_pred)
+      data["balanced_accuracy"] = balanced_accuracy_score(y_true, b_pred)
+      data["precision"] = precision_score(y_true, b_pred, zero_division=0)
+      data["recall"] = recall_score(y_true, b_pred, zero_division=0)
+      data["f1_score"] = f1_score(y_true, b_pred, zero_division=0)
+      data["mcc"] = matthews_corrcoef(y_true, b_pred)
+    for k in (1, 5, 10, 50, 100):
+      data[f"precision_at_{k}"] = precision_score(
+        y_true, self._top_binarizer(y_pred, k), zero_division=0
+      )
     return data
 
   def regression_performance_report(self):

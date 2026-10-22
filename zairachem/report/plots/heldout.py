@@ -12,6 +12,7 @@ from sklearn.metrics import (
 )
 
 from zairachem.base.vars import (
+  DEFAULT_CUTOFF,
   REPORT_SUBFOLDER,
   VALIDATION_PREDICTIONS_FILENAME,
   VALIDATION_TABLE_FILENAME,
@@ -290,7 +291,7 @@ class HeldoutEnrichmentFactorByStrategyPlot(BasePlot):
 class HeldoutMetricBarsPlot(BasePlot):
   """Held-out AUROC / AUPR / MCC / F1 per split strategy (mean ± std across folds).
 
-  MCC and F1 use a 0.5 threshold on the calibrated held-out score."""
+  MCC and F1 use the default cutoff (0.5) on the calibrated held-out score."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
@@ -307,7 +308,7 @@ class HeldoutMetricBarsPlot(BasePlot):
       label_of[k] = lbl
       if len(np.unique(yt)) < 2:
         continue
-      pred = (ys >= 0.5).astype(int)
+      pred = (ys >= DEFAULT_CUTOFF).astype(int)
       fpr, tpr, _ = roc_curve(yt, ys)
       agg[k]["auroc"].append(auc(fpr, tpr))
       agg[k]["aupr"].append(average_precision_score(yt, ys))
@@ -341,20 +342,20 @@ class HeldoutMetricBarsPlot(BasePlot):
     ax.set_xticklabels(mlabels)
     ax.set_ylim(0, 1.05)
     ax.set_ylabel("Score")
-    ax.set_title("Held-out metrics by split")
+    ax.set_title("Held-out metrics by split · default cutoff")
     ax.legend(loc="lower right", fontsize=6, ncol=2)
     self.is_available = True
 
 
 class HeldoutConfusionByStrategyPlot(BasePlot):
-  """Held-out outcome composition per split strategy: fraction TP / FN / TN / FP at a 0.5 threshold."""
+  """Held-out outcome composition per split strategy: fraction TP / FN / TN / FP at the default cutoff (0.5)."""
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
     self.name = "heldout-confusion"
     self.is_available = False
     rows = [
-      (k, lbl, yt, (ys >= 0.5).astype(int))
+      (k, lbl, yt, (ys >= DEFAULT_CUTOFF).astype(int))
       for (k, lbl, yt, ys) in _heldout_predictions(path)
       if len(yt)
     ]
@@ -384,7 +385,7 @@ class HeldoutConfusionByStrategyPlot(BasePlot):
     ax.invert_yaxis()
     ax.set_xlim(0, 1)
     ax.set_xlabel("Fraction of held-out compounds")
-    ax.set_title("Held-out outcome composition by split")
+    ax.set_title("Held-out outcome composition by split · default cutoff")
     handles = [Patch(color=_color(ck), label=nm) for ck, nm, _ in segs]
     ax.legend(handles=handles, loc="lower right", fontsize=6, ncol=2)
     self.is_available = True

@@ -14,13 +14,19 @@ import joblib
 import numpy as np
 
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import ESTIMATORS_SUBFOLDER, POOL_SUBFOLDER, Y_HAT_FILE
+from zairachem.base.vars import (
+  CUTOFF_DEFAULT,
+  CUTOFF_KAPPA,
+  DEFAULT_CUTOFF,
+  ESTIMATORS_SUBFOLDER,
+  Y_HAT_FILE,
+)
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 from zairachem.estimate.estimators.lazy_qsar.assemble import IndividualOutcomeAssembler
 from zairachem.holdout.indices import HoldoutFitter
 from zairachem.holdout.workspace import build_fold_workspace
 from zairachem.pool.base import BasePooler
-from zairachem.pool.reliability_pooler.pooler import ReliabilityClassifierPooler
+from zairachem.pool.reliability_pooler import pooler
 
 
 def _slice(matrix, idx):
@@ -50,7 +56,13 @@ def _fit_descriptors(fold_path, model_ids, train_idxs, batch_size, substep_cb=No
 
 
 def _score_fold(fold_path, train_idx, test_idx, fetcher, batch_size):
-  """Fit the reliability pooler on train, combine on the held-out slice, score with the shared metrics."""
+  """Fit the pooled model on train, apply it to the held-out slice, score it with the shared metrics.
+
+  The fold has no rank reference, so its metrics are at the ``kappa`` cutoff (tuned on the fold's
+  training rows) and at ``default``.
+  """
+  from zairachem.pool.reliability_pooler.pool import _kappa_cutoff
+
   io = BasePooler(path=fold_path, batch_size=batch_size)
   df_X = io._get_X()  # per-descriptor predictions for all rows (also writes model/pool/data.csv)
   y = np.asarray(io._get_y())
@@ -60,34 +72,49 @@ def _score_fold(fold_path, train_idx, test_idx, fetcher, batch_size):
   P = np.asarray(df_X[pred_cols], dtype=np.float64)
   R, _ = io._get_rank_matrix(df_X, pred_cols)
   A, _ = io._get_ad_matrix(df_X, pred_cols)
-  oof_aucs, curves, cutoffs = io._get_descriptor_meta(pred_cols, "classification")
+  S, _ = io._get_signal_matrix(df_X, pred_cols, "_raw")
+  meta = io._get_descriptor_meta(pred_cols, "classification")
 
   tr, te = np.asarray(train_idx), np.asarray(test_idx)
-  pool_dir = os.path.join(fold_path, POOL_SUBFOLDER)
-  os.makedirs(pool_dir, exist_ok=True)
-  pooler = ReliabilityClassifierPooler(pool_dir)
-  yhat_train = pooler.fit(
-    P[tr], _slice(R, tr), _slice(A, tr), y[tr], oof_aucs, curves, cutoffs, pred_cols
+  params, _ = pooler.fit(
+    P[tr], _slice(R, tr), _slice(S, tr), _slice(A, tr), y[tr], pred_cols, meta, kappa=_kappa_cutoff
   )
-  yhat_test, _ = ReliabilityClassifierPooler._combine_verbose(
-    P[te], _slice(R, te), _slice(A, te), pooler._params
-  )
-  yhat_test = np.asarray(yhat_test)
+  pos = [pred_cols.index(c) for c in params["descriptor_columns"]]
+
+  def held_out(M):
+    return None if M is None else M[te][:, pos]
+
+  result = pooler.predict(params, held_out(P), held_out(R), held_out(S), held_out(A))
+  yhat_test = result.values["proba"][:, 1]
   report = fetcher.classification_performance_report(
-    y[tr], np.asarray(yhat_train), y[te], yhat_test
+    y[te], yhat_test, CUTOFF_KAPPA, params["cutoffs"][CUTOFF_KAPPA]
   )
+  at_default = fetcher.classification_performance_report(
+    y[te], yhat_test, CUTOFF_DEFAULT, DEFAULT_CUTOFF
+  )
+  for k in ("accuracy", "balanced_accuracy", "precision", "recall", "f1_score", "mcc"):
+    report[f"{k}_{CUTOFF_DEFAULT}"] = at_default[k]
   # Also hand back the held-out (truth, score) arrays so the caller can persist them for the
   # report's per-strategy ROC/PR/calibration curves (only scalar metrics survive otherwise).
   return report, y[te], yhat_test
 
 
-def run_one_fold(model_dir, fold_name, spec, model_ids, fetcher, batch_size=None, substep_cb=None):
+def run_one_fold(
+  model_dir,
+  fold_name,
+  spec,
+  model_ids,
+  fetcher,
+  batch_size=None,
+  substep_cb=None,
+  proxy_scores=None,
+):
   """Run a single fold and return its metrics record (also written to ``folds/<name>/metrics.json``).
 
   ``substep_cb(text)`` — optional callback fired with the current sub-phase (per-descriptor fit, then
   pooling/scoring) so a live monitor can show intra-fold progress.
   """
-  fold_path = build_fold_workspace(model_dir, fold_name, model_ids)
+  fold_path = build_fold_workspace(model_dir, fold_name, model_ids, proxy_scores)
   _fit_descriptors(fold_path, model_ids, spec["train_idx"], batch_size, substep_cb=substep_cb)
   if substep_cb:
     substep_cb("pooling + scoring")

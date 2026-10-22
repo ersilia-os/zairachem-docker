@@ -158,12 +158,15 @@ def _reliability_summary(output_dir):
 
 
 def _pooled_metrics(output_dir):
+  """The pooled model's performance-table row at the run's call cutoff (screening, else default)."""
   try:
     from zairachem.base.vars import PERFORMANCE_TABLE_FILENAME, RESULTS_SUBFOLDER
+    from zairachem.pool.cutoffs import call_cutoff
 
+    name = call_cutoff(output_dir)[0]
     with open(os.path.join(output_dir, RESULTS_SUBFOLDER, PERFORMANCE_TABLE_FILENAME)) as f:
       for row in csv.DictReader(f):
-        if row.get("model") == "pooled":
+        if row.get("model") == "pooled" and row.get("cutoff", name) == name:
           return row
   except (OSError, csv.Error) as e:
     logger.debug(f"[summary] no pooled metrics: {e}")
@@ -495,7 +498,8 @@ def _pooled_row(params, m):
   if params.get("task") == "classification":
     return (
       "pooled",
-      f"AUROC {fmt('auroc')} [dim]·[/] acc {fmt('accuracy')} [dim]·[/] MCC {fmt('mcc')}",
+      f"AUROC {fmt('auroc')} [dim]·[/] MCC {fmt('mcc')} [dim]at the {m.get('cutoff', '?')} "
+      "cutoff[/]",
     )
   return ("pooled", f"R² {fmt('r2')}")
 
@@ -528,11 +532,13 @@ def _reliability_rows(d, params, rel):
   rows = []
   # Per-sample reliability pooler: show how descriptors were combined. At predict time (no
   # labels → no pooled metrics) these rows are the user's window into what the step did.
-  rows.append(("method", "reliability [dim]· per-sample weighted (logit space)[/]"))
+  rows.append(("method", "lazy-qsar ensemble [dim]· per-sample weighted (logit space)[/]"))
   rows.append((
     "weighting",
     f"{rel.get('tier', '?')} [dim]· {_plurals(rel.get('n_descriptors', 0), 'descriptor')}[/]",
   ))
+  if rel.get("pruned"):
+    rows.append(("left out", f"[dim]{'  '.join(rel['pruned'])} (weak out-of-fold AUROC)[/]"))
   ad = rel.get("applicability")
   if ad:
     rows.extend(_applicability_rows(rel, ad))
@@ -670,10 +676,12 @@ def final_summary_panel(output_dir=None):
         return "—"
 
     if task == "classification":
+      where = f"at the {m.get('cutoff', '?')} cutoff"
+      if not _is_predict(d):
+        where += ", out-of-fold"
       rows.append((
         "Performance",
-        f"AUROC [bold green]{fmt('auroc')}[/] · accuracy [bold green]{fmt('accuracy')}[/] · MCC "
-        f"[bold green]{fmt('mcc')}[/]{'' if _is_predict(d) else '  [dim](out-of-fold)[/]'}",
+        f"AUROC [bold green]{fmt('auroc')}[/] · MCC [bold green]{fmt('mcc')}[/]  [dim]({where})[/]",
       ))
     else:
       rows.append(("Performance", f"R² [bold green]{fmt('r2')}[/]"))

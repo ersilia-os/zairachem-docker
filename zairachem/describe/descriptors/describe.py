@@ -58,11 +58,11 @@ class Describer(ZairaBase):
       data = json.load(f)
     featurizers = data["featurizer_ids"]
     if self.is_predict():
-      # Only the descriptors the trained model actually uses (the --max-descriptors selection when it
-      # was screened, else all) — no point featurizing descriptors the pooled model will ignore.
-      from zairachem.base.utils.descriptors import effective_descriptors
+      # Only the descriptors the trained pooled model uses (the --max-descriptors selection when it
+      # was screened, less those the pooling left out) — no point featurizing the others.
+      from zairachem.base.utils.descriptors import pooled_descriptors
 
-      selected = set(effective_descriptors(self.get_trained_dir()))
+      selected = set(pooled_descriptors(self.get_trained_dir()))
       featurizers = [m for m in featurizers if m in selected]
     return featurizers + data["projection_ids"]
 

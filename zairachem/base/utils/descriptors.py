@@ -15,6 +15,8 @@ from zairachem.base.utils.matrices import remove_h5
 from zairachem.base.vars import (
   DESCRIPTORS_SUBFOLDER,
   METADATA_SUBFOLDER,
+  POOL_SUBFOLDER,
+  POOLED_DESCRIPTORS_FILENAME,
   RANK_REFERENCE_RAW_FILENAME,
   RANK_REFERENCE_TREATED_FILENAME,
   SELECTED_EOS_FILENAME,
@@ -40,6 +42,31 @@ def effective_descriptors(path):
       return list(json.load(f))
   with open(os.path.join(path, DESCRIPTORS_SUBFOLDER, "done_eos.json")) as f:
     return list(json.load(f))
+
+
+def pooled_descriptors(path):
+  """The descriptor ids a trained model's pooled model uses (what a prediction computes).
+
+  :func:`effective_descriptors` less those the pooled model left out at fit (lazy-qsar's pruning,
+  recorded in ``pool/pooled_descriptors.json``).
+
+  Parameters
+  ----------
+  path : str
+    A trained model directory.
+
+  Returns
+  -------
+  list of str
+    Ordered descriptor (featurizer) ids.
+  """
+  ids = effective_descriptors(path)
+  record = os.path.join(path, POOL_SUBFOLDER, POOLED_DESCRIPTORS_FILENAME)
+  if not os.path.exists(record):
+    return ids
+  with open(record) as f:
+    pruned = set(json.load(f).get("pruned", []))
+  return [i for i in ids if i not in pruned]
 
 
 def drop_rank_references(path):

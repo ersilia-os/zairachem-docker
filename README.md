@@ -86,6 +86,12 @@ non-commercial use only; pass `-f` without it to exclude it.
 probability (`proba`), the 0/1 `call` (`rank` ≥ 0.65), the per-descriptor probabilities
 (`proba_<eos_id>`) and the 2-D projections.
 
+`results/cutoffs.json` gives each named cutoff as a probability and as a rank, the scale of `score`:
+`screening` (the call: rank 0.65), `kappa` (Cohen's kappa on the training out-of-fold scores),
+`balanced` (each descriptor's balanced-accuracy cutoff) and `default` (0.5).
+`results/performance_table.csv` has the metrics of the pooled model and of each descriptor at each
+of them.
+
 ## Rank references
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each

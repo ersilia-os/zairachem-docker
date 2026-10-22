@@ -85,14 +85,14 @@ class HoldoutValidationPipeline(ZairaBase):
       train = np.asarray(spec["train_idx"])
       inner = build_fold_definitions([smiles[i] for i in train], y[train], repeats=SCREEN_REPEATS)
       pairs = [(train[f["train_idx"]], train[f["test_idx"]]) for f in inner.values()]
-      selected, _ = select_descriptors(
+      selected, scores = select_descriptors(
         os.path.join(self.path, DESCRIPTORS_SUBFOLDER),
         pool,
         y,
         pairs,
         self.params["max_descriptors"],
       )
-      return selected
+      return selected, scores
 
     return select
 
@@ -122,9 +122,10 @@ class HoldoutValidationPipeline(ZairaBase):
       counts=f"{len(spec['train_idx'])}/{len(spec['test_idx'])}",
     )
     try:
+      proxy_scores = None  # the fold's own screening scores, when it is screened
       if self._select is not None:
         monitor.set_substep(fold_name, "selecting descriptors")
-        model_ids = self._select(spec)
+        model_ids, proxy_scores = self._select(spec)
       rec = run_one_fold(
         self.path,
         fold_name,
@@ -132,6 +133,7 @@ class HoldoutValidationPipeline(ZairaBase):
         model_ids,
         fetcher,
         batch_size=self.batch_size,
+        proxy_scores=proxy_scores,
         substep_cb=lambda text, f=fold_name: monitor.set_substep(f, text),
       )
       monitor.update_fields(fold_name, auroc=rec.get("auroc"), aupr=rec.get("aupr"))

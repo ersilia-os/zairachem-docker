@@ -6,7 +6,7 @@ import json
 import os
 
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import GITHUB_ORG, OUTPUT_TABLE_FILENAME
+from zairachem.base.vars import DEFAULT_CUTOFF, GITHUB_ORG, OUTPUT_TABLE_FILENAME
 from zairachem.report import colors as _colors
 from zairachem.report.html.catalog import _BADGE_DISCARDED, _BADGE_KEPT, _VALIDATION_SCHEMAS
 
@@ -50,9 +50,9 @@ def _hitlist_table_html(report_dir, top_n=25):
   body = []
   for i, (_, r) in enumerate(top.iterrows(), start=1):
     try:
-      call = int(r["call"]) if "call" in top.columns else int(float(r["proba"]) >= 0.5)
+      call = int(r["call"]) if "call" in top.columns else int(float(r["proba"]) >= DEFAULT_CUTOFF)
     except Exception:
-      call = int(float(r.get("proba", 0) or 0) >= 0.5)
+      call = int(float(r.get("proba", 0) or 0) >= DEFAULT_CUTOFF)
     cells = [
       f"<td>{i}</td>",
       f"<td class='smiles'>{html.escape(str(r.get('input_smiles', '')))}</td>",
@@ -210,7 +210,7 @@ def _cv_table_html(cv_stats):
     ("aupr", "Inner CV AUPRC"),
     ("train_auc", "Train AUROC"),
     ("overfit_gap", "Overfit gap"),
-    ("decision_cutoff_proba", "Ideal cutoff"),
+    ("decision_cutoff_proba", "Balanced cutoff"),
   ]
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []

@@ -11,6 +11,7 @@ from sklearn.metrics import (
   roc_curve,
 )
 
+from zairachem.pool.cutoffs import call_cutoff
 from zairachem.report import BasePlot
 from zairachem.report.colors import (
   named_colors,
@@ -79,7 +80,7 @@ class ConfusionPlot(BasePlot):
         # for labels in disp.text_.ravel():
         # labels.set_fontsize(22)
         ax.grid(False)
-        ax.set_title("Confusion matrix")
+        ax.set_title(f"Confusion matrix · {call_cutoff(path)[0]} cutoff")
       else:
         self.is_available = False
     else:
@@ -332,7 +333,7 @@ class NormalizedConfusionPlot(BasePlot):
           color="white" if norm[i, j] > 0.5 else "black",
         )
     ax.grid(False)
-    ax.set_title("Confusion (row-normalized · recall)")
+    ax.set_title(f"Confusion at the {call_cutoff(path)[0]} cutoff (row-normalized · recall)")
     self.is_available = True
 
 
@@ -374,7 +375,7 @@ class ConfusionPrecisionPlot(BasePlot):
           color="white" if norm[i, j] > 0.5 else "black",
         )
     ax.grid(False)
-    ax.set_title("Confusion (column-normalized · precision)")
+    ax.set_title(f"Confusion at the {call_cutoff(path)[0]} cutoff (column-normalized · precision)")
     self.is_available = True
 
 
@@ -410,7 +411,7 @@ class ConfusionBreakdownPlot(BasePlot):
     ax.set_yticks([0, 1])
     ax.set_yticklabels(["Inactive", "Active"])
     ax.set_xlabel("Number of compounds")
-    ax.set_title("Outcome composition by true class")
+    ax.set_title(f"Outcome composition by true class · {call_cutoff(path)[0]} cutoff")
     self.is_available = True
 
 

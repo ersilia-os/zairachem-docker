@@ -202,12 +202,11 @@ class RawDescriptors(ZairaBase):
     featurizer over its failure budget is dropped at fit; any other failure raises.
     """
     if self.is_predict():
-      # Featurize only the descriptors the trained model uses — the --max-descriptors selection when
-      # it was screened, else every trained featurizer (done_eos). No point computing descriptors the
-      # pooled model will ignore.
-      from zairachem.base.utils.descriptors import effective_descriptors
+      # Featurize only the descriptors the trained pooled model uses (the --max-descriptors
+      # selection when it was screened, less those the pooling left out).
+      from zairachem.base.utils.descriptors import pooled_descriptors
 
-      eos_ids = effective_descriptors(self.trained_path)
+      eos_ids = pooled_descriptors(self.trained_path)
     else:
       eos_ids = self.eos_ids()
     # Projection models run alongside the descriptor models (their coordinates are cached for the

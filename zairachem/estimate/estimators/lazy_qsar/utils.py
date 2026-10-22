@@ -1,10 +1,14 @@
 import collections
 
+from zairachem.base.vars import DEFAULT_CUTOFF
 
-def make_classification_report(y, y_proba, y_rank=None, y_ad=None, y_raw=None, threshold=0.5):
+
+def make_classification_report(
+  y, y_proba, y_rank=None, y_ad=None, y_raw=None, threshold=DEFAULT_CUTOFF
+):
   """Pack a descriptor's classification outputs in the format stored in ``y_hat.joblib``.
 
-  Binary calls are ``y_proba > threshold``. ``y_rank`` (OOF percentile), ``y_ad``
+  Binary calls are ``y_proba >= threshold`` (the ``default`` cutoff). ``y_rank`` (OOF percentile), ``y_ad``
   (applicability-domain score) and ``y_raw`` (uncalibrated OOF score) are kept only when given.
 
   Returns
@@ -14,7 +18,7 @@ def make_classification_report(y, y_proba, y_rank=None, y_ad=None, y_raw=None, t
     ``y_hat_raw``.
   """
   y_hat = y_proba
-  b_hat = (y_hat > threshold).astype(int)
+  b_hat = (y_hat >= threshold).astype(int)
   results = collections.OrderedDict()
   main = {"idxs": None, "y": y, "y_hat": y_hat, "b_hat": b_hat}
   # Per-sample reliability signals consumed by the reliability pooler (``r_hat`` is lazy-qsar's OOF

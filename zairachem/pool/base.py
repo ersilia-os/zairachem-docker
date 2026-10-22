@@ -1,3 +1,4 @@
+import contextlib
 import gc
 import json
 import os
@@ -21,6 +22,7 @@ from zairachem.base.vars import (
   METADATA_SUBFOLDER,
   PARAMETERS_FILE,
   POOL_SUBFOLDER,
+  PROXY_SCORES_FILENAME,
   RANK_REFERENCE_SIGNALS_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
   SMILES_COLUMN,
@@ -223,25 +225,42 @@ class BasePooler(ZairaBase):
     return P, R, A
 
   def _get_descriptor_meta(self, pred_columns, task):
-    """Per-descriptor (oof_auc, rank_error_curve, ad_hard_cutoff) aligned to pred_columns.
+    """Per-descriptor metadata for the pooled model, each list aligned to ``pred_columns``.
 
-    Reads each descriptor's ``pool_signals.joblib`` (written by the estimate step). Missing
-    files/keys → None entries, so the pooler falls back gracefully.
+    ``oof_aucs``, ``curves`` (rank-to-error) and ``ad_cutoffs`` from ``pool_signals.joblib``;
+    ``train_aucs`` and ``balanced`` (lazy-qsar's balanced-accuracy cutoff) from ``cv_report.json``;
+    ``proxy_aucs`` from the screening's ``metadata/proxy_scores.json`` when the run was screened.
+    Missing files or keys give None entries.
     """
-    oof_aucs, curves, cutoffs = [], [], []
+    meta = {k: [] for k in ("oof_aucs", "curves", "ad_cutoffs", "train_aucs", "balanced")}
     for d in self._descriptor_dirs(pred_columns, task):
-      sig = {}
+      sig, cv = {}, {}
       if d is not None:
-        fp = os.path.join(d, "pool_signals.joblib")
-        if os.path.exists(fp):
-          try:
-            sig = joblib.load(fp)
-          except Exception:
-            sig = {}
-      oof_aucs.append(sig.get("oof_auc"))
-      curves.append(sig.get("rank_error_curve"))
-      cutoffs.append(sig.get("ad_hard_cutoff"))
-    return oof_aucs, curves, cutoffs
+        with contextlib.suppress(Exception):  # unpickling can raise many types
+          sig = joblib.load(os.path.join(d, "pool_signals.joblib"))
+        with contextlib.suppress(OSError, ValueError):
+          with open(os.path.join(d, "cv_report.json")) as f:
+            cv = json.load(f)
+      meta["oof_aucs"].append(sig.get("oof_auc"))
+      meta["curves"].append(sig.get("rank_error_curve"))
+      meta["ad_cutoffs"].append(sig.get("ad_hard_cutoff"))
+      meta["train_aucs"].append(cv.get("train_auc"))
+      meta["balanced"].append(cv.get("decision_cutoff_proba"))
+    proxy = {}
+    meta_dir = self.get_trained_dir() if self.is_predict() else self.path
+    with contextlib.suppress(OSError, ValueError):
+      with open(os.path.join(meta_dir, METADATA_SUBFOLDER, PROXY_SCORES_FILENAME)) as f:
+        proxy = json.load(f)
+    meta["proxy_aucs"] = [proxy.get(_descriptor_id(c)) for c in pred_columns]
+    return meta
+
+
+def _descriptor_id(column):
+  """Descriptor id of a prediction column (``<family>-<eos_id>-clf`` -> ``<eos_id>``)."""
+  for suffix in ("-clf", "-reg"):
+    if column.endswith(suffix):
+      column = column[: -len(suffix)]
+  return column.split("-")[-1]
 
 
 class BaseOutcomeAssembler(ZairaBase):

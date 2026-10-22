@@ -64,6 +64,22 @@ RANK_REFERENCE_SIGNALS_FILENAME = "reference_signals.npz"
 # lazy-qsar's binary cutoff on the rank scale (lazyqsar.utils.ranking.DECISION_RANK: beats 99% of
 # the reference). Mirrored for the report, which must not import lazy-qsar.
 RANK_DECISION_CUTOFF = 0.65
+
+# Named classification cutoffs, all stored in results/cutoffs.json (see pool/cutoffs.py):
+# - screening: the call. The pooled probability at rank RANK_DECISION_CUTOFF against the rank
+#   reference (its 99th percentile, the top 1% of drug-like chemical space), as lazy-qsar's binary.
+# - kappa: maximises Cohen's kappa (GHOST) on the training out-of-fold pooled scores.
+# - balanced: lazy-qsar's balanced-accuracy cutoff on each descriptor's out-of-fold scores.
+# - default: DEFAULT_CUTOFF on the probability (per-descriptor calls; the pooled call without a
+#   rank reference).
+CUTOFF_SCREENING = "screening"
+CUTOFF_KAPPA = "kappa"
+CUTOFF_BALANCED = "balanced"
+CUTOFF_DEFAULT = "default"
+DEFAULT_CUTOFF = 0.5
+CUTOFFS_FILENAME = "cutoffs.json"
+# Descriptors the pooled model uses and those it left out (pool/), read by predict runs.
+POOLED_DESCRIPTORS_FILENAME = "pooled_descriptors.json"
 # Rank-reference matrices (describe/descriptors/rank_reference.py): one per featurizer/version under
 # "<RANK_REFERENCE_DIR>/<REFERENCE_ID>_n<n>/", downloaded on demand from the public bucket (published
 # from this repository's data/rank_reference with eosvc), or computed and cached when unpublished.

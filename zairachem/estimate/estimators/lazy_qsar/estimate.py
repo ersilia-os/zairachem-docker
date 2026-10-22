@@ -633,8 +633,10 @@ class Estimator(ZairaBase):
       path_trained = path
     # Train only the descriptors the run actually uses (the --max-descriptors subset when screened,
     # else every featurizer in done_eos.json).
-    from zairachem.base.utils.descriptors import effective_descriptors
+    from zairachem.base.utils.descriptors import effective_descriptors, pooled_descriptors
 
+    if self.is_predict():  # only what the trained pooled model uses
+      return pooled_descriptors(path_trained)
     return effective_descriptors(path_trained)
 
   def _read_cv_result(self, model_id):

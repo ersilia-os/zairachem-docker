@@ -1,6 +1,7 @@
 import numpy as np
 
 from zairachem.base.vars import RANK_DECISION_CUTOFF
+from zairachem.pool.cutoffs import call_cutoff
 from zairachem.report import BasePlot
 from zairachem.report.colors import (
   named_colors,
@@ -22,8 +23,6 @@ from zairachem.report.plots._common import (
 # they are the core of the predict report. Each renders only when there is NO truth column
 # (``has_clf_data()`` is False). Since a fit run is always labelled, that condition holds *only* for a
 # predict-without-ground-truth run, so these never fire at fit (fit report unchanged by construction).
-
-_CUTOFF = 0.5  # pooled binarization threshold (pool.py: ``b_hat = y_hat > 0.5``)
 
 
 def _predicted_proba(path):
@@ -102,6 +101,7 @@ class PredictedScoreHistogramPlot(BasePlot):
       _faded_density(bg, act_tr, _color("active"), label="Training active")
       bg.set_ylim(bottom=0)
     nbins = min(30, max(8, yp.size // 5))
+    cut_name, cut = call_cutoff(path)
     if self.has_clf_data():
       yt, yps = ResultsFetcher(path=path).clf_truth_proba()
       ax.hist(
@@ -139,9 +139,9 @@ class PredictedScoreHistogramPlot(BasePlot):
         label="Predicted",
         zorder=10,
       )
-      n_pos = int((yp >= _CUTOFF).sum())
-      title = f"Predicted scores · {n_pos}/{yp.size} ≥ {_CUTOFF:g}"
-    ax.axvline(_CUTOFF, color=named_colors.gray, lw=1, ls="--", zorder=12)
+      n_pos = int((yp >= cut).sum())
+      title = f"Predicted scores · {n_pos}/{yp.size} at or above the {cut_name} cutoff"
+    ax.axvline(cut, color=named_colors.gray, lw=1, ls="--", zorder=12)
     ax.set_xlim(0, 1)
     ax.set_title(title)
     ax.set_xlabel("Predicted probability")
@@ -199,9 +199,10 @@ class ScoreRankCurvePlot(BasePlot):
           label="Active",
         )
         ax.legend(loc="upper right", fontsize=6)
-    ax.axhline(_CUTOFF, color=named_colors.gray, lw=1, ls="--")
-    frac = float((yp >= _CUTOFF).mean() * 100.0)
-    ax.set_title(f"{frac:.0f}% of the set scores ≥ {_CUTOFF:g}")
+    cut_name, cut = call_cutoff(path)
+    ax.axhline(cut, color=named_colors.gray, lw=1, ls="--")
+    frac = float((yp >= cut).mean() * 100.0)
+    ax.set_title(f"{frac:.0f}% of the set at or above the {cut_name} cutoff")
     ax.set_xlabel("Top % of library (ranked by score)")
     ax.set_ylabel("Predicted probability")
     ax.set_xlim(0, 100)

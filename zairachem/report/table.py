@@ -5,6 +5,11 @@ import pandas as pd
 from rdkit import Chem
 
 from zairachem.base.vars import (
+  CUTOFF_BALANCED,
+  CUTOFF_DEFAULT,
+  CUTOFF_KAPPA,
+  CUTOFF_SCREENING,
+  DEFAULT_CUTOFF,
   OUTPUT_DESCRIPTOR_PREFIX,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
@@ -15,47 +20,62 @@ from zairachem.report.fetcher import ResultsFetcher
 
 
 class PerformanceTable(BaseTable, ResultsFetcher):
-  """Writes ``report/performance_table.csv`` — per-model and pooled performance metrics.
+  """Writes ``report/performance_table.csv``: the pooled and per-descriptor metrics, per cutoff.
 
-  One row per descriptor estimator plus a ``pooled`` row, each with the classification metrics
-  (regression is a TODO). Skips quietly when there is no/single-class labelled truth (e.g. predict
-  without ground truth)."""
+  One row per (model, cutoff): the pooled model at the ``screening``, ``kappa`` and ``default``
+  cutoffs, each descriptor at its ``balanced`` cutoff and at ``default`` (see
+  ``results/cutoffs.json``). Classification only. Skips quietly when there is no labelled truth
+  with both classes (e.g. predict without ground truth).
+  """
 
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
     self.is_clf = self.has_clf_data()
 
-  def _individual_performances(self):
-    if self.is_clf:
-      tasks = self.get_clf_tasks()
-    else:
-      tasks = self.get_reg_tasks()
-    task = tasks[0]
-    df_te = self._read_individual_estimator_results(task)
-    df_tr = self._read_individual_estimator_results_train(task)
-    columns = list(df_te.columns)
-    for col in columns:
-      y_pred_test = list(df_te[col])
-      y_pred_train = list(df_tr[col])
-      if self.is_clf:
-        y_true_train = list(self.get_actives_inactives_trained())
-        y_true_test = list(self.get_actives_inactives())
-        data = self.classification_performance_report(
-          y_true_train, y_pred_train, y_true_test, y_pred_test
-        )
-      else:
-        # TODO
-        data = self.regression_performance_report(
-          y_true_train, y_pred_train, y_true_test, y_pred_test
-        )
-      yield (col, data)
+  def _rows(self):
+    from zairachem.pool.cutoffs import read_cutoffs
 
-  def _general_performance(self):
+    cutoffs = read_cutoffs(self.path) or {}
+
+    def get(name, key):
+      return (cutoffs.get(name) or {}).get(key)
+
+    y = list(self.get_actives_inactives())
+    pooled = list(self.get_pred_proba_clf())
+    for name in (CUTOFF_SCREENING, CUTOFF_KAPPA, CUTOFF_DEFAULT):
+      yield (
+        "pooled",
+        self.classification_performance_report(
+          y, pooled, name, get(name, "proba"), get(name, "rank")
+        ),
+      )
+    balanced = get(CUTOFF_BALANCED, "proba") or {}
+    balanced_rank = get(CUTOFF_BALANCED, "rank") or {}
+    default_rank = get(CUTOFF_DEFAULT, "rank_by_descriptor") or {}
+    df = self._read_individual_estimator_results(self.get_clf_tasks()[0])
+    for col in df.columns:
+      p = list(df[col])
+      d = _descriptor_of(col)
+      yield (
+        col,
+        self.classification_performance_report(
+          y, p, CUTOFF_BALANCED, balanced.get(d), balanced_rank.get(d)
+        ),
+      )
+      yield (
+        col,
+        self.classification_performance_report(
+          y, p, CUTOFF_DEFAULT, DEFAULT_CUTOFF, default_rank.get(d)
+        ),
+      )
+
+  def run(self):
+    """Compute every model's metrics and write the performance table CSV (no-op if metrics skip)."""
     if not self.is_clf:
-      return None  # TODO regression
-    # Guard: validation needs at least two classes among the labelled (current-run) compounds.
-    # At predict with no/partial/single-class truth this is degenerate — skip metrics, don't crash.
+      return  # regression: not implemented
+    # Validation needs at least two classes among the labelled (current-run) compounds. At predict
+    # with no, partial or single-class truth this is degenerate: skip metrics, don't crash.
     yt_labeled = self.clf_truth_proba()[0]
     if len(yt_labeled) == 0 or len(set(yt_labeled.tolist())) < 2:
       from zairachem.base.utils.logging import logger
@@ -63,32 +83,20 @@ class PerformanceTable(BaseTable, ResultsFetcher):
       logger.warning(
         "[report] Ground-truth labels are absent or single-class — skipping performance metrics."
       )
-      return None
-    return self.classification_performance_report(
-      list(self.get_actives_inactives_trained()),
-      list(self.get_pred_proba_clf_trained()),
-      list(self.get_actives_inactives()),
-      list(self.get_pred_proba_clf()),
+      return
+    data = collections.defaultdict(list)
+    for model, row in self._rows():
+      data["model"].append(model)
+      for k, v in row.items():
+        data[k].append(v)
+    pd.DataFrame(data).to_csv(
+      os.path.join(self.path, REPORT_SUBFOLDER, PERFORMANCE_TABLE_FILENAME), index=False
     )
 
-  def run(self):
-    """Compute every model's metrics and write the performance table CSV (no-op if metrics skip)."""
-    data = collections.defaultdict(list)
-    d = self._general_performance()
-    data["model"] += ["pooled"]
-    if d is None:
-      return
-    for k, v in d.items():
-      data[k] += [v]
-    for col, d_ in self._individual_performances():
-      data["model"] += [col]
-      for k, v in d_.items():
-        data[k] += [v]
-    data = pd.DataFrame(data)
-    data.to_csv(
-      os.path.join(self.path, REPORT_SUBFOLDER, PERFORMANCE_TABLE_FILENAME),
-      index=False,
-    )
+
+def _descriptor_of(column):
+  """Descriptor id of a per-descriptor results column (``<family>-<eos_id>`` -> ``<eos_id>``)."""
+  return column.split("-")[-1]
 
 
 class OutputTable(BaseTable, ResultsFetcher):

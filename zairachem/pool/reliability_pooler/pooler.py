@@ -1,195 +1,345 @@
-"""Per-sample, per-descriptor reliability pooler.
+"""Pooling of the per-descriptor models through lazy-qsar's own ensemble (``LazyClassifierQSAR``).
 
-A port of LazyQSAR's outer multi-descriptor pooler (``lazyqsar/qsar.py::_build_weight_matrix`` and
-its logit-space combination) adapted to zairachem's pool step. It weights the descriptors per
-sample, blending each descriptor's global skill with
-its per-sample reliability (an OOF-percentile→error curve), apply an applicability-domain (AD) hard veto, and
-combine the calibrated probabilities in logit space.
+The weighting, the logit-space combination and every output (probability, rank against the
+reference library, the binary call, the pre-calibration score) come from
+:func:`lazyqsar.ensemble.combine.combine`, so the pooled model is lazy-qsar's by construction. What
+this module adds is what lazy-qsar's ensemble does around that call at fit: the skill term
+(:func:`lazyqsar.qsar._quality_weight`, which penalises overfitting), the pruning of weak
+descriptors, the pooled reference rank with its anchors, and the score map.
 
-The math is task-neutral and pure-numpy; persistence is a single joblib dict so inference reproduces
-the exact weighting decided at fit time. Inputs (rank, AD, curves, skill) are all optional — missing
-signals degrade gracefully (see ``WeightMatrixBuilder.build``).
+One input differs on purpose: each descriptor's rank-to-error reliability curve is built on its
+out-of-fold predictions (lazy-qsar builds it on in-sample ones), an honest estimate of the error at
+no extra cost.
 """
 
-import os
+import dataclasses
 
-import joblib
 import numpy as np
 
-EPS = 1e-7
+# Imported at module load, i.e. before the CLI re-asserts its loguru sinks, which importing
+# lazy-qsar clears.
+from lazyqsar.ensemble.combine import EnsembleSpec, combine
+from lazyqsar.ensemble.reference import build_pooled_score_knots
+from lazyqsar.qsar import _quality_weight  # private, pinned with lazyqsar==3.7.0
+from lazyqsar.utils.ranking import (
+  DECISION_RANK,
+  prepare_knots,
+  proba_from_reference_rank,
+  rank_from_reference,
+  reference_anchor_table,
+  subsample_knots,
+)
+
+from zairachem.base.vars import DEFAULT_CUTOFF
+
+#: Saved weighting of a trained model (in its pool folder).
+ARTIFACT_NAME = "reliability_pool_clf.joblib"
+#: Version of the saved weighting; models saved before it carry none (see :func:`load_params`).
+ARTIFACT_VERSION = 2
+#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold AUROC is below the floor or
+#: more than the gap below the best one (``LazyClassifierQSAR.fit``).
+PRUNE_FLOOR = 0.55
+PRUNE_GAP = 0.10
 
 
-class WeightMatrixBuilder(object):
-  """Builder of the per-sample, per-descriptor weight matrix used to pool predictions."""
+def active_mask(oof_aucs):
+  """Which descriptors the pooled model keeps, by lazy-qsar's pruning rule.
 
-  @staticmethod
-  def build(P, R, A, base_scores, rank_error_curves, ad_hard_cutoffs):
-    """Return ``(W, base)`` — a row-normalized (B, D) per-sample weight matrix.
-
-    Parameters
-    ----------
-    P : (B, D) calibrated predictions per descriptor (used only for shape here).
-    R : (B, D) lazy-qsar OOF percentiles in [0, 1], or None.
-    A : (B, D) applicability-domain scores, or None when no AD signal exists.
-    base_scores : (D,) global skill per descriptor (e.g. max(0, oof_auc − 0.5)).
-    rank_error_curves : list len D of (r_knots, e_knots) or None.
-    ad_hard_cutoffs : (D,) veto thresholds (use -inf to disable a descriptor's veto), or None.
-    """
-    B, D = P.shape
-    base = np.array(base_scores, dtype=np.float64)
-    if base.size != D:
-      base = np.ones(D, dtype=np.float64)
-    if not np.isfinite(base).all():
-      base = np.where(np.isfinite(base), base, 0.0)
-    if base.sum() <= 0:
-      base = np.ones(D, dtype=np.float64)
-
-    if A is not None:
-      A = np.asarray(A, dtype=np.float64)
-      if R is not None:
-        R = np.asarray(R, dtype=np.float64)
-        # NaN rank → neutral 0.5 (neither reliable nor unreliable).
-        R = np.where(np.isfinite(R), R, 0.5)
-        curves_ok = rank_error_curves is not None and all(c is not None for c in rank_error_curves)
-        if curves_ok:
-          reliability = np.zeros((B, D), dtype=np.float64)
-          for j in range(D):
-            r_knots, e_knots = rank_error_curves[j]
-            reliability[:, j] = 1.0 - np.interp(R[:, j], r_knots, e_knots)
-          reliability = np.clip(reliability, 0.0, 1.0)
-        else:
-          # Fallback reliability: extreme ranks (far from 0.5) are assumed more confident.
-          reliability = np.abs(R - 0.5) * 2.0
-        W = 0.5 * base[np.newaxis, :] + 0.5 * reliability
-      else:
-        W = np.tile(base, (B, 1))
-
-      # AD hard veto: zero a descriptor's weight where its AD score falls below the cutoff.
-      # NaN AD passes (no veto) so a half-built upstream never zeroes all weights.
-      if ad_hard_cutoffs is not None:
-        cut = np.array(ad_hard_cutoffs, dtype=np.float64)
-        for j in range(D):
-          if np.isfinite(cut[j]):
-            vetoed = np.isfinite(A[:, j]) & (A[:, j] < cut[j])
-            W[vetoed, j] = 0.0
-
-      # All-OOD rows (every descriptor vetoed) → restore the global skill weights.
-      all_ood = W.sum(axis=1) == 0
-      if all_ood.any():
-        W[all_ood] = base
-
-      W = W / W.sum(axis=1, keepdims=True)
-    else:
-      # No AD signal: weight purely by global skill (uniform when no skill info is available,
-      # since base was reset to ones above).
-      W = np.tile(base, (B, 1))
-      W = W / W.sum(axis=1, keepdims=True)
-
-    return W, base
+  An unknown out-of-fold AUROC keeps its descriptor (the measurement failed, which says nothing
+  about it); all are kept when none would survive.
+  """
+  known = [a for a in oof_aucs if a is not None]
+  best = max(known) if known else 0.0
+  mask = [a is None or (a >= PRUNE_FLOOR and a >= best - PRUNE_GAP) for a in oof_aucs]
+  return mask if any(mask) else [True] * len(oof_aucs)
 
 
-class ReliabilityClassifierPooler(object):
-  """Per-sample weighted, logit-space classification pooler."""
+def build_spec(names, oof_aucs, train_aucs, proxy_aucs, curves, ad_cutoffs, prior):
+  """lazy-qsar's :class:`EnsembleSpec` for the descriptors ``names`` (all of them active).
 
-  ARTIFACT_NAME = "reliability_pool_clf.joblib"
+  Parameters
+  ----------
+  names : list of str
+      Descriptor (prediction column) names, in column order.
+  oof_aucs, train_aucs : list of float or None
+      Out-of-fold and in-sample AUROC per descriptor; the skill term uses their quality,
+      ``clip(2 * oof - train, 0, 1)``.
+  proxy_aucs : list of float or None, or None
+      Screening proxy AUROC per descriptor, averaged into the skill term when known.
+  curves : list of (ndarray, ndarray) or None
+      Rank-to-error reliability curve per descriptor.
+  ad_cutoffs : list of float or None, or None
+      Applicability-domain veto floor per descriptor; None when there is no AD signal.
+  prior : float
+      Fraction of actives in the training rows.
+  """
+  quality = tuple(_quality_weight(o, t) for o, t in zip(oof_aucs, train_aucs))
+  proxies = tuple(proxy_aucs) if proxy_aucs and any(p is not None for p in proxy_aucs) else None
+  cuts = None
+  if ad_cutoffs is not None:
+    cuts = tuple(float(c) if c is not None else float("-inf") for c in ad_cutoffs)
+  return EnsembleSpec(
+    descriptor_names=tuple(names),
+    oof_aucs=quality,
+    proxy_aucs=proxies,
+    rank_error_curves=tuple(curves) if curves is not None else None,
+    ad_hard_cutoffs=cuts,
+    population_prior=float(prior),
+  )
 
-  def __init__(self, path):
-    self.path = path
-    if not os.path.exists(self.path):
-      os.makedirs(self.path, exist_ok=True)
-    self._params = None
 
-  def _artifact_path(self):
-    return os.path.join(self.path, self.ARTIFACT_NAME)
+def _ranks(R):
+  # A descriptor whose percentile could not be computed for a row counts as neither reliable nor
+  # unreliable there (lazy-qsar's own channels are never NaN).
+  return None if R is None else np.where(np.isfinite(R), R, 0.5)
 
-  @staticmethod
-  def _base_scores(oof_aucs):
-    return [max(0.0, float(a) - 0.5) if a is not None else 0.0 for a in oof_aucs]
 
-  def fit(self, P, R, A, y, oof_aucs, rank_error_curves, ad_cutoffs, descriptor_columns):
-    """Fit the pooling params, save them and return the pooled probabilities of ``P``.
+def pool(P, R, S, A, spec, outputs=("proba",)):
+  """``CombineResult`` of lazy-qsar's ``combine`` for per-descriptor matrices aligned to ``spec``."""
+  return combine(P, _ranks(R), S, A, spec=spec, outputs=outputs)
 
-    Parameters
-    ----------
-    P : array-like, shape (B, D)
-      Calibrated per-descriptor probabilities.
-    R : array-like, shape (B, D), or None
-      OOF percentiles; when None the rank reliability term is disabled.
-    A : array-like, shape (B, D), or None
-      Applicability-domain scores; when None the AD veto is disabled.
-    y : array-like, shape (B,)
-      Labels (not used in the weighting itself).
-    oof_aucs : list of float or None, length D
-      OOF AUC per descriptor; base skill is ``max(0, auc - 0.5)``.
-    rank_error_curves : list of (r_knots, e_knots) or None, length D
-      Per-descriptor OOF percentile to error curves.
-    ad_cutoffs : list of float or None, length D
-      AD hard veto cutoffs (None means never vetoed).
-    descriptor_columns : list of str
-      Prediction column names, in column order of ``P``.
-    """
-    P = np.asarray(P, dtype=np.float64)
-    D = P.shape[1]
-    base_scores = self._base_scores(oof_aucs)
-    has_ad = A is not None
-    has_rank = R is not None
-    # None cutoffs → -inf (that descriptor is never vetoed); only meaningful when AD is present.
-    ad_hard_cutoffs = None
-    if has_ad:
-      ad_hard_cutoffs = [
-        float(c) if c is not None else float("-inf") for c in (ad_cutoffs or [None] * D)
-      ]
-    self._params = {
-      "descriptor_columns": list(descriptor_columns),
-      "base_scores": base_scores,
-      "rank_error_curves": rank_error_curves,
-      "ad_hard_cutoffs": ad_hard_cutoffs,
-      "has_rank": has_rank,
-      "has_ad": has_ad,
-      "eps": EPS,
-    }
-    self.save()
-    return self._combine(P, R, A, self._params)
 
-  def save(self):
-    """Persist the fitted params (re-called once the pooled rank reference is added to them)."""
-    joblib.dump(self._params, self._artifact_path())
+def _proba(result):
+  return result.values["proba"][:, 1]
 
-  def _load(self):
-    if self._params is None:
-      self._params = joblib.load(self._artifact_path())
-    return self._params
 
-  def predict(self, P, R, A):
-    """Return pooled probabilities of ``P`` with the saved params, ignoring signals absent at fit."""
-    params = self._load()
-    P = np.asarray(P, dtype=np.float64)
-    # Honor the tier decided at fit: if AD/rank were absent then, ignore them now.
-    if not params.get("has_ad", False):
-      A = None
-    if not params.get("has_rank", False):
-      R = None
-    return self._combine(P, R, A, params)
+def _anchors(p, y):
+  """lazy-qsar's rank anchors: p5 of the inactives (recorded) and p95 of the actives, which pins
+  the top of the rank scale when it lies above the reference's 99.9th percentile."""
+  p, y = np.asarray(p), np.asarray(y)
+  act, inact = p[y == 1], p[y == 0]
+  return (
+    float(np.percentile(inact, 5)) if inact.size else None,
+    float(np.percentile(act, 95)) if act.size else None,
+  )
 
-  @staticmethod
-  def _combine_verbose(P, R, A, params):
-    """Return ``(p1, W)``: pooled probabilities and the per-sample weight matrix used."""
-    P = np.asarray(P, dtype=np.float64)
-    W, _ = WeightMatrixBuilder.build(
-      P,
-      R,
-      A,
-      params["base_scores"],
-      params.get("rank_error_curves"),
-      params.get("ad_hard_cutoffs"),
-    )
-    eps = params.get("eps", EPS)
-    Pc = np.clip(P, eps, 1 - eps)
-    logits = np.log(Pc / (1 - Pc))
-    p1 = 1.0 / (1.0 + np.exp(-(W * logits).sum(axis=1)))
-    return p1, W
 
-  @staticmethod
-  def _combine(P, R, A, params):
-    p1, _ = ReliabilityClassifierPooler._combine_verbose(P, R, A, params)
-    return p1
+def rank_of(proba, knots, anchors):
+  """A probability's rank against reference ``knots`` (lazy-qsar's ``rank``), or None.
+
+  The same map ``combine`` applies to its pooled probability, so a cutoff and the scores it is
+  compared with sit on one scale.
+  """
+  if proba is None or knots is None or not len(knots):
+    return None
+  value = rank_from_reference(
+    np.array([float(proba)]), prepared=prepare_knots(np.asarray(knots)), anchors=anchors
+  )
+  return float(value[0])
+
+
+def _descriptor_ranks(cutoffs, P, y, reference_P):
+  """Each descriptor's ``cutoffs`` (probability, or None) on its own reference rank scale.
+
+  As lazy-qsar ranks a single descriptor's probability: against that descriptor's scores of the
+  rank-reference library, anchored on its out-of-fold training scores.
+  """
+  if reference_P is None:
+    return [None] * len(cutoffs)
+  ranks = []
+  for j, cut in enumerate(cutoffs):
+    ref = reference_P[:, j][np.isfinite(reference_P[:, j])]
+    knots = subsample_knots(np.sort(ref)) if ref.size else None
+    ranks.append(rank_of(cut, knots, _anchors(P[:, j], y)))
+  return ranks
+
+
+def fit(P, R, S, A, y, names, meta, reference=None, kappa=None):
+  """Fit the pooled model on the training rows; return ``(params, result)``.
+
+  ``meta`` holds the per-descriptor ``oof_aucs``, ``train_aucs``, ``proxy_aucs``, ``curves`` and
+  ``ad_cutoffs`` (aligned to ``names``). Weak descriptors are pruned first; the matrices, including
+  the rank-reference library's ``(P, R, A)`` in ``reference``, are then pooled over the active ones
+  only. With a reference, the pooled probability gets its rank and the screening cutoff; ``kappa``
+  (``(y, p) -> cutoff``) sets the kappa cutoff on the pooled training scores. ``result`` holds the
+  training rows' outputs (``proba``, ``binary``, and ``rank``/``score`` when available).
+  """
+  mask = active_mask(meta["oof_aucs"])
+  keep = [j for j, m in enumerate(mask) if m]
+
+  def cols(M):
+    return None if M is None else np.asarray(M, dtype=np.float64)[:, keep]
+
+  def per(key):
+    values = meta.get(key)
+    return None if values is None else [values[j] for j in keep]
+
+  P_a, R_a, S_a, A_a = cols(P), cols(R), cols(S), cols(A)
+  spec = build_spec(
+    [names[j] for j in keep],
+    per("oof_aucs"),
+    per("train_aucs"),
+    per("proxy_aucs"),
+    per("curves") if R_a is not None else None,
+    per("ad_cutoffs") if A_a is not None else None,
+    float(np.mean(y)) if len(y) else 0.5,
+  )
+  p_train = _proba(pool(P_a, R_a, S_a, A_a, spec))
+
+  updates, info = {}, {}
+  if S_a is not None:
+    updates["pooled_score_knots"] = build_pooled_score_knots(P_a, _ranks(R_a), S_a, A_a, spec)
+  screening = None
+  if reference is not None and not (A_a is not None and reference[2] is None):
+    # (a reference without AD scores would be pooled with different weights from the queries)
+    P_ref, R_ref, A_ref = reference
+    p_ref = _proba(pool(P_ref[:, keep], cols(R_ref), None, cols(A_ref), spec))
+    p_ref = p_ref[np.isfinite(p_ref)]
+    if p_ref.size:
+      knots = subsample_knots(np.sort(p_ref))
+      prepared = prepare_knots(knots)
+      anchors = _anchors(p_train, y)
+      screening = float(
+        proba_from_reference_rank(DECISION_RANK, prepared=prepared, anchor_high=anchors[1])
+      )
+      updates.update(
+        pooled_rank_knots=knots, pooled_rank_anchors=anchors, decision_cutoff=screening
+      )
+      _, _, high_used = reference_anchor_table(prepared=prepared, anchor_high=anchors[1])
+      info = {"n_reference": int(p_ref.size), "anchor_high_used": bool(high_used)}
+  spec = dataclasses.replace(spec, **updates)
+  cutoffs = {
+    "screening": screening,
+    "kappa": kappa(np.asarray(y), p_train) if kappa is not None else None,
+    "default": DEFAULT_CUTOFF,
+  }
+  balanced = meta.get("balanced") or [None] * len(names)
+  ranks = {
+    name: rank_of(value, spec.pooled_rank_knots, spec.pooled_rank_anchors)
+    for name, value in cutoffs.items()
+  }
+  reference_P = None if reference is None else np.asarray(reference[0], dtype=np.float64)
+  P_all = np.asarray(P, dtype=np.float64)
+  ranks["balanced"] = dict(zip(names, _descriptor_ranks(balanced, P_all, y, reference_P)))
+  ranks["default_by_descriptor"] = dict(
+    zip(names, _descriptor_ranks([DEFAULT_CUTOFF] * len(names), P_all, y, reference_P))
+  )
+  params = {
+    "version": ARTIFACT_VERSION,
+    "descriptor_columns": list(spec.descriptor_names),
+    "pruned_columns": [n for n, m in zip(names, mask) if not m],
+    "spec": spec,
+    "has_rank": R_a is not None,
+    "has_ad": A_a is not None,
+    "has_score": S_a is not None,
+    "cutoffs": cutoffs,
+    # Every cutoff as a rank, the scale of the score: pooled ones against the pooled reference,
+    # each descriptor's balanced cutoff against its own (see _descriptor_ranks).
+    "cutoff_ranks": ranks,
+    **info,
+  }
+  return params, predict(params, P_a, R_a, S_a, A_a)
+
+
+def predict(params, P, R, S, A):
+  """Pooled outputs (``CombineResult``) for matrices aligned to ``params["descriptor_columns"]``.
+
+  ``binary`` is the screening call when the model has a rank reference, else ``p >= 0.5``.
+  """
+  spec = params["spec"]
+  outputs = ["proba", "binary"]
+  if spec.pooled_rank_knots is not None:
+    outputs.append("rank")
+  if S is not None and params.get("has_score"):
+    outputs.append("score")
+  return pool(
+    P, R if params["has_rank"] else None, S, A if params["has_ad"] else None, spec, outputs
+  )
+
+
+def restrict(params, keep):
+  """``params`` for a subset of its descriptors (``keep``: column names, saved order).
+
+  The reference rank and the screening cutoff describe the pooled probability of every trained
+  descriptor, so a subset has neither: its call falls back to ``p >= 0.5``.
+  """
+  saved = params["descriptor_columns"]
+  if list(keep) == list(saved):
+    return params
+  pos = [saved.index(c) for c in keep]
+  spec = params["spec"]
+
+  def sub(values):
+    return None if values is None else tuple(values[p] for p in pos)
+
+  spec = dataclasses.replace(
+    spec,
+    descriptor_names=tuple(keep),
+    oof_aucs=sub(spec.oof_aucs),
+    proxy_aucs=sub(spec.proxy_aucs),
+    rank_error_curves=sub(spec.rank_error_curves),
+    ad_hard_cutoffs=sub(spec.ad_hard_cutoffs),
+    pooled_rank_knots=None,
+    pooled_rank_anchors=None,
+    decision_cutoff=DEFAULT_CUTOFF,
+  )
+  return {**without_rank({**params, "spec": spec}), "descriptor_columns": list(keep)}
+
+
+def _pooled_rankless(ranks):
+  """Cutoff ranks without the pooled ones (each descriptor's balanced rank does not depend on the
+  pooled reference)."""
+  ranks = ranks or {}
+  return {k: dict(ranks.get(k) or {}) for k in ("balanced", "default_by_descriptor")}
+
+
+def without_rank(params):
+  """``params`` without the reference rank and the screening cutoff (call at ``p >= 0.5``)."""
+  spec = dataclasses.replace(
+    params["spec"], pooled_rank_knots=None, pooled_rank_anchors=None, decision_cutoff=DEFAULT_CUTOFF
+  )
+  return {
+    **params,
+    "spec": spec,
+    "cutoffs": {**params["cutoffs"], "screening": None},
+    "cutoff_ranks": _pooled_rankless(params.get("cutoff_ranks")),
+  }
+
+
+def to_artifact(params):
+  """``params`` as saved: the spec as a plain dict, so a saved model does not depend on how
+  lazy-qsar lays out :class:`EnsembleSpec`."""
+  return {**params, "spec": dataclasses.asdict(params["spec"])}
+
+
+def load_params(raw):
+  """The saved weighting as current ``params``; models saved before ``ARTIFACT_VERSION`` convert.
+
+  Those stored ``base_scores = max(0, oof - 0.5)``, which lazy-qsar's skill term reproduces from
+  ``oof = base + 0.5``; their weights only differ when the model had no applicability domain
+  (lazy-qsar then weights uniformly). They have no pruning, score map or kappa cutoff, and no rank
+  for the balanced cutoffs (their per-descriptor reference scores are not kept with the pooled
+  model).
+  """
+  if raw.get("version") == ARTIFACT_VERSION:
+    return {**raw, "spec": EnsembleSpec(**raw["spec"])}
+  names = list(raw["descriptor_columns"])
+  high = raw.get("pooled_rank_anchor_high")
+  knots = raw.get("pooled_rank_knots")
+  screening = raw.get("decision_cutoff_proba") if knots is not None else None
+  spec = EnsembleSpec(
+    descriptor_names=tuple(names),
+    oof_aucs=tuple(b + 0.5 for b in raw["base_scores"]),
+    rank_error_curves=tuple(raw["rank_error_curves"]) if raw.get("rank_error_curves") else None,
+    ad_hard_cutoffs=tuple(raw["ad_hard_cutoffs"]) if raw.get("ad_hard_cutoffs") else None,
+    pooled_rank_knots=knots,
+    pooled_rank_anchors=(None, high) if high is not None else None,
+    decision_cutoff=screening if screening is not None else DEFAULT_CUTOFF,
+  )
+  return {
+    "version": ARTIFACT_VERSION,
+    "descriptor_columns": names,
+    "pruned_columns": [],
+    "spec": spec,
+    "has_rank": bool(raw.get("has_rank")),
+    "has_ad": bool(raw.get("has_ad")),
+    "has_score": False,
+    "cutoffs": {"screening": screening, "kappa": None, "default": DEFAULT_CUTOFF},
+    "cutoff_ranks": {
+      "screening": rank_of(screening, spec.pooled_rank_knots, spec.pooled_rank_anchors),
+      "kappa": None,
+      "default": rank_of(DEFAULT_CUTOFF, spec.pooled_rank_knots, spec.pooled_rank_anchors),
+      "balanced": {},
+      "default_by_descriptor": {},
+    },
+  }

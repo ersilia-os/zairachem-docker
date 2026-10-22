@@ -68,7 +68,7 @@ class _CvBarPlot(BasePlot):
   the per-descriptor identity colour, so flipping between metrics keeps each descriptor in the same
   place with the same hue. Subclasses set ``stem``/``title``/``xlabel``/``xlim``/``noskill`` and
   implement :meth:`compute` (returns the metric for one descriptor, or ``None`` to skip it).
-  Threshold metrics receive ``preds`` already thresholded at the descriptor's ideal cutoff.
+  Threshold metrics receive ``preds`` already thresholded at the descriptor's balanced cutoff.
   """
 
   stem = None
@@ -139,10 +139,10 @@ class CvAuprPlot(_CvBarPlot):
 
 
 class CvMccPlot(_CvBarPlot):
-  """Per-descriptor Matthews correlation coefficient at each descriptor's ideal cutoff."""
+  """Per-descriptor Matthews correlation coefficient at each descriptor's balanced cutoff."""
 
   stem = "cv-mcc"
-  title = "MCC at the ideal cutoff"
+  title = "MCC at the balanced cutoff"
   xlabel = "MCC (no skill = 0)"
 
   def compute(self, s, proba, y, preds, prior):
@@ -151,10 +151,10 @@ class CvMccPlot(_CvBarPlot):
 
 
 class CvF1Plot(_CvBarPlot):
-  """Per-descriptor F1 score at each descriptor's ideal cutoff."""
+  """Per-descriptor F1 score at each descriptor's balanced cutoff."""
 
   stem = "cv-f1"
-  title = "F1 at the ideal cutoff"
+  title = "F1 at the balanced cutoff"
   xlabel = "F1"
 
   def compute(self, s, proba, y, preds, prior):
@@ -163,10 +163,10 @@ class CvF1Plot(_CvBarPlot):
 
 
 class CvBalancedAccuracyPlot(_CvBarPlot):
-  """Per-descriptor balanced accuracy at each descriptor's ideal cutoff (no skill = 0.5)."""
+  """Per-descriptor balanced accuracy at each descriptor's balanced cutoff (no skill = 0.5)."""
 
   stem = "cv-balacc"
-  title = "Balanced accuracy at the ideal cutoff vs no skill (--)"
+  title = "Balanced accuracy at the balanced cutoff vs no skill (--)"
   xlabel = "Balanced accuracy"
   noskill = 0.5
 
@@ -176,10 +176,10 @@ class CvBalancedAccuracyPlot(_CvBarPlot):
 
 
 class CvPrecisionPlot(_CvBarPlot):
-  """Per-descriptor precision at each descriptor's ideal cutoff, with the no-skill prior marked."""
+  """Per-descriptor precision at each descriptor's balanced cutoff, with the no-skill prior marked."""
 
   stem = "cv-precision"
-  title = "Precision at the ideal cutoff vs no-skill prior (--)"
+  title = "Precision at the balanced cutoff vs no-skill prior (--)"
   xlabel = "Precision"
   noskill = "prior"
 
@@ -189,10 +189,10 @@ class CvPrecisionPlot(_CvBarPlot):
 
 
 class CvRecallPlot(_CvBarPlot):
-  """Per-descriptor recall (sensitivity) at each descriptor's ideal cutoff."""
+  """Per-descriptor recall (sensitivity) at each descriptor's balanced cutoff."""
 
   stem = "cv-recall"
-  title = "Recall at the ideal cutoff"
+  title = "Recall at the balanced cutoff"
   xlabel = "Recall (sensitivity)"
 
   def compute(self, s, proba, y, preds, prior):
@@ -204,7 +204,7 @@ class CvCutoffPlot(_CvBarPlot):
   """Per-descriptor ideal decision cutoff (the operating probability lazy-qsar selected)."""
 
   stem = "cv-cutoff"
-  title = "Ideal decision cutoff (probability) vs 0.5 (--)"
+  title = "Balanced cutoff (probability) vs the default 0.5 (--)"
   xlabel = "Decision cutoff (probability)"
   noskill = 0.5
 

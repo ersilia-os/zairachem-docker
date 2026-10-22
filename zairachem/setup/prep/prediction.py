@@ -303,13 +303,13 @@ class PredictSetup(BaseSetup):
 
   def _effective_featurizers(self):
     """Descriptor ids the pooled model actually uses (the --max-descriptors selection when the model
-    was screened, else all trained descriptors).
+    was screened, else all trained descriptors, less those the pooling left out).
 
     Prediction only ever computes and scores these, so every predict-time print omits the
     pre-screened-out descriptors entirely rather than listing them as unused."""
-    from zairachem.base.utils.descriptors import effective_descriptors
+    from zairachem.base.utils.descriptors import pooled_descriptors
 
-    return effective_descriptors(self.model_dir)
+    return pooled_descriptors(self.model_dir)
 
   def _model_id_groups(self):
     with open(params_path(self.model_dir)) as f:

@@ -98,9 +98,12 @@ class OutcomeAssembler(ZairaBase):
       path_trained = self.get_trained_dir()
     else:
       path_trained = path
-    from zairachem.base.utils.descriptors import effective_descriptors
+    from zairachem.base.utils.descriptors import effective_descriptors, pooled_descriptors
 
-    model_ids = effective_descriptors(path_trained)
+    if self.is_predict():  # only what the trained pooled model uses
+      model_ids = pooled_descriptors(path_trained)
+    else:
+      model_ids = effective_descriptors(path_trained)
     model_ids_successful = []
     for model_id in model_ids:
       if os.path.isfile(
