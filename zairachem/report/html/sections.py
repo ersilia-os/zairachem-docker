@@ -404,7 +404,11 @@ def _value_summary(output_dir):
 
 
 def _dataset_html(output_dir, report_dir, present, assigned):
-  """Dataset composition: class-balance stat cells + bar, then the class-balance & property sliders."""
+  """What this run was trained on: the target's composition, then the property sliders.
+
+  Classification reports its class balance as stat cells and a bar; regression, which has no
+  balance, reports the target's range and spread instead. Either way the property figures follow.
+  """
   counts = _class_counts(output_dir)
   values = None if counts else _value_summary(output_dir)
   fig_cards, fig_stems = [], []
