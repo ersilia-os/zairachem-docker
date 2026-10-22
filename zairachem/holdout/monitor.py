@@ -1,7 +1,7 @@
 """Live per-fold table for the held-out validation (Evaluate) step.
 
 One row per fold, showing the split type, train/test molecule counts, the current sub-phase (which
-descriptor is fitting, then pooling/scoring), and the held-out AUROC/AUPR once scored. The table title
+descriptor is fitting, then pooling/scoring), and the held-out metrics once scored. The table title
 carries a self-correcting ETA — kept in the title rather than a caption because a toggling caption makes
 the transient Live miscount its height (see :meth:`LiveTableMonitor.__rich__`).
 """

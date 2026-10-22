@@ -44,7 +44,7 @@ def build_fold_workspace(model_dir, fold_name, descriptors, proxy_scores=None):
   descriptors : list of str
     Descriptor ids the fold trains and pools.
   proxy_scores : dict, optional
-    The fold's screening proxy AUROC per descriptor.
+    The fold's screening proxy skill per descriptor (AUROC, or Spearman's rho).
 
   Returns
   -------

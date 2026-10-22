@@ -2,12 +2,13 @@
 
 Each descriptor is scored with a shallow Random Forest under the chemistry-aware evaluate folds
 (random / scaffold / Butina): for every fold the RF is fit on the fold's train slice and predicts its
-test slice. From those held-out predictions we get a **solo** AUROC per descriptor *and* keep the
-prediction vectors so selection can be **ensemble-aware**: descriptors are chosen by greedy forward
-selection — a candidate is kept only if it *adds* predictive value to the pool (lifts the mean-across-
-folds ensemble AUROC), where the ensemble is the arithmetic mean of the selected descriptors' held-out
-probabilities (a cheap proxy for the reliability pooler, mirroring lazyqsar's DescriptorPortfolio).
-Pure functions (matrices + labels + folds in, scores/selection out).
+test slice. From those held-out predictions we get a **solo** skill per descriptor -- AUROC for
+classification, Spearman's rho for regression -- *and* keep the prediction vectors so selection can
+be **ensemble-aware**: descriptors are chosen by greedy forward selection, a candidate being kept
+only if it *adds* predictive value to the pool (lifts the mean-across-folds ensemble skill), where
+the ensemble is the arithmetic mean of the selected descriptors' held-out predictions (a cheap proxy
+for the reliability pooler, mirroring lazyqsar's DescriptorPortfolio). Pure functions (matrices +
+labels + folds in, scores/selection out).
 """
 
 import os

@@ -23,7 +23,8 @@ class HoldoutFitter(Fitter):
      points ``trained_path`` at ``get_output_dir()``, which is the production run).
   """
 
-  # Folds score AUROC on the pooled probability only, so they skip the rank-reference library.
+  # Folds score the pooled prediction directly, so they skip the rank-reference library: the rank
+  # is a classification-only scale and nothing a fold reports is read off it.
   score_reference = False
 
   def __init__(self, path, model_id, train_idxs, batch_size=None):

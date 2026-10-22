@@ -12,7 +12,10 @@ from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE, open_h5
 from zairachem.base.vars import (
+  CV_SKILL,
   ESTIMATORS_SUBFOLDER,
+  METADATA_SUBFOLDER,
+  PARAMETERS_FILE,
   RANDOM_SEED,
   RANK_REFERENCE_SIGNALS_FILENAME,
   Y_HAT_FILE,
@@ -789,6 +792,19 @@ class Estimator(ZairaBase):
     self.path = path
     self.batch_size = batch_size or DEFAULT_CHUNK_SIZE
 
+  def _run_dir(self):
+    """The run folder, whether this estimator was given one or reads the session's."""
+    return self.get_output_dir() if self.path is None else self.path
+
+  def _task(self):
+    """The run's task, for reading the per-descriptor skill under its own name."""
+    try:
+      with open(os.path.join(self._run_dir(), METADATA_SUBFOLDER, PARAMETERS_FILE)) as f:
+        return json.load(f).get("task", "classification")
+    except (OSError, ValueError) as e:
+      logger.debug(f"[lazyqsar] could not read the task, assuming classification: {e}")
+      return "classification"
+
   def _get_model_ids(self):
     if self.path is None:
       path = self.get_output_dir()
@@ -809,19 +825,22 @@ class Estimator(ZairaBase):
   def _read_cv_result(self, model_id):
     """Per-descriptor result for the live table, read from persisted artifacts.
 
-    Returns a dict ``{oof, portfolio}``: OOF AUROC and selected algorithms from ``cv_report.json``
-    (a fit artifact; both stay empty at predict, whose table hides those columns). Best-effort;
-    missing files are fine.
+    Returns a dict ``{oof, portfolio}``: the out-of-fold skill -- AUROC for classification,
+    Spearman's rho for regression -- and the selected algorithms from ``cv_report.json`` (a fit
+    artifact; both stay empty at predict, whose table hides those columns). Best-effort; missing
+    files are fine.
     """
     from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
 
-    out = self.get_output_dir() if self.path is None else self.path
     res = {"oof": None, "portfolio": []}
-    cv_dir = os.path.join(out, ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER, model_id)
+    cv_dir = os.path.join(
+      self._run_dir(), ESTIMATORS_SUBFOLDER, ESTIMATORS_FAMILY_SUBFOLDER, model_id
+    )
+    oof_key = CV_SKILL[self._task()][0]
     try:
       with open(os.path.join(cv_dir, "cv_report.json")) as f:
         r = json.load(f)
-      res["oof"] = r.get("oof_auc")
+      res["oof"] = r.get(oof_key)
       res["portfolio"] = r.get("portfolio", [])
     except (OSError, ValueError) as e:
       logger.debug(f"[lazyqsar] {model_id}: no CV report for the live table: {e}")
@@ -841,6 +860,7 @@ class Estimator(ZairaBase):
       color=STEP_COLORS.get("estimate", "yellow"),
       result_reader=self._read_cv_result,
       predict=self.is_predict(),
+      skill="AUC" if self._task() == "classification" else "rho",
     )
     # One descriptor at a time, in this process: training them in parallel processes gave
     # different, and lower, out-of-fold AUROCs from run to run, while this loop is reproducible.

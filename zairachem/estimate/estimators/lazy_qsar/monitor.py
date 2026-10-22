@@ -1,8 +1,9 @@
 """Live, digested progress for the per-descriptor lazy-qsar training (Estimate step).
 
-Each descriptor trains one ``LazyClassifier.fit()``, which is otherwise a black box on screen. This
+Each descriptor trains one ``LazyClassifier``/``LazyRegressor`` fit, otherwise a black box on
+screen. This
 module renders a live, in-place table (themed, no emojis) showing every descriptor go
-``queued → training: <inner step> → done`` with its algorithms, out-of-fold AUROC and wall-clock,
+``queued → training: <inner step> → done`` with its algorithms, out-of-fold skill and wall-clock,
 and a live "current inner step" captured from lazy-qsar's own loguru messages (``Fitting head
 2/2: rf``, ``Batch 1/3``, ``calibrate: …``) — without ever surfacing lazy-qsar's raw tables.
 
@@ -43,8 +44,9 @@ class TrainingMonitor(LiveTableMonitor):
   """The Estimate step's per-descriptor training table.
 
   Columns: Descriptor | Status (queued → training:<substep> → done/skipped) | Algorithms |
-  OOF AUC | Time. The live substep is captured from lazy-qsar's loguru messages via a temporary
-  sink installed for the lifetime of :meth:`live`.
+  OOF <skill> | Time, where the skill is AUC for classification and rho for regression. The live
+  substep is captured from lazy-qsar's loguru messages via a temporary sink installed for the
+  lifetime of :meth:`live`.
 
   Parameters
   ----------
@@ -53,8 +55,10 @@ class TrainingMonitor(LiveTableMonitor):
   color : str
       Accent colour (the estimate step's colour).
   result_reader : callable, optional
-      ``model_id -> (oof_auc, portfolio)`` consulted on completion to fill the row from the
-      descriptor's persisted ``cv_report.json``. Best-effort; may return ``(None, [])``.
+      ``model_id -> {oof, portfolio}`` consulted on completion to fill the row from the
+      descriptor's persisted ``cv_report.json``. Best-effort; may return empty values.
+  skill : str
+      Header for the out-of-fold skill column: ``"AUC"`` (classification) or ``"rho"``.
   """
 
   item_label = "Descriptor"
@@ -66,10 +70,11 @@ class TrainingMonitor(LiveTableMonitor):
   # plus 5 columns × 2 padding = 10 → 89. (Predict drops Algorithms+OOF: see below.)
   reserved_width = 89
 
-  def __init__(self, model_ids, color="yellow", result_reader=None, predict=False):
+  def __init__(self, model_ids, color="yellow", result_reader=None, predict=False, skill="AUC"):
     super().__init__(model_ids, color=color, result_reader=result_reader)
     self._sink_id = None
-    # At predict the trained models are only *applied* — there is no training, no OOF AUROC and no
+    self.skill = skill  # column header for the out-of-fold skill: AUC, or rho for regression
+    # At predict the trained models are only *applied* — there is no training, no OOF skill and no
     # algorithm portfolio to report, so relabel and drop those (fit-only) columns.
     self.predict = predict
     if predict:
@@ -84,7 +89,7 @@ class TrainingMonitor(LiveTableMonitor):
   def _columns(self, table):
     if not self.predict:
       table.add_column("Algorithms", width=24, no_wrap=True, overflow="ellipsis")
-      table.add_column("OOF AUC", justify="right", width=9, no_wrap=True)
+      table.add_column(f"OOF {self.skill}", justify="right", width=9, no_wrap=True)
     table.add_column("Time", justify="right", width=8, no_wrap=True)
 
   def _row_cells(self, item_id, s):

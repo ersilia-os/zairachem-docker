@@ -142,13 +142,10 @@ class PotencyEnrichmentPlot(BasePlot):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "potency-enrichment"
     self.is_available = False
-    if not self.is_regression():
+    if not self.has_reg_data():  # a target column means a regression run that has its truth
       return
     fetcher = ResultsFetcher(path=path)
-    try:
-      yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
-    except Exception:
-      return
+    yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
     if yt is None or len(yt) < 20:
       return
     order = np.argsort(-yp)  # best predicted first
@@ -184,16 +181,13 @@ class IntervalCoveragePlot(BasePlot):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "interval-coverage"
     self.is_available = False
-    if not self.is_regression():
+    if not self.has_reg_data():  # without the truth there is nothing to check the interval against
       return
     fetcher = ResultsFetcher(path=path)
     lower, upper = fetcher.get_pred_interval_reg()
     if lower is None:
       return
-    try:
-      truth = np.asarray(fetcher.get_true_reg(), dtype=float)
-    except Exception:
-      return  # no truth: nothing to check the interval against
+    truth = np.asarray(fetcher.get_true_reg(), dtype=float)
     lo = np.asarray(lower, dtype=float)
     hi = np.asarray(upper, dtype=float)
     if truth.shape != lo.shape:
