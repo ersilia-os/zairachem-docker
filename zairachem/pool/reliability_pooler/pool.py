@@ -25,14 +25,6 @@ from . import pooler
 SUMMARY_FILENAME = "reliability_summary.json"
 
 
-def _check_regression(task):
-  if task == "regression":
-    raise NotImplementedError(
-      "Regression is not supported yet: lazyqsar has no regressor, so there are no per-descriptor "
-      "regression predictions to pool."
-    )
-
-
 def _prettify(col):
   """Display name for a prediction column ('<family>-<model_id>-clf' → '<model_id>')."""
   for suf in ("-clf", "-reg"):
@@ -104,16 +96,27 @@ def _write_summary(out_path, mode, params, result, A):
     logger.debug(f"[reliability_pool:{mode}] could not write summary: {e}")
 
 
-def _results(cids, result):
-  """The pooled results dataframe: ``compound_id``, ``clf``, ``clf_bin`` and, when available,
-  ``clf_raw`` (pooled pre-calibration score) and ``clf_rank`` (position against the reference)."""
+def _results(cids, result, task):
+  """The pooled results dataframe, in the shape the task produces.
+
+  Regression: ``reg`` (the predicted value in the target's own units) and, when the model carries
+  an interval model, ``reg_lower`` / ``reg_upper``. Classification: ``clf``, ``clf_bin`` and, when
+  available, ``clf_raw`` (pooled pre-calibration score) and ``clf_rank`` (position against the
+  reference library).
+  """
   v = result.values
-  results = pd.DataFrame({"clf": v["proba"][:, 1], "clf_bin": v["binary"]})
-  if "score" in v:
-    results["clf_raw"] = v["score"][:, 1]
-  if "rank" in v:
-    # lazy-qsar's rank: 0.50 = top 10%, 0.65 = top 1% (the screening call), 0.75 = top 0.1%.
-    results["clf_rank"] = v["rank"][:, 1]
+  if task == "regression":
+    results = pd.DataFrame({"reg": v["value"]})
+    if "lower" in v:
+      results["reg_lower"] = v["lower"]
+      results["reg_upper"] = v["upper"]
+  else:
+    results = pd.DataFrame({"clf": v["proba"][:, 1], "clf_bin": v["binary"]})
+    if "score" in v:
+      results["clf_raw"] = v["score"][:, 1]
+    if "rank" in v:
+      # lazy-qsar's rank: 0.50 = top 10%, 0.65 = top 1% (the screening call), 0.75 = top 0.1%.
+      results["clf_rank"] = v["rank"][:, 1]
   results.insert(0, "compound_id", cids)
   return results
 
@@ -147,7 +150,6 @@ class Fitter(BasePooler):
     folder and writes the pooling summary and ``pool/cutoffs.json``.
     """
     self.reset_time()
-    _check_regression(self.task)
     valid_idxs = self.get_validation_indices(path=self.path)
     cids = self._get_compound_ids()
     df_X = self._get_X()
@@ -156,10 +158,11 @@ class Fitter(BasePooler):
     pred_cols = self._get_pred_columns(df_X, self.task)
     if len(pred_cols) == 0:
       raise RuntimeError("[reliability_pool] No per-descriptor prediction columns found to pool.")
+    clf = self.task == "classification"
     P = np.asarray(df_X[pred_cols], dtype=np.float64)
     R, _ = self._get_rank_matrix(df_X, pred_cols)
     A, _ = self._get_ad_matrix(df_X, pred_cols)
-    S, _ = self._get_signal_matrix(df_X, pred_cols, "_raw")
+    S, _ = self._get_signal_matrix(df_X, pred_cols, "_raw") if clf else (None, False)
     meta = self._get_descriptor_meta(pred_cols, self.task)
 
     # Every aligned matrix sliced by the SAME indices, so rows stay paired.
@@ -176,8 +179,9 @@ class Fitter(BasePooler):
       y[idx],
       pred_cols,
       meta,
-      reference=self._get_reference_signals(pred_cols, self.task),
-      kappa=_kappa_cutoff,
+      reference=self._get_reference_signals(pred_cols, self.task) if clf else None,
+      kappa=_kappa_cutoff if clf else None,
+      task=self.task,
     )
     if params["pruned_columns"]:
       logger.warning(
@@ -185,7 +189,9 @@ class Fitter(BasePooler):
         f"{pooler.PRUNE_FLOOR} or {pooler.PRUNE_GAP} below the best): "
         f"{', '.join(_prettify(c) for c in params['pruned_columns'])}"
       )
-    if params["spec"].pooled_rank_knots is None:
+    if not clf:
+      pass
+    elif params["spec"].pooled_rank_knots is None:
       logger.warning("[reliability_pool:fit] no usable rank reference; `clf_rank` is unavailable")
     else:
       logger.info(
@@ -204,10 +210,15 @@ class Fitter(BasePooler):
         indent=2,
       )
     _write_summary(self.path, "fit", params, result, rows(A))
-    write_cutoffs(
-      self.path, params["cutoffs"], _balanced(meta, pred_cols), _ranks_by_id(params["cutoff_ranks"])
-    )
-    out = _results([cids[i] for i in idx], result)
+    if clf:
+      # The named cutoffs are classification concepts: a regression run writes no cutoffs.json.
+      write_cutoffs(
+        self.path,
+        params["cutoffs"],
+        _balanced(meta, pred_cols),
+        _ranks_by_id(params["cutoff_ranks"]),
+      )
+    out = _results([cids[i] for i in idx], result, self.task)
     self.update_elapsed_time()
     return out
 
@@ -229,7 +240,6 @@ class Predictor(BasePooler):
     the per-descriptor probabilities) and, when available, ``clf_raw`` and ``clf_rank``.
     """
     self.reset_time()
-    _check_regression(self.task)
     df = self._get_X()
     cids = self._get_compound_ids()
 
@@ -241,23 +251,25 @@ class Predictor(BasePooler):
       raise RuntimeError(
         "[reliability_pool] None of the trained descriptors are available at predict."
       )
+    clf = self.task == "classification"
     if keep != saved:
+      lost = "`clf_rank` and the screening call are" if clf else "the prediction intervals are"
       logger.warning(
         f"[reliability_pool:predict] descriptor drift: using {len(keep)}/{len(saved)} trained "
-        "descriptors; `clf_rank` and the screening call are unavailable"
+        f"descriptors; {lost} unavailable"
       )
       params = pooler.restrict(params, keep)
 
     P = np.asarray(df[keep], dtype=np.float64)
     R, _ = self._get_rank_matrix(df, keep)
     A, _ = self._get_ad_matrix(df, keep)
-    S, _ = self._get_signal_matrix(df, keep, "_raw")
+    S, _ = self._get_signal_matrix(df, keep, "_raw") if clf else (None, False)
     missing = [
       name
       for name, fitted, now in (("rank", params["has_rank"], R), ("AD", params["has_ad"], A))
       if fitted and now is None
     ]
-    if missing and params["spec"].pooled_rank_knots is not None:
+    if missing and clf and params["spec"].pooled_rank_knots is not None:
       # The reference was pooled with these signals; without them the queries are weighted
       # differently, so a position against the reference would not mean what it does at fit.
       logger.warning(
@@ -270,17 +282,19 @@ class Predictor(BasePooler):
 
     result = pooler.predict(params, P, R, S, A)
     _write_summary(self.path, "predict", params, result, A)
-    trained_meta = self._get_descriptor_meta(keep, self.task)
-    write_cutoffs(
-      self.path,
-      params["cutoffs"],
-      _balanced(trained_meta, keep),
-      _ranks_by_id(params["cutoff_ranks"]),
-    )
-    results = _results(cids, result)
+    if clf:
+      trained_meta = self._get_descriptor_meta(keep, self.task)
+      write_cutoffs(
+        self.path,
+        params["cutoffs"],
+        _balanced(trained_meta, keep),
+        _ranks_by_id(params["cutoff_ranks"]),
+      )
+    results = _results(cids, result, self.task)
     # Per-compound signals for the predict report, after the pooled columns.
     results["train_similarity"] = self._train_similarity()
-    # Disagreement between the descriptor models: std of the probabilities the pooler combined.
+    # Disagreement between the descriptor models: the spread of what they predicted (probabilities,
+    # or values in the target's own units).
     results["descriptor_std"] = np.nanstd(P, axis=1)
     self.update_elapsed_time()
     return results

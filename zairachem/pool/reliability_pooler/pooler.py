@@ -1,11 +1,17 @@
-"""Pooling of the per-descriptor models through lazy-qsar's own ensemble (``LazyClassifierQSAR``).
+"""Pooling of the per-descriptor models through lazy-qsar's own ensemble.
 
-The weighting, the logit-space combination and every output (probability, rank against the
-reference library, the binary call, the pre-calibration score) come from
-:func:`lazyqsar.ensemble.combine.combine`, so the pooled model is lazy-qsar's by construction. What
-this module adds is what lazy-qsar's ensemble does around that call at fit: the skill term
-(:func:`lazyqsar.qsar._quality_weight`, which penalises overfitting), the pruning of weak
-descriptors, the pooled reference rank with its anchors, and the score map.
+Every output comes from :func:`lazyqsar.ensemble.combine.combine`, so the pooled model is
+lazy-qsar's by construction, for either task:
+
+- **classification** (``LazyClassifierQSAR``): probability, rank against the reference library,
+  the binary call and the pre-calibration score, combined in logit space;
+- **regression** (``LazyRegressorQSAR``): the predicted value in the target's own units, a weighted
+  mean, with conformal prediction intervals. No reference library, rank or cutoff exists.
+
+What this module adds is what lazy-qsar's ensemble does around that call at fit: the skill term
+(quality, which penalises overfitting), the pruning of weak descriptors, the pooled reference rank
+with its anchors and the score map (classification), and the NNLS stacking weights and interval
+model (regression).
 
 One input differs on purpose: each descriptor's rank-to-error reliability curve is built on its
 out-of-fold predictions (lazy-qsar builds it on in-sample ones), an honest estimate of the error at
@@ -19,8 +25,11 @@ import numpy as np
 # Imported at module load, i.e. before the CLI re-asserts its loguru sinks, which importing
 # lazy-qsar clears.
 from lazyqsar.ensemble.combine import EnsembleSpec, combine
+from lazyqsar.ensemble.intervals import ad_summary, fit_intervals
 from lazyqsar.ensemble.reference import build_pooled_score_knots
-from lazyqsar.qsar import _quality_weight  # private, pinned with lazyqsar==3.7.0
+from lazyqsar.poolers.regression.inner_pooler import stacking_weights
+from lazyqsar.qsar import _quality_weight  # private, pinned with lazyqsar==3.8.0
+from lazyqsar.qsar_regressor import _quality_rho  # private, pinned with lazyqsar==3.8.0
 from lazyqsar.utils.ranking import (
   DECISION_RANK,
   prepare_knots,
@@ -36,25 +45,31 @@ from zairachem.base.vars import DEFAULT_CUTOFF
 ARTIFACT_NAME = "reliability_pool_clf.joblib"
 #: Version of the saved weighting; models saved before it carry none (see :func:`load_params`).
 ARTIFACT_VERSION = 2
-#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold AUROC is below the floor or
-#: more than the gap below the best one (``LazyClassifierQSAR.fit``).
-PRUNE_FLOOR = 0.55
-PRUNE_GAP = 0.10
+#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold skill is below the floor or
+#: more than the gap below the best one. The regression thresholds are the classification ones
+#: mapped onto Spearman rho, since ``AUC - 0.5`` is about ``rho / 2``.
+PRUNE = {"classification": (0.55, 0.10), "regression": (0.10, 0.20)}
+CLASSIFICATION = "classification"
+REGRESSION = "regression"
 
 
-def active_mask(oof_aucs):
+def active_mask(skills, task=CLASSIFICATION):
   """Which descriptors the pooled model keeps, by lazy-qsar's pruning rule.
 
-  An unknown out-of-fold AUROC keeps its descriptor (the measurement failed, which says nothing
-  about it); all are kept when none would survive.
+  ``skills`` are out-of-fold AUROCs (classification) or Spearman rhos (regression). An unknown
+  skill keeps its descriptor (the measurement failed, which says nothing about it); all are kept
+  when none would survive.
   """
-  known = [a for a in oof_aucs if a is not None]
+  floor, gap = PRUNE[task]
+  known = [a for a in skills if a is not None]
   best = max(known) if known else 0.0
-  mask = [a is None or (a >= PRUNE_FLOOR and a >= best - PRUNE_GAP) for a in oof_aucs]
-  return mask if any(mask) else [True] * len(oof_aucs)
+  mask = [a is None or (a >= floor and a >= best - gap) for a in skills]
+  return mask if any(mask) else [True] * len(skills)
 
 
-def build_spec(names, oof_aucs, train_aucs, proxy_aucs, curves, ad_cutoffs, prior):
+def build_spec(
+  names, oof_aucs, train_aucs, proxy_aucs, curves, ad_cutoffs, prior, task=CLASSIFICATION
+):
   """lazy-qsar's :class:`EnsembleSpec` for the descriptors ``names`` (all of them active).
 
   Parameters
@@ -62,23 +77,28 @@ def build_spec(names, oof_aucs, train_aucs, proxy_aucs, curves, ad_cutoffs, prio
   names : list of str
       Descriptor (prediction column) names, in column order.
   oof_aucs, train_aucs : list of float or None
-      Out-of-fold and in-sample AUROC per descriptor; the skill term uses their quality,
-      ``clip(2 * oof - train, 0, 1)``.
+      Out-of-fold and in-sample skill per descriptor — AUROC for classification, Spearman rho for
+      regression. The skill term uses their quality, ``2 * oof - train`` clipped, which penalises a
+      descriptor that fits its training rows far better than its held-out ones.
   proxy_aucs : list of float or None, or None
-      Screening proxy AUROC per descriptor, averaged into the skill term when known.
+      Screening proxy skill per descriptor, averaged into the skill term when known.
   curves : list of (ndarray, ndarray) or None
       Rank-to-error reliability curve per descriptor.
   ad_cutoffs : list of float or None, or None
       Applicability-domain veto floor per descriptor; None when there is no AD signal.
   prior : float
-      Fraction of actives in the training rows.
+      Fraction of actives in the training rows (classification only).
+  task : str
+      ``"classification"`` or ``"regression"``.
   """
-  quality = tuple(_quality_weight(o, t) for o, t in zip(oof_aucs, train_aucs))
+  quality_of = _quality_weight if task == CLASSIFICATION else _quality_rho
+  quality = tuple(quality_of(o, t) for o, t in zip(oof_aucs, train_aucs))
   proxies = tuple(proxy_aucs) if proxy_aucs and any(p is not None for p in proxy_aucs) else None
   cuts = None
   if ad_cutoffs is not None:
     cuts = tuple(float(c) if c is not None else float("-inf") for c in ad_cutoffs)
   return EnsembleSpec(
+    task=task,
     descriptor_names=tuple(names),
     oof_aucs=quality,
     proxy_aucs=proxies,
@@ -86,6 +106,11 @@ def build_spec(names, oof_aucs, train_aucs, proxy_aucs, curves, ad_cutoffs, prio
     ad_hard_cutoffs=cuts,
     population_prior=float(prior),
   )
+
+
+def _outputs(task):
+  """The outputs to ask ``combine`` for when fitting."""
+  return ("value",) if task == REGRESSION else ("proba",)
 
 
 def _ranks(R):
@@ -96,7 +121,16 @@ def _ranks(R):
 
 def pool(P, R, S, A, spec, outputs=("proba",)):
   """``CombineResult`` of lazy-qsar's ``combine`` for per-descriptor matrices aligned to ``spec``."""
+  if spec.task == REGRESSION:
+    return combine(P, _ranks(R), None, A, spec=spec, outputs=outputs)
   return combine(P, _ranks(R), S, A, spec=spec, outputs=outputs)
+
+
+def _pooled(result, spec):
+  """The pooled prediction: the positive-class probability, or the predicted value."""
+  if spec.task == REGRESSION:
+    return result.values["value"]
+  return result.values["proba"][:, 1]
 
 
 def _proba(result):
@@ -144,7 +178,7 @@ def _descriptor_ranks(cutoffs, P, y, reference_P):
   return ranks
 
 
-def fit(P, R, S, A, y, names, meta, reference=None, kappa=None):
+def fit(P, R, S, A, y, names, meta, reference=None, kappa=None, task=CLASSIFICATION):
   """Fit the pooled model on the training rows; return ``(params, result)``.
 
   ``meta`` holds the per-descriptor ``oof_aucs``, ``train_aucs``, ``proxy_aucs``, ``curves`` and
@@ -154,7 +188,7 @@ def fit(P, R, S, A, y, names, meta, reference=None, kappa=None):
   (``(y, p) -> cutoff``) sets the kappa cutoff on the pooled training scores. ``result`` holds the
   training rows' outputs (``proba``, ``binary``, and ``rank``/``score`` when available).
   """
-  mask = active_mask(meta["oof_aucs"])
+  mask = active_mask(meta["oof_aucs"], task)
   keep = [j for j, m in enumerate(mask) if m]
 
   def cols(M):
@@ -172,11 +206,38 @@ def fit(P, R, S, A, y, names, meta, reference=None, kappa=None):
     per("proxy_aucs"),
     per("curves") if R_a is not None else None,
     per("ad_cutoffs") if A_a is not None else None,
-    float(np.mean(y)) if len(y) else 0.5,
+    float(np.mean(y)) if len(y) and task == CLASSIFICATION else 0.5,
+    task=task,
   )
-  p_train = _proba(pool(P_a, R_a, S_a, A_a, spec))
+  if task == REGRESSION:
+    # lazy-qsar's 3.8 default: one fixed weight per descriptor, fitted by non-negative least
+    # squares on the out-of-fold predictions. It replaces the skill and reliability terms, while
+    # the per-compound applicability-domain veto still applies.
+    weights = stacking_weights(np.asarray(P_a, dtype=np.float64), np.asarray(y, dtype=np.float64))
+    spec = dataclasses.replace(spec, descriptor_weights=tuple(float(w) for w in weights))
+  p_train = _pooled(pool(P_a, R_a, S_a, A_a, spec, _outputs(task)), spec)
 
   updates, info = {}, {}
+  if task == REGRESSION:
+    # Split-conformal intervals from the pooled out-of-fold residuals, binned by applicability
+    # domain so a compound unlike the training set gets a wider one.
+    intervals = fit_intervals(np.asarray(y, dtype=np.float64), p_train, ad_summary(A_a))
+    if intervals:
+      updates["intervals"] = intervals
+    spec = dataclasses.replace(spec, **updates)
+    params = {
+      "version": ARTIFACT_VERSION,
+      "task": task,
+      "descriptor_columns": list(spec.descriptor_names),
+      "pruned_columns": [n for n, m in zip(names, mask) if not m],
+      "spec": spec,
+      "has_rank": R_a is not None,
+      "has_ad": A_a is not None,
+      "has_score": False,
+      "cutoffs": {},
+      "cutoff_ranks": {},
+    }
+    return params, predict(params, P_a, R_a, S_a, A_a)
   if S_a is not None:
     updates["pooled_score_knots"] = build_pooled_score_knots(P_a, _ranks(R_a), S_a, A_a, spec)
   screening = None
@@ -234,14 +295,19 @@ def fit(P, R, S, A, y, names, meta, reference=None, kappa=None):
 def predict(params, P, R, S, A):
   """Pooled outputs (``CombineResult``) for matrices aligned to ``params["descriptor_columns"]``.
 
-  ``binary`` is the screening call when the model has a rank reference, else ``p >= 0.5``.
+  Regression gives the predicted value, plus the conformal interval when the model carries one.
+  For classification, ``binary`` is the screening call when the model has a rank reference, else
+  ``p >= 0.5``.
   """
   spec = params["spec"]
-  outputs = ["proba", "binary"]
-  if spec.pooled_rank_knots is not None:
-    outputs.append("rank")
-  if S is not None and params.get("has_score"):
-    outputs.append("score")
+  if spec.task == REGRESSION:
+    outputs = ["value"] + (["lower", "upper"] if spec.intervals else [])
+  else:
+    outputs = ["proba", "binary"]
+    if spec.pooled_rank_knots is not None:
+      outputs.append("rank")
+    if S is not None and params.get("has_score"):
+      outputs.append("score")
   return pool(
     P, R if params["has_rank"] else None, S, A if params["has_ad"] else None, spec, outputs
   )
@@ -250,8 +316,10 @@ def predict(params, P, R, S, A):
 def restrict(params, keep):
   """``params`` for a subset of its descriptors (``keep``: column names, saved order).
 
-  The reference rank and the screening cutoff describe the pooled probability of every trained
-  descriptor, so a subset has neither: its call falls back to ``p >= 0.5``.
+  Everything fitted over the whole trained set is dropped, because it does not describe a subset:
+  the reference rank and the screening cutoff (classification), whose call falls back to
+  ``p >= 0.5``; and the stacking weights and the interval model (regression), so the weighting
+  falls back to skill and reliability and no interval is reported.
   """
   saved = params["descriptor_columns"]
   if list(keep) == list(saved):
@@ -272,6 +340,8 @@ def restrict(params, keep):
     pooled_rank_knots=None,
     pooled_rank_anchors=None,
     decision_cutoff=DEFAULT_CUTOFF,
+    descriptor_weights=None,
+    intervals=None,
   )
   return {**without_rank({**params, "spec": spec}), "descriptor_columns": list(keep)}
 
@@ -284,7 +354,12 @@ def _pooled_rankless(ranks):
 
 
 def without_rank(params):
-  """``params`` without the reference rank and the screening cutoff (call at ``p >= 0.5``)."""
+  """``params`` without the reference rank and the screening cutoff (call at ``p >= 0.5``).
+
+  A no-op for a regression model, which has neither.
+  """
+  if params["spec"].task == REGRESSION:
+    return params
   spec = dataclasses.replace(
     params["spec"], pooled_rank_knots=None, pooled_rank_anchors=None, decision_cutoff=DEFAULT_CUTOFF
   )
@@ -313,6 +388,7 @@ def load_params(raw):
   """
   if raw.get("version") == ARTIFACT_VERSION:
     return {**raw, "spec": EnsembleSpec(**raw["spec"])}
+
   names = list(raw["descriptor_columns"])
   high = raw.get("pooled_rank_anchor_high")
   knots = raw.get("pooled_rank_knots")
