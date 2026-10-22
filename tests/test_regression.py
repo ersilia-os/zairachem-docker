@@ -1,8 +1,9 @@
-"""The regression pooled model is lazy-qsar's regression ensemble, and it has no cutoffs.
+"""What a regression run is, and is not.
 
 Regression deliberately has no reference library, no rank, no decision cutoff and no binary call
 (lazy-qsar's ``qsar_regressor``): the single output is the value, with a conformal interval. These
-tests pin that contract and the arithmetic behind it.
+tests pin that contract and the arithmetic behind it -- the pooled model, the pre-screening proxy,
+and the report surface, which has to speak a different vocabulary without growing a second report.
 """
 
 import numpy as np
