@@ -311,3 +311,26 @@ def test_the_screening_floor_is_the_auroc_floor_on_the_rho_scale():
   # AUROC - 0.5 is about rho / 2, so the 0.55 classification floor maps to 0.10 on rho.
   assert PROXY_FLOOR["classification"] == 0.55
   assert PROXY_FLOOR["regression"] == pytest.approx((0.55 - 0.5) * 2)
+
+
+def test_no_regression_figure_shows_its_slug_as_a_title():
+  """A stem with no catalogue entry is title-cased into something like "Projection Mwlogp Value"."""
+  from zairachem.report.html.catalog import _PROJECTION_ORDER, _humanize
+
+  stems = [f"projection-{base}-value" for base in _PROJECTION_ORDER]
+  stems += [
+    "regression-raw",
+    "regression-residuals",
+    "regression-distribution",
+    "regression-error-similarity",
+    "potency-enrichment",
+    "interval-coverage",
+    "value-consensus",
+    "cv-spearman",
+    "cv-error-curve",
+    "property-mw-value",
+    "property-logp-value",
+    "heldout-r2",
+  ]
+  slugged = [s for s in stems if _humanize(s) == " ".join(w.capitalize() for w in s.split("-"))]
+  assert not slugged, f"no catalogue title, so the report shows the slug: {slugged}"
