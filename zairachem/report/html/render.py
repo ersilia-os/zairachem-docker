@@ -62,7 +62,7 @@ def write_html_report(output_dir):
   # (The Overview poster is intentionally omitted for now.)
   sections.append(("config", "Configuration", "Run settings and model identifiers.", config_table))
   _add_lead_sections(sections, output_dir, report_dir, present, assigned, params, kind)
-  _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind)
+  _add_space_section(sections, output_dir, report_dir, present, assigned)
   _add_category_sections(
     sections, report_dir, stems, present, rendered_groups, assigned, kind, _has_truth(output_dir)
   )
@@ -131,28 +131,33 @@ def _add_lead_sections(sections, output_dir, report_dir, present, assigned, para
     sections.append(("dataset", "Dataset", desc, dataset_section))
 
 
-def _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind):
+def _add_space_section(sections, output_dir, report_dir, present, assigned):
   """Append the Chemical space section, however this run is able to colour its projections.
 
   A labelled classification run colours by true class; otherwise the maps are coloured by one
-  scalar -- the predicted probability (predict without truth) or the target value (regression).
+  scalar -- the target value (regression) or the predicted probability (predict without truth).
   Every run that has projections at all therefore gets a Chemical space section rather than
   leaving the maps to the "More" catch-all.
+
+  The builders are tried in order and the first to produce anything wins. They are called lazily
+  because each marks the stems it used as assigned, and a stem assigned by a builder whose output
+  is then discarded would disappear from the report altogether.
   """
-  for section, desc in (
+  for build, desc in (
     (
-      _chemical_space_html(output_dir, report_dir, present, assigned),
+      lambda: _chemical_space_html(output_dir, report_dir, present, assigned),
       "Low-dimensional embeddings of the molecules (MW-vs-LogP and each projection).",
     ),
     (
-      _scalar_space_html(report_dir, present, assigned, "-value"),
+      lambda: _scalar_space_html(report_dir, present, assigned, "-value"),
       "Each 2-D projection coloured by the target value.",
     ),
     (
-      _scalar_space_html(report_dir, present, assigned, "-proba"),
+      lambda: _scalar_space_html(report_dir, present, assigned, "-proba"),
       "Each 2-D projection coloured by the predicted probability.",
     ),
   ):
+    section = build()
     if section:
       sections.append(("space", "Chemical space", desc, section))
       return
