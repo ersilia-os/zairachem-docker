@@ -15,12 +15,15 @@ from zairachem.base.vars import (
   FOLDS_SUBFOLDER,
   MODEL_SUBFOLDER,
   OUTPUT_COLUMNS,
+  OUTPUT_DECIMALS,
   OUTPUT_FILENAME,
   OUTPUT_LABEL_COLUMN,
   OUTPUT_SENSITIVE_COLUMNS,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
   POOL_SUBFOLDER,
+  PROJECTION_CACHE_FILENAME,
+  RANK_REFERENCE_SMILES_FILENAME,
   RAW_INPUT_FILENAME,
   REPORT_SUBFOLDER,
   RESULTS_MAPPED_FILENAME,
@@ -72,9 +75,14 @@ class Cleaner(ZairaBase):
           shutil.rmtree(entry)
         else:
           self._clean_descriptors_by_subfolder(full_path, d)
-      else:
-        if d.endswith(".h5"):
-          os.remove(entry)
+      elif d.endswith(".h5"):
+        os.remove(entry)
+        # The matrix's info sidecar (shape, features), written by treat and read by nothing else.
+        sidecar = entry[: -len(".h5")] + ".json"
+        if os.path.exists(sidecar):
+          os.remove(sidecar)
+      elif d == PROJECTION_CACHE_FILENAME:
+        os.remove(entry)  # the projection's coordinates are kept in inputs/projections.csv
 
   def _clean_descriptors(self, path):
     self._clean_descriptors_by_subfolder(path, DESCRIPTORS_SUBFOLDER)
@@ -303,8 +311,9 @@ class Finisher(ZairaBase):
     trained model) and the user-facing deliverables (``results/`` + the report).
 
     Always (fit and predict): the heavy descriptor matrices (raw/treated ``.h5`` + ``*_chunks`` via
-    :class:`Cleaner`), the unused ersilia-format input + bare smiles list, and the per-estimator
-    training diagnostics (``evaluation*.json``). A FIT dir keeps its model (estimators
+    :class:`Cleaner`, with their info sidecars and the projection cache), the unused ersilia-format
+    input, bare smiles list and reference-library SMILES, and the per-estimator training diagnostics
+    (``evaluation*.json``). A FIT dir keeps its model (estimators
     ``.onnx``/pooler/AD, transformers, pool ``results_unmapped.csv``, ``done_eos.json``,
     ``inputs/data.csv``) and the report. It also keeps the **small** report inputs — the raw input
     copy, the 2-D projection coords + manifest, and the dedup mapping — so the report (and the other
@@ -322,7 +331,9 @@ class Finisher(ZairaBase):
     data_dir = os.path.join(self.path, DATA_SUBFOLDER)
     # NB: raw_input.csv, projections.csv/.json and mapping.csv are deliberately NOT trimmed — the
     # report reads them, and keeping them (all tiny) lets a finished model be re-reported / re-run.
-    for fn in (ERSILIA_DATA_FILENAME, SMILES_LIST_FILENAME):
+    # The 50,000 reference SMILES are only read while computing the rank references (and are
+    # written again if a step re-runs).
+    for fn in (ERSILIA_DATA_FILENAME, SMILES_LIST_FILENAME, RANK_REFERENCE_SMILES_FILENAME):
       self._rm(os.path.join(data_dir, fn))
     # Held-out validation sub-runs (--evaluate) are scratch: their per-fold estimators/pool mirror the
     # main model's footprint ~10x. The validation results the report needs (validation_table.csv +
@@ -352,7 +363,18 @@ class Finisher(ZairaBase):
       return
     # The deliverable subset of the pooled results, renamed (OUTPUT_COLUMNS), plus the truth label.
     df = pd.read_csv(src)
+    if "clf_rank" not in df.columns:
+      from zairachem.base.utils.console import echo
+
+      echo(
+        "No rank against the reference library could be computed, so output.csv has no score "
+        f"column; the pooled probability is in {RESULTS_SUBFOLDER}/{OUTPUT_TABLE_FILENAME}.",
+        kind="warning",
+      )
     df = df[[c for c in OUTPUT_COLUMNS if c in df.columns]].rename(columns=OUTPUT_COLUMNS)
+    # Scores in [0, 1]: four decimals are more than they can resolve (the full precision stays in
+    # the output table).
+    df = df.round(OUTPUT_DECIMALS)
     data_path = os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME)
     if os.path.exists(data_path):
       data = pd.read_csv(data_path)
