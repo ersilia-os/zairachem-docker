@@ -331,7 +331,7 @@ class ErrorVsSimilarityPlot(BasePlot):
     if sim is None or len(sim) < 2:
       return
     ax = self.ax
-    ax.scatter(sim, quantity, color=named_colors.purple, s=15, alpha=0.7)
+    ax.scatter(sim, quantity, color=named_colors.blue, s=15, alpha=0.7)
     ax.set_xlabel("Similarity to the training set")
     ax.set_ylabel(label)
     ax.set_title(f"{label} vs training similarity")
