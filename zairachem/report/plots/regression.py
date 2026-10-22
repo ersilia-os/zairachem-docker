@@ -252,7 +252,6 @@ class PredictedValueDistributionPlot(BasePlot):
     if yp.size == 0:
       return
     ax = self.ax
-    bins = min(30, max(8, yp.size // 5))
     try:
       # At predict, the training values say whether these predictions sit inside what the model
       # has seen; at fit the two are the same set.
@@ -260,10 +259,17 @@ class PredictedValueDistributionPlot(BasePlot):
       train = train[np.isfinite(train)]
     except Exception:
       train = np.array([])
+    # One set of edges across both histograms. Passing a bin *count* would let matplotlib derive
+    # different edges from each set's own range, and the two would not be comparable bar by bar --
+    # which is the entire point of drawing them together.
+    n_bins = min(30, max(8, yp.size // 5))
+    both = np.concatenate([yp, train]) if train.size else yp
+    lo, hi = float(both.min()), float(both.max())
+    edges = np.linspace(lo, hi, n_bins + 1) if hi > lo else n_bins
     if train.size:
       ax.hist(
         train,
-        bins=bins,
+        bins=edges,
         color=named_colors.gray,
         alpha=0.45,
         edgecolor="white",
@@ -272,7 +278,7 @@ class PredictedValueDistributionPlot(BasePlot):
       )
     ax.hist(
       yp,
-      bins=bins,
+      bins=edges,
       color=named_colors.green,
       alpha=0.8,
       edgecolor="white",
@@ -318,10 +324,9 @@ class ErrorVsSimilarityPlot(BasePlot):
       lower, upper = fetcher.get_pred_interval_reg()
       if lower is None:
         return
-      quantity, label = (
-        np.asarray(upper, dtype=float) - np.asarray(lower, dtype=float),
-        ("Interval width"),
-      )
+      upper = np.asarray(upper, dtype=float)
+      lower = np.asarray(lower, dtype=float)
+      quantity, label = upper - lower, "Interval width"
     sim, quantity = _finite_pair(similarity, quantity)
     if sim is None or len(sim) < 2:
       return
