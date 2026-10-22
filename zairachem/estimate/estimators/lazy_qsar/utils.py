@@ -33,3 +33,26 @@ def make_classification_report(
     main["y_hat_raw"] = y_raw
   results["main"] = main
   return results
+
+
+def make_regression_report(y, y_pred, y_rank=None, y_ad=None):
+  """Pack a descriptor's regression outputs in the format stored in ``y_hat.joblib``.
+
+  ``y_pred`` is the predicted target in its own units. There is no binary call and no
+  uncalibrated score: lazy-qsar's regression ensemble has neither. ``y_rank`` (the out-of-fold
+  percentile, which indexes the pooler's reliability curve) and ``y_ad`` (the
+  applicability-domain score) are kept only when given.
+
+  Returns
+  -------
+  collections.OrderedDict
+    ``{"main": {...}}`` with ``y``, ``y_hat`` and, if given, ``r_hat`` and ``a_hat``.
+  """
+  results = collections.OrderedDict()
+  main = {"idxs": None, "y": y, "y_hat": y_pred}
+  if y_rank is not None:
+    main["r_hat"] = y_rank
+  if y_ad is not None:
+    main["a_hat"] = y_ad
+  results["main"] = main
+  return results

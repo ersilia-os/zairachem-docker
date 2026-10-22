@@ -6,7 +6,7 @@ import os
 
 import joblib
 import numpy as np
-from lazyqsar.agnostic import LazyClassifier
+from lazyqsar.agnostic import LazyClassifier, LazyRegressor
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
@@ -19,7 +19,10 @@ from zairachem.base.vars import (
 )
 from zairachem.estimate.estimators.base import BaseEstimatorIndividual
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
-from zairachem.estimate.estimators.lazy_qsar.utils import make_classification_report
+from zairachem.estimate.estimators.lazy_qsar.utils import (
+  make_classification_report,
+  make_regression_report,
+)
 
 # lazy-qsar prints a rich directory tree of the saved model folder on every ``save()`` — it is the
 # one piece of lazy-qsar console output not gated behind its ``--verbose`` flag, and it is pure
@@ -132,6 +135,44 @@ def _cv_report(model, y_train):
   return report
 
 
+#: Percentile a regression error is normalised by before it becomes a reliability (lazy-qsar's
+#: ``_ERROR_NORM_PERCENTILE``).
+ERROR_NORM_PERCENTILE = 95
+
+
+def _reg_cv_report(model, y_train):
+  """Build the ``cv_report.json`` dict from a fitted lazy-qsar regressor.
+
+  Spearman's rho replaces AUROC as the skill measure, as it does throughout lazy-qsar's regression
+  ensemble, and ``oof_metrics`` carries the rest (R2, RMSE, MAE).
+  """
+  inner = getattr(model, "_model", None)
+  report = {
+    "oof_rho": _float_or_none(getattr(model, "oof_rho_", None)),
+    "train_rho": _float_or_none(getattr(model, "train_rho_", None)),
+    "oof_metrics": dict(getattr(model, "oof_metrics_", None) or {}),
+    "portfolio": list(getattr(inner, "portfolio", []) or []),
+    "num_batches": len(getattr(inner, "models", []) or []),
+    "n_samples": int(len(np.asarray(y_train))),
+  }
+  if report["oof_rho"] is not None and report["train_rho"] is not None:
+    report["overfit_gap"] = report["train_rho"] - report["oof_rho"]
+  timing = _summed_timing(inner)
+  if timing:
+    report["timing"] = timing
+  return report
+
+
+def _score_reg_rows(model, ad_model, rows, idx, preds, ranks, ads):
+  """Write the predicted value, percentile and AD score of ``rows`` at positions ``idx``."""
+  preds[idx] = model.predict(X=rows)
+  with contextlib.suppress(Exception):
+    ranks[idx] = model._oof_percentile_from_value(preds[idx])
+  if ad_model is not None:
+    with contextlib.suppress(Exception):
+      ads[idx] = ad_model.score(rows)
+
+
 def _score_rows(model, ad_model, rows, idx, preds, ranks, ads):
   """Write the probability, percentile and AD score of ``rows`` at positions ``idx`` in place."""
   preds[idx] = model.predict_proba(X=rows)[:, 1]
@@ -189,14 +230,8 @@ class Fitter(BaseEstimatorIndividual):
     t = "reg" if self.task == "regression" else "clf"
     if self.task == "classification":
       tasks[t] = self._fit_classifier(shape[0], train_idxs, y, t)
-    elif self.task == "regression":
-      # No working regression estimator exists yet: lazyqsar.agnostic.LazyRegressor is a stub, so
-      # the lazy_qsar family produces no regression output (and thus no OOF/rank/AD pooler signals).
-      # Skip rather than crash — matching Predictor.run, which has no regression branch either.
-      logger.warning(
-        f"[lazyqsar:fit] Regression is not implemented for lazy_qsar; skipping {self.model_id}. "
-        "Pooler reliability signals are classification-only."
-      )
+    else:
+      tasks[t] = self._fit_regressor(shape[0], train_idxs, y, t)
     self.update_elapsed_time()
     gc.collect()
     return tasks
@@ -259,11 +294,101 @@ class Fitter(BaseEstimatorIndividual):
     # Percentile→error reliability curve, built from the training rows' (percentile, pred, label).
     tr = train_order_arr
     curve = self._build_rank_error_curve(ranks[tr], preds[tr], y[tr])
-    self._write_pool_signals(model, curve, ad_cutoff, y, descriptor_dir)
+    self._write_pool_signals(
+      {"oof_auc": _float_or_none(getattr(model, "oof_auc_", None))},
+      curve,
+      ad_cutoff,
+      y,
+      descriptor_dir,
+    )
     rank_arg = _rank_or_warn(ranks, self.model_id, "fit")
     ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
     raw_arg = preds_raw if np.isfinite(preds_raw).any() else None
     return make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg, y_raw=raw_arg)
+
+  def _fit_regressor(self, n_samples, train_idxs, y, t):
+    """Fit, persist and score the regressor; return its per-row regression report.
+
+    The sibling of :meth:`_fit_classifier`. lazy-qsar's regression ensemble has no reference
+    library, no decision cutoff and no uncalibrated score channel, so none of those are written:
+    the per-descriptor outputs are the predicted value, its out-of-fold percentile (which indexes
+    the reliability curve the pooler weights by) and the applicability-domain score.
+    """
+    logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {n_samples} samples")
+    X_train, train_order = self._load_train_rows(train_idxs)
+    y_train = y[np.array(train_order)]
+    logger.info(
+      f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
+    )
+    _seed_global_rngs()
+    model = LazyRegressor()
+    model.fit(X=X_train, y=y_train)
+    descriptor_dir = os.path.join(self.trained_path, self.model_id)
+    os.makedirs(descriptor_dir, exist_ok=True)
+    channels = self._reg_oof_channels(model, X_train)
+    self._write_report(_reg_cv_report(model, y_train), channels, y_train, descriptor_dir)
+    self.substep_cb("applicability domain")
+    ad_model, ad_cutoff = self._fit_ad(X_train, descriptor_dir)
+
+    preds = np.empty(n_samples, dtype=np.float32)
+    ranks = np.full(n_samples, np.nan, dtype=np.float32)
+    ads = np.full(n_samples, np.nan, dtype=np.float32)
+    train_order_arr = np.asarray(train_order)
+    covers_all = train_order_arr.size == n_samples and np.unique(train_order_arr).size == n_samples
+    self.substep_cb("out-of-fold + percentile")
+    if channels is not None:
+      preds[train_order_arr], ranks[train_order_arr] = channels
+    else:
+      logger.warning(
+        f"[lazyqsar:fit] {self.model_id}: OOF unavailable, using resubstitution for pooler input"
+      )
+      preds[train_order_arr] = self._batched(lambda xb: model.predict(X=xb), X_train)
+      ranks[train_order_arr] = self._batched(
+        lambda xb: model._oof_percentile_from_value(model.predict(X=xb)), X_train, np.nan
+      )
+    self._record_oof_used(descriptor_dir, channels is not None)
+    if ad_model is not None:
+      ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
+    del X_train
+    gc.collect()
+    model_folder = os.path.join(self.trained_path, self.model_id, t)
+    model.save(model_folder)
+    logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
+    if not covers_all:
+      is_train = np.zeros(n_samples, dtype=bool)
+      is_train[train_order_arr] = True
+      for start, end, chunk in self._iter_X():
+        idx = np.flatnonzero(~is_train[start:end])
+        if idx.size:
+          _score_reg_rows(model, ad_model, chunk[idx], idx + start, preds, ranks, ads)
+        del chunk
+        gc.collect()
+    tr = train_order_arr
+    curve = self._build_rank_error_curve(ranks[tr], preds[tr], y[tr], normalize=True)
+    self._write_pool_signals(
+      {"oof_rho": _float_or_none(getattr(model, "oof_rho_", None))},
+      curve,
+      ad_cutoff,
+      y,
+      descriptor_dir,
+    )
+    rank_arg = _rank_or_warn(ranks, self.model_id, "fit")
+    ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
+    return make_regression_report(y, preds, y_rank=rank_arg, y_ad=ad_arg)
+
+  def _reg_oof_channels(self, model, X_train):
+    """lazy-qsar's out-of-fold ``(value, rank)`` per training row, or None.
+
+    Two channels, not three: a regression ensemble has no uncalibrated score to report.
+    """
+    try:
+      channels = model._model.oof_channels(X_train)
+    except Exception as e:
+      logger.debug(f"[lazyqsar:fit] out-of-fold channels unavailable for {self.model_id}: {e}")
+      return None
+    if channels is None or any(len(c) != X_train.shape[0] for c in channels):
+      return None
+    return tuple(np.asarray(c, dtype=np.float32) for c in channels)
 
   def _load_train_rows(self, train_idxs):
     """Read the training rows chunk by chunk.
@@ -372,20 +497,28 @@ class Fitter(BaseEstimatorIndividual):
       logger.debug(f"[lazyqsar:fit] could not record oof_used in {path}: {e}")
 
   def _write_cv_report(self, model, y_train, channels, descriptor_dir):
-    """Persist lazy-qsar's internal cross-validation results for this descriptor.
+    """Persist lazy-qsar's internal cross-validation results for a classifier."""
+    self._write_report(_cv_report(model, y_train), channels, y_train, descriptor_dir)
 
-    Writes ``cv_report.json`` (OOF/train AUROC, overfit gap, selected algorithms, decision cutoff,
-    class counts) and, best-effort, ``oof.csv`` (pooled out-of-fold probabilities + labels) for ROC
-    / calibration / score-distribution plots. Fully guarded — never fails the fit.
+  def _write_report(self, report, channels, y_train, descriptor_dir):
+    """Write ``cv_report.json`` and, best-effort, ``oof.csv`` (the out-of-fold predictions).
+
+    ``report`` is the task's own summary: AUROC and the decision cutoff for a classifier, Spearman
+    rho and R2/RMSE/MAE for a regressor. Fully guarded — never fails the fit.
     """
     try:
-      report = _cv_report(model, y_train)
       with open(os.path.join(descriptor_dir, "cv_report.json"), "w") as f:
         json.dump(report, f, indent=2)
-      logger.info(
-        f"[lazyqsar:fit] {self.model_id} CV: OOF AUROC={report['oof_auc']} "
-        f"train AUROC={report['train_auc']}"
-      )
+      if "oof_auc" in report:
+        logger.info(
+          f"[lazyqsar:fit] {self.model_id} CV: OOF AUROC={report['oof_auc']} "
+          f"train AUROC={report['train_auc']}"
+        )
+      else:
+        logger.info(
+          f"[lazyqsar:fit] {self.model_id} CV: OOF rho={report['oof_rho']} "
+          f"train rho={report['train_rho']}"
+        )
     except Exception as e:
       logger.warning(f"[lazyqsar:fit] Could not write CV report for {self.model_id}: {e}")
     if channels is None:
@@ -393,9 +526,14 @@ class Fitter(BaseEstimatorIndividual):
     try:
       import pandas as pd
 
-      pd.DataFrame({"oof_proba": channels[0], "y": np.asarray(y_train, dtype=int)}).to_csv(
-        os.path.join(descriptor_dir, "oof.csv"), index=False
-      )
+      y_arr = np.asarray(y_train)
+      clf = "oof_auc" in report
+      # The classification column name is part of the report's contract (report/fetcher.py).
+      column = "oof_proba" if clf else "oof_value"
+      pd.DataFrame({
+        column: channels[0],
+        "y": y_arr.astype(int) if clf else y_arr.astype(float),
+      }).to_csv(os.path.join(descriptor_dir, "oof.csv"), index=False)
     except Exception as e:
       logger.debug(f"[lazyqsar:fit] could not write oof.csv for {self.model_id}: {e}")
 
@@ -461,10 +599,13 @@ class Fitter(BaseEstimatorIndividual):
       return None, None
 
   @staticmethod
-  def _build_rank_error_curve(ranks, preds, y, n_knots=20):
+  def _build_rank_error_curve(ranks, preds, y, n_knots=20, normalize=False):
     """Port of lazy-qsar's rank→error curve: sort by OOF percentile, windowed-mean |pred−y| at ~20 knots.
 
-    Returns ``(r_knots, e_knots)`` lists for interpolation, or ``None`` when too few finite rows.
+    ``normalize`` is the regression form (lazy-qsar's ``_rank_error_curve``): a regression error is
+    in the target's own units and unbounded, so it is divided by its 95th percentile and clipped to
+    [0, 1], putting it on the same scale as a classifier's |p − y| and making ``1 − error`` a usable
+    reliability. Returns ``(r_knots, e_knots)`` lists, or ``None`` when too few finite rows.
     """
     try:
       r = np.asarray(ranks, dtype=float)
@@ -475,6 +616,9 @@ class Fitter(BaseEstimatorIndividual):
       if len(r) < 2:
         return None
       err = np.abs(p - yy)
+      if normalize:
+        scale = float(np.percentile(err, ERROR_NORM_PERCENTILE))
+        err = np.clip(err / scale, 0.0, 1.0) if scale > 0 else np.zeros_like(err)
       sidx = np.argsort(r)
       rs, es = r[sidx], err[sidx]
       nk = min(n_knots, len(rs))
@@ -488,18 +632,22 @@ class Fitter(BaseEstimatorIndividual):
     except Exception:
       return None
 
-  def _write_pool_signals(self, model, rank_error_curve, ad_hard_cutoff, y, descriptor_dir):
-    """Persist per-descriptor pooler signals (OOF AUROC, rank→error curve, AD veto cutoff)."""
+  def _write_pool_signals(self, skill, rank_error_curve, ad_hard_cutoff, y, descriptor_dir):
+    """Persist per-descriptor pooler signals (the task's skill, rank→error curve, AD veto cutoff).
 
+    ``skill`` is ``{"oof_auc": ...}`` for a classifier and ``{"oof_rho": ...}`` for a regressor —
+    the measure that descriptor's weight and the pooled model's pruning are based on.
+    """
     try:
       y_arr = np.asarray(y)
       signals = {
-        "oof_auc": _float_or_none(getattr(model, "oof_auc_", None)),
+        **skill,
         "rank_error_curve": rank_error_curve,
         "ad_hard_cutoff": ad_hard_cutoff,
         "n_samples": int(len(y_arr)),
-        "n_actives": int(np.sum(y_arr == 1)),
       }
+      if "oof_auc" in skill:
+        signals["n_actives"] = int(np.sum(y_arr == 1))
       joblib.dump(signals, os.path.join(descriptor_dir, "pool_signals.joblib"))
     except Exception as e:
       logger.warning(f"[lazyqsar:fit] Could not write pool signals for {self.model_id}: {e}")
@@ -522,10 +670,11 @@ class Predictor(BaseEstimatorIndividual):
     self.substep_cb = substep_cb or (lambda _text: None)
 
   def run(self):
-    """Apply the trained classifier and AD model to the run's descriptor matrix, chunk by chunk.
+    """Apply the trained model and AD model to the run's descriptor matrix, chunk by chunk.
 
-    Returns ``{"clf": report}`` with probabilities, OOF percentiles and AD scores, or an empty
-    dict when there is no descriptor data or the task is regression.
+    Returns ``{"clf": report}`` with probabilities, or ``{"reg": report}`` with predicted values,
+    each with the out-of-fold percentiles and AD scores the pooler weights by; an empty dict when
+    there is no descriptor data.
     """
     self.reset_time()
     tasks = collections.OrderedDict()
@@ -535,32 +684,33 @@ class Predictor(BaseEstimatorIndividual):
       self.update_elapsed_time()
       return tasks
     y = self._get_y()
-    t = "reg" if self.task == "regression" else "clf"
-    if self.task == "classification":
-      model_folder = os.path.join(self.trained_path, self.model_id, t)
-      model = LazyClassifier.load(model_folder)
-      logger.info(
-        f"[lazyqsar:predict] Loaded model from {model_folder}, predicting {shape[0]} samples chunk-by-chunk"
-      )
-      n_samples = shape[0]
-      preds = np.empty(n_samples, dtype=np.float32)
-      ranks = np.full(n_samples, np.nan, dtype=np.float32)
-      ads = np.full(n_samples, np.nan, dtype=np.float32)
-      ad_model = self._load_ad()
-      self.substep_cb("applying model + AD" if ad_model is not None else "applying model")
-      for start, end, chunk in self._iter_X():
-        preds[start:end] = model.predict_proba(X=chunk)[:, 1]
-        with contextlib.suppress(Exception):
-          ranks[start:end] = _percentile(model, chunk)
-        if ad_model is not None:
-          with contextlib.suppress(Exception):
-            ads[start:end] = ad_model.score(chunk)
-        logger.debug(f"[lazyqsar:predict] Processed {start}-{end}/{n_samples}")
-        del chunk
-        gc.collect()
-      rank_arg = _rank_or_warn(ranks, self.model_id, "predict")
-      ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
+    clf = self.task == "classification"
+    t = "clf" if clf else "reg"
+    model_folder = os.path.join(self.trained_path, self.model_id, t)
+    model = (LazyClassifier if clf else LazyRegressor).load(model_folder)
+    logger.info(
+      f"[lazyqsar:predict] Loaded model from {model_folder}, predicting {shape[0]} samples chunk-by-chunk"
+    )
+    n_samples = shape[0]
+    preds = np.empty(n_samples, dtype=np.float32)
+    ranks = np.full(n_samples, np.nan, dtype=np.float32)
+    ads = np.full(n_samples, np.nan, dtype=np.float32)
+    ad_model = self._load_ad()
+    self.substep_cb("applying model + AD" if ad_model is not None else "applying model")
+    for start, end, chunk in self._iter_X():
+      if clf:
+        _score_rows(model, ad_model, chunk, np.arange(start, end), preds, ranks, ads)
+      else:
+        _score_reg_rows(model, ad_model, chunk, np.arange(start, end), preds, ranks, ads)
+      logger.debug(f"[lazyqsar:predict] Processed {start}-{end}/{n_samples}")
+      del chunk
+      gc.collect()
+    rank_arg = _rank_or_warn(ranks, self.model_id, "predict")
+    ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
+    if clf:
       tasks[t] = make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg)
+    else:
+      tasks[t] = make_regression_report(y, preds, y_rank=rank_arg, y_ad=ad_arg)
     self.update_elapsed_time()
     return tasks
 

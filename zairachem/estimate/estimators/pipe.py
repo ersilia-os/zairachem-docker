@@ -31,8 +31,9 @@ class EstimatorPipeline(ZairaBase):
   def _rank_references(self):
     """Prepare lazy-qsar's rank reference for the descriptors this fit trains (after screening).
 
-    Classification fits only: the regression estimator is a stub, and predict reads the reference
-    from the trained model itself.
+    Classification fits only: lazy-qsar's regression ensemble has no reference library (its single
+    output is the value, with no rank to position), and predict reads the reference from the
+    trained model itself.
     """
     if self.is_predict() or self.params.get("task") != "classification":
       return
