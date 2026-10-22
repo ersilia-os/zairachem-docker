@@ -65,8 +65,12 @@ def write_validation_outputs(model_dir, folds, records, failures=None):
     return
 
   # Classification and regression report different metrics; keep whichever the folds produced.
-  metrics = ["auroc", "aupr"] if "auroc" in records[0] else ["r2", "rmse", "mae", "spearman"]
-  table_cols = ["strategy", "fold", "seed", *metrics, "num_train", "num_test", "num_test_1"]
+  # The counts are the held-out slice's, named as the shared metrics helpers name them: every fold
+  # reports num_compounds, and a classification fold also reports its class split.
+  is_clf = "auroc" in records[0]
+  metrics = ["auroc", "aupr"] if is_clf else ["r2", "rmse", "mae", "spearman"]
+  counts = ["num_compounds", "num_0", "num_1"] if is_clf else ["num_compounds"]
+  table_cols = ["strategy", "fold", "seed", *metrics, *counts]
   with open(os.path.join(report_dir, VALIDATION_TABLE_FILENAME), "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=table_cols, extrasaction="ignore")
     writer.writeheader()

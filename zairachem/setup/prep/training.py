@@ -38,6 +38,7 @@ from zairachem.base.vars import (
   RESULTS_SUBFOLDER,
   SMILES_COLUMN,
   SPLITS_FILENAME,
+  TARGET_COLUMN,
   TRANSFORMERS_SUBFOLDER,
 )
 from zairachem.setup.prep import (
@@ -303,8 +304,8 @@ class TrainSetup(BaseSetup):
   def _evaluate_splits(self):
     """Compute the held-out fold definitions and persist them to ``metadata/splits.json``.
 
-    Only runs when ``--evaluate`` is set (classification). Cheap and deterministic: it reads the
-    finalized ``data.csv`` (SMILES + ``bin`` label) and writes the 10-fold menu built by
+    Only runs when ``--evaluate`` is set. Cheap and deterministic: it reads the finalized
+    ``data.csv`` (SMILES + the task's target column) and writes the 10-fold menu built by
     :func:`zairachem.holdout.splits.build_fold_definitions`. The fold execution itself happens later
     (after pooling), reusing the shared descriptors.
     """
@@ -321,7 +322,7 @@ class TrainSetup(BaseSetup):
     df = pd.read_csv(os.path.join(data_dir, DATA_FILENAME))
     folds = build_fold_definitions(
       list(df[SMILES_COLUMN]),
-      list(df["bin"]),
+      list(df[TARGET_COLUMN[self.task]]),
       repeats=self.params.get("evaluate_repeats", 3),
       schemas=self.params.get("evaluate_schemas"),
     )
@@ -420,34 +421,43 @@ class TrainSetup(BaseSetup):
   }
 
   def _print_splits_table(self, splits, df):
-    """Render the per-fold split table (Fold | Train | Test | Test % active) at setup.
+    """Render the per-fold split table (Fold | Train | Test | the test set's target) at setup.
 
-    The ``Test % active`` column is shaded green→amber→red by how far the fold's test-set active rate
-    deviates from the dataset's overall rate (calm green = well balanced; warm = imbalanced, e.g. the
-    scaffold split). Fold names are softly tinted by split family so the groups read at a glance.
+    The last column is the test set's active rate (classification) or its mean target value
+    (regression), shaded green→amber→red by how far it deviates from the dataset's overall figure —
+    calm green = well balanced, warm = imbalanced, as the scaffold split often is. Fold names are
+    softly tinted by split family so the groups read at a glance.
     """
     from zairachem.base.utils.console import console, heat_hex, themed_table
 
+    is_clf = self.task == "classification"
+    y = df[TARGET_COLUMN[self.task]]
+    overall = float(y.mean())
+    # Normalizer for the colour ramp: the largest deviation a rate can show, or one standard
+    # deviation of the target, which is the scale a mean is read against.
+    worst = (max(overall, 1.0 - overall) if is_clf else float(y.std())) or 1.0
     table = themed_table("Held-out validation splits")
     for col, just in (
       ("Fold", "left"),
       ("Train", "right"),
       ("Test", "right"),
-      ("Test % active", "right"),
+      ("Test % active" if is_clf else "Test mean", "right"),
     ):
       table.add_column(col, justify=just, no_wrap=True)
-    overall = float(df["bin"].mean())
-    worst = max(overall, 1.0 - overall) or 1.0  # largest possible deviation, to normalize the ramp
     for name, spec in splits.items():
       test_idx = spec["test_idx"]
-      rate = df["bin"].iloc[test_idx].mean() if test_idx else 0.0
-      color = heat_hex(abs(rate - overall) / worst)
+      if test_idx:
+        value = float(y.iloc[test_idx].mean())
+        color = heat_hex(abs(value - overall) / worst)
+        cell = f"[{color}]{value * 100:.0f}%[/]" if is_clf else f"[{color}]{value:.2f}[/]"
+      else:
+        cell = "[dim]—[/]"  # an empty test set has nothing to summarize
       hue = self._SPLIT_HUES.get(spec["strategy"], "white")
       table.add_row(
         f"[{hue}]{name}[/]",
         f"[dim]{len(spec['train_idx']):,}[/]",
         f"[dim]{len(test_idx):,}[/]",
-        f"[{color}]{rate * 100:.0f}%[/]",
+        cell,
       )
     console.print(table)
 

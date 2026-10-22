@@ -9,6 +9,10 @@ git). Create one once, then record its reference outputs with the code you trust
 Every later run (``ZAIRACHEM_GOLDEN_MODEL=<fixture> pytest tests/test_golden.py``) copies the
 fixture, re-runs estimate -> pool -> report -> finish through the CLI and compares against that
 reference. The reference lives next to the fixture as ``<fixture>.reference/``.
+
+A regression fixture is made the same way, with ``-r`` on a continuous target (lazy-qsar's 300-row
+EGFR pChEMBL set does the job); nothing here is task-specific, since both tasks write the same four
+files. Keep one fixture of each and run the test against both.
 """
 
 import json

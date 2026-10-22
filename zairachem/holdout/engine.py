@@ -143,7 +143,11 @@ def run_one_fold(
   }
   # Per-compound held-out truth+score, kept off the scalar metrics.json (persisted separately by
   # io.write_validation_outputs into report/validation_predictions.csv for the per-strategy curves).
-  record["_y_true"] = [int(v) for v in np.asarray(y_true).ravel()]
+  # The truth is a 0/1 label for classification and a target value for regression, so it keeps its
+  # own type -- rounding a continuous target to an int would silently corrupt the file.
+  truth = np.asarray(y_true).ravel()
+  is_clf = "auroc" in metrics
+  record["_y_true"] = [int(v) for v in truth] if is_clf else [float(v) for v in truth]
   record["_y_score"] = [float(v) for v in np.asarray(y_score).ravel()]
   with open(os.path.join(fold_path, "metrics.json"), "w") as f:
     json.dump(

@@ -40,18 +40,31 @@ def _heldout_color_map():
   return {k: cols[i] for i, (k, _lbl) in enumerate(_HELDOUT_SCHEMAS)}
 
 
+def _is_binary_truth(df):
+  """True when the held-out truth column is 0/1 labels rather than continuous target values."""
+  if "y_true" not in df.columns:
+    return False
+  values = pd.to_numeric(df["y_true"], errors="coerce").dropna().unique()
+  return len(values) > 0 and set(values) <= {0.0, 1.0}
+
+
 def _heldout_predictions(path, per_fold=False):
   """Held-out ``(y_true, y_score)`` from ``report/validation_predictions.csv``, in canonical order.
 
   Default: one entry per strategy with its folds POOLED (concatenated) → ``(key, label, y_true,
   y_score)``. ``per_fold=True`` → ``(key, label, fold, y_true, y_score)`` per fold. ``[]`` if the file
   is absent/empty (e.g. a run without ``--evaluate``, or before the predictions were persisted).
+
+  Every caller reads these as a binary truth and a score, so a regression run yields nothing and
+  the ROC, PR, calibration, enrichment and confusion panels skip themselves.
   """
   csv_path = os.path.join(path, REPORT_SUBFOLDER, VALIDATION_PREDICTIONS_FILENAME)
   if not os.path.exists(csv_path):
     return []
   df = pd.read_csv(csv_path)
   if df.empty or not {"strategy", "y_true", "y_score"}.issubset(df.columns):
+    return []
+  if not _is_binary_truth(df):
     return []
   known = [k for k, _ in _HELDOUT_SCHEMAS]
   order = [k for k in known if k in set(df["strategy"])]
@@ -138,6 +151,67 @@ class HeldOutValidationPlot(BasePlot):
     ax.set_ylim(0.4, 1.0)
     ax.set_xlabel("")
     ax.set_ylabel("Held-out AUROC")
+    ax.set_title("Held-out validation")
+    self.is_available = True
+
+
+class HeldoutR2ValidationPlot(BasePlot):
+  """Held-out R² per split schema, one point per fold (regression, ``--evaluate`` only).
+
+  The regression counterpart of :class:`HeldOutValidationPlot`, read the same way: random is the
+  optimism anchor (dashed line), and a drop under scaffold or Butina means the model generalises
+  worse to novel chemistry. Zero is the dotted reference — a model no better than predicting the
+  training mean.
+  """
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 3))
+    self.name = "heldout-r2"
+    self.is_available = False
+    csv_path = os.path.join(path, REPORT_SUBFOLDER, VALIDATION_TABLE_FILENAME)
+    if not os.path.exists(csv_path):
+      return
+    df = pd.read_csv(csv_path)
+    if df.empty or "r2" not in df.columns or "strategy" not in df.columns:
+      return
+    seen = set(df["strategy"])
+    present = [(k, lbl) for k, lbl in _HELDOUT_SCHEMAS if k in seen]
+    present += [(k, k) for k in sorted(seen) if k not in {p[0] for p in _HELDOUT_SCHEMAS}]
+    ax = self.ax
+    cmap = _heldout_color_map()
+    random_mean = None
+    xticks, xticklabels, lows = [], [], []
+    for i, (strat, lbl) in enumerate(present):
+      vals = np.asarray(df[df["strategy"] == strat]["r2"], dtype=float)
+      vals = vals[~np.isnan(vals)]
+      if len(vals) == 0:
+        continue
+      jitter = np.random.uniform(-0.12, 0.12, len(vals))
+      ax.scatter(
+        np.full(len(vals), i) + jitter, vals, color=cmap.get(strat), alpha=0.7, s=25, zorder=3
+      )
+      m = float(vals.mean())
+      if strat == "random":
+        random_mean = m
+      ax.plot([i - 0.2, i + 0.2], [m, m], color=named_colors.black, lw=1.5, zorder=4)
+      s = float(vals.std()) if len(vals) > 1 else 0.0
+      if s:
+        ax.plot([i, i], [m - s, m + s], color=named_colors.black, lw=1, zorder=4)
+      lows.append(min(vals.min(), m - s))
+      xticks.append(i)
+      xticklabels.append(lbl)
+    if not xticks:
+      return
+    if random_mean is not None:
+      ax.axhline(random_mean, ls="--", lw=1, color=named_colors.gray, zorder=1)
+    ax.axhline(0.0, ls=":", lw=1, color=named_colors.gray, zorder=1)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticklabels)
+    ax.set_xlim(-0.5, len(present) - 0.5)
+    # R2 is unbounded below, so the floor follows the data rather than being fixed at zero.
+    ax.set_ylim(min(-0.05, min(lows) - 0.05), 1.0)
+    ax.set_xlabel("")
+    ax.set_ylabel("Held-out R2")
     ax.set_title("Held-out validation")
     self.is_available = True
 

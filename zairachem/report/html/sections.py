@@ -500,7 +500,9 @@ def _read_cv_stats(output_dir):
       stats.append(rep)
     except Exception:
       continue
-  stats.sort(key=lambda r: r.get("oof_auc") if r.get("oof_auc") is not None else -1, reverse=True)
+  # Best first, on whichever skill the task reports (AUROC, or Spearman rho for regression).
+  key = "oof_rho" if any(r.get("oof_rho") is not None for r in stats) else "oof_auc"
+  stats.sort(key=lambda r: r.get(key) if r.get(key) is not None else -1, reverse=True)
   return stats
 
 
@@ -539,10 +541,11 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
       ("Descriptors", str(summary["n_descriptors"])),
       ("Best descriptor", summary.get("best_descriptor") or "—"),
     ]
-    if summary.get("best_oof_auc") is not None:
-      cells_data.append(("Best inner CV AUROC", f"{summary['best_oof_auc']:.3f}"))
-    if summary.get("mean_oof_auc") is not None:
-      cells_data.append(("Mean inner CV AUROC", f"{summary['mean_oof_auc']:.3f}"))
+    skill = summary.get("skill_label", "AUROC")
+    if summary.get("best_skill") is not None:
+      cells_data.append((f"Best inner CV {skill}", f"{summary['best_skill']:.3f}"))
+    if summary.get("mean_skill") is not None:
+      cells_data.append((f"Mean inner CV {skill}", f"{summary['mean_skill']:.3f}"))
     if summary.get("mean_overfit_gap") is not None:
       cells_data.append(("Mean overfit gap", f"{summary['mean_overfit_gap']:.3f}"))
     cells = "".join(
@@ -558,7 +561,7 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
       "real-world performance. For an honest out-of-sample estimate use the held-out validation.</p>"
     )
     out.append(f"<h3 class='cfg-h'>Per-descriptor table</h3>{_cv_table_html(stats)}")
-    out.append(f"<h3 class='cfg-h'>Inner CV AUROC by descriptor</h3>{_cv_bars_html(stats)}")
+    out.append(f"<h3 class='cfg-h'>Inner CV {skill} by descriptor</h3>{_cv_bars_html(stats)}")
   if fig_cards:
     assigned.update(fig_stems)
     out.append(

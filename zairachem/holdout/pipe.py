@@ -72,13 +72,15 @@ class HoldoutValidationPipeline(ZairaBase):
       DATA_SUBFOLDER,
       DESCRIPTORS_SUBFOLDER,
       SMILES_COLUMN,
+      TARGET_COLUMN,
     )
     from zairachem.holdout.splits import build_fold_definitions
     from zairachem.screen.pipe import SCREEN_REPEATS, candidates
     from zairachem.screen.proxy import select_descriptors
 
+    task = self.params["task"]
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
-    y, smiles = np.asarray(df["bin"]), list(df[SMILES_COLUMN])
+    y, smiles = np.asarray(df[TARGET_COLUMN[task]]), list(df[SMILES_COLUMN])
     pool = candidates(self.path)
 
     def select(spec):
@@ -91,6 +93,7 @@ class HoldoutValidationPipeline(ZairaBase):
         y,
         pairs,
         self.params["max_descriptors"],
+        task=task,
       )
       return selected, scores
 

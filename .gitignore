@@ -14,6 +14,11 @@ data/**
 # Written by eosvc when it resolves this repo; derived from access.json, not authored.
 .eosvc/
 
+# Model folders written by the README's quickstart (fit -m example_model, predict -o
+# predictions_test). Model artefacts never belong in git.
+example_model/
+predictions_test/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -158,7 +158,7 @@ def _insert_diagnostics_section(sections, output_dir, report_dir, present, assig
     entry = (
       "diagnostics",
       "Per descriptor inner diagnostics",
-      "Per-descriptor lazy-qsar cross-validation (out-of-fold AUROC and overfit gap).",
+      "Per-descriptor lazy-qsar cross-validation (out-of-fold skill and overfit gap).",
       diag_section,
     )
     idx = next((i + 1 for i, s in enumerate(sections) if s[0] == "space"), len(sections))

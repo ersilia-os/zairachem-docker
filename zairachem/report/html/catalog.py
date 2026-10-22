@@ -62,6 +62,7 @@ _CATEGORIES = [
       "heldout-calibration",
       "heldout-enrichment-factor",
       "heldout-validation",
+      "heldout-r2",
       "heldout-metric-bars",
       "heldout-confusion",
     ],
@@ -132,6 +133,7 @@ _TITLES = {
   "oof-score-lift-pts": "Lift · points",
   "oof-score-raw-pts": "Raw · points",
   "heldout-validation": "Held-out AUROC by split",
+  "heldout-r2": "Held-out R² by split",
   "heldout-roc": "Held-out ROC by split",
   "heldout-pr": "Held-out PR by split",
   "heldout-calibration": "Held-out calibration by split",
@@ -230,6 +232,7 @@ _GROUPS = [
       "heldout-calibration",
       "heldout-enrichment-factor",
       "heldout-validation",
+      "heldout-r2",
     ],
   },
   {

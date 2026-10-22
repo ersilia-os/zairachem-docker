@@ -34,9 +34,11 @@ def _prettify(col):
   return col.split("-")[-1] if "-" in col else col
 
 
-def _tier(has_rank, has_ad):
-  # As lazy-qsar weights: skill and per-sample reliability with an applicability domain; uniform
-  # without one.
+def _tier(has_rank, has_ad, stacked=False):
+  # As lazy-qsar weights. Regression uses one fixed NNLS stacking weight per descriptor, which
+  # replaces the skill and reliability terms; the applicability-domain veto still applies.
+  if stacked:
+    return "stacking weights" + (" + applicability domain" if has_ad else "")
   if not has_ad:
     return "uniform (no applicability domain)"
   if has_rank:
@@ -68,7 +70,11 @@ def _write_summary(out_path, mode, params, result, A):
       "n_descriptors": len(names),
       "descriptors": names,
       "pruned": [_prettify(c) for c in params.get("pruned_columns", [])],
-      "tier": _tier(params["has_rank"], params["has_ad"]),
+      "tier": _tier(
+        params["has_rank"],
+        params["has_ad"],
+        stacked=params["spec"].descriptor_weights is not None,
+      ),
       "has_rank": params["has_rank"],
       "has_ad": params["has_ad"],
       "mean_weights": {n: round(float(w), 4) for n, w in zip(names, W.mean(axis=0))},

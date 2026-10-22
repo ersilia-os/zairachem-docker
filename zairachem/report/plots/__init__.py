@@ -35,6 +35,7 @@ from zairachem.report.plots.heldout import (
   HeldoutEnrichmentFactorByStrategyPlot,
   HeldoutMetricBarsPlot,
   HeldoutPrByStrategyPlot,
+  HeldoutR2ValidationPlot,
   HeldoutRocByStrategyPlot,
   HeldOutValidationPlot,
 )
@@ -107,6 +108,7 @@ __all__ = [
   "EnrichmentCurvePlot",
   "EnrichmentFactorCurvePlot",
   "HeldOutValidationPlot",
+  "HeldoutR2ValidationPlot",
   "HeldoutCalibrationByStrategyPlot",
   "HeldoutConfusionByStrategyPlot",
   "HeldoutEnrichmentFactorByStrategyPlot",

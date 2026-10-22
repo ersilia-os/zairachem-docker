@@ -110,29 +110,43 @@ def _validation_table_html(report_dir):
     return ""
 
   def _ratio(r):
-    """Test-set actives:inactives for one fold (num_test_1 / (num_test − num_test_1)), or None."""
-    n, a = _num(r, "num_test"), _num(r, "num_test_1")
-    if n is None or a is None or (n - a) <= 0:
+    """Test-set actives:inactives for one fold (``num_1 / num_0``), or None."""
+    a, i = _num(r, "num_1"), _num(r, "num_0")
+    if a is None or not i:
       return None
-    return a / (n - a)
+    return a / i
 
+  # The folds carry whichever metrics their task produced (see holdout/io.py). Classification also
+  # reports the test set's class balance, which regression has no analogue of.
+  is_clf = "auroc" in rows[0]
+  metrics = (
+    [("auroc", "AUROC"), ("aupr", "AUPR")]
+    if is_clf
+    else [
+      ("r2", "R²"),
+      ("rmse", "RMSE"),
+      ("spearman", "Spearman ρ"),
+    ]
+  )
   body = []
   for strat, label in ordered:
     srows = by_strategy[strat]
-    au_m, au_s = _mean_std([_num(r, "auroc") for r in srows])
-    ap_m, ap_s = _mean_std([_num(r, "aupr") for r in srows])
-    ratio_m, _ = _mean_std([_ratio(r) for r in srows])
-    au = f"{au_m:.3f} ± {au_s:.3f}" if au_m is not None else "—"
-    ap = f"{ap_m:.3f} ± {ap_s:.3f}" if ap_m is not None else "—"
-    ratio = f"{ratio_m:.2f}" if ratio_m is not None else "—"
+    cells = []
+    if is_clf:
+      ratio_m, _ = _mean_std([_ratio(r) for r in srows])
+      cells.append(f"{ratio_m:.2f}" if ratio_m is not None else "—")
+    for key, _lbl in metrics:
+      m, sd = _mean_std([_num(r, key) for r in srows])
+      cells.append(f"{m:.3f} ± {sd:.3f}" if m is not None else "—")
     body.append(
-      f"<tr><td>{html.escape(label)}</td><td>{len(srows)}</td><td>{ratio}</td>"
-      f"<td>{au}</td><td>{ap}</td></tr>"
+      f"<tr><td>{html.escape(label)}</td><td>{len(srows)}</td>"
+      + "".join(f"<td>{c}</td>" for c in cells)
+      + "</tr>"
     )
-  head = (
-    "<th>Split schema</th><th>Folds</th><th>Active:inactive (test)</th>"
-    "<th>AUROC (mean ± std)</th><th>AUPR (mean ± std)</th>"
-  )
+  head = "<th>Split schema</th><th>Folds</th>"
+  if is_clf:
+    head += "<th>Active:inactive (test)</th>"
+  head += "".join(f"<th>{lbl} (mean ± std)</th>" for _key, lbl in metrics)
   note = ""
   try:
     with open(os.path.join(report_dir, "holdout_summary.json")) as f:
@@ -186,16 +200,30 @@ def _model_table_html(ids, versions, titles, selected=None):
   )
 
 
+#: Inner-CV skill key and its label, by task. A regression ``cv_report.json`` carries Spearman rho
+#: where a classification one carries AUROC.
+_CV_SKILL = {"classification": ("oof_auc", "AUROC"), "regression": ("oof_rho", "Spearman \u03c1")}
+
+
+def _cv_skill_key(cv_stats):
+  """``(key, label)`` of the inner-CV skill these reports carry (AUROC, or Spearman rho)."""
+  if any(s.get("oof_rho") is not None for s in cv_stats):
+    return _CV_SKILL["regression"]
+  return _CV_SKILL["classification"]
+
+
 def _cv_summary(cv_stats):
-  aucs = [s["oof_auc"] for s in cv_stats if s.get("oof_auc") is not None]
-  if not aucs:
+  key, label = _cv_skill_key(cv_stats)
+  skills = [s[key] for s in cv_stats if s.get(key) is not None]
+  if not skills:
     return {}
   gaps = [s["overfit_gap"] for s in cv_stats if s.get("overfit_gap") is not None]
   best = cv_stats[0]
   return {
     "n_descriptors": len(cv_stats),
-    "mean_oof_auc": sum(aucs) / len(aucs),
-    "best_oof_auc": best.get("oof_auc"),
+    "skill_label": label,
+    "mean_skill": sum(skills) / len(skills),
+    "best_skill": best.get(key),
     "best_descriptor": best.get("descriptor"),
     "mean_overfit_gap": (sum(gaps) / len(gaps)) if gaps else None,
   }
@@ -204,19 +232,29 @@ def _cv_summary(cv_stats):
 def _cv_table_html(cv_stats):
   if not cv_stats:
     return ""
-  cols = [
-    ("descriptor", "Descriptor"),
-    ("oof_auc", "Inner CV AUROC"),
-    ("aupr", "Inner CV AUPRC"),
-    ("train_auc", "Train AUROC"),
-    ("overfit_gap", "Overfit gap"),
-    ("decision_cutoff_proba", "Balanced cutoff"),
-  ]
+  key, label = _cv_skill_key(cv_stats)
+  if key == "oof_auc":
+    cols = [
+      ("descriptor", "Descriptor"),
+      ("oof_auc", "Inner CV AUROC"),
+      ("aupr", "Inner CV AUPRC"),
+      ("train_auc", "Train AUROC"),
+      ("overfit_gap", "Overfit gap"),
+      ("decision_cutoff_proba", "Balanced cutoff"),
+    ]
+  else:
+    # Regression has no second ranking metric and no cutoff; the overfit gap means the same thing.
+    cols = [
+      ("descriptor", "Descriptor"),
+      ("oof_rho", f"Inner CV {label}"),
+      ("train_rho", f"Train {label}"),
+      ("overfit_gap", "Overfit gap"),
+    ]
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
   for i, r in enumerate(cv_stats):
     cells = [f"<td>{_cv_cell(k, r.get(k))}</td>" for k, _ in cols]
-    # Highlight the best descriptor (cv_stats is sorted by OOF AUROC desc).
+    # Highlight the best descriptor (cv_stats is sorted best-first by the task's skill).
     cls = " class='pooled'" if i == 0 else ""
     body.append(f"<tr{cls}>{''.join(cells)}</tr>")
   return (
@@ -251,17 +289,22 @@ def _gap_level(gap):
 
 
 def _cv_bars_html(stats):
-  """HTML inner-CV AUROC bar per descriptor. The bar carries the descriptor's **identity colour**
-  (matching its line in the ROC/PR figures, so this strip doubles as the shared legend); the overfit
-  gap is shown as a colour-coded pill. ``stats`` is best-first, so its index is the identity rank."""
+  """HTML inner-CV skill bar per descriptor (AUROC, or Spearman rho for regression).
+
+  The bar carries the descriptor's **identity colour** (matching its line in the ROC/PR figures, so
+  this strip doubles as the shared legend); the overfit gap is shown as a colour-coded pill.
+  ``stats`` is best-first, so its index is the identity rank."""
+  key, _label = _cv_skill_key(stats)
   palette = _colors.descriptor_colors_hex(len(stats))
   rows = []
   for i, s in enumerate(stats):
-    auc = s.get("oof_auc")
+    auc = s.get(key)
     if auc is None:
       continue
     gap = s.get("overfit_gap")
-    pct = max(2.0, min(100.0, (auc - 0.5) / 0.5 * 100))  # AUROC 0.5..1.0 → 0..100% of the track
+    # AUROC fills the track from 0.5 (chance); rho fills it from 0, which is its own chance level.
+    span = (auc - 0.5) / 0.5 if key == "oof_auc" else auc
+    pct = max(2.0, min(100.0, span * 100))
     did = html.escape(str(s.get("descriptor")))
     href = f"https://github.com/{GITHUB_ORG}/{did}"
     gap_pill = (

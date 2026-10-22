@@ -67,9 +67,9 @@ from zairachem.cli.steps import process_group
   is_flag=False,
   flag_value=_EVALUATE_SENTINEL,
   default=None,
-  help="Also score the pipeline on 80:20 held-out folds, refitting it on each (a report section; "
-  "classification only). Bare --evaluate uses every schema (random, scaffold, scaffold_det, butina); "
-  "or name some, e.g. --evaluate scaffold,random.",
+  help="Also score the pipeline on 80:20 held-out folds, refitting it on each (a report section). "
+  "Bare --evaluate uses every schema (random, scaffold, scaffold_det, butina); or name some, "
+  "e.g. --evaluate scaffold,random.",
 )
 @click.option(
   "--repeats",
@@ -86,7 +86,7 @@ from zairachem.cli.steps import process_group
   type=int,
   help=f"Most descriptors in the model (default: {DEFAULT_MAX_DESCRIPTORS}, at most 10). Chosen "
   "before training with a quick proxy on held-out folds, keeping each only if it improves the "
-  "ensemble; classification only. Set it to the number of descriptors to train them all.",
+  "ensemble. Set it to the number of descriptors to train them all.",
 )
 def fit(
   input_file,
