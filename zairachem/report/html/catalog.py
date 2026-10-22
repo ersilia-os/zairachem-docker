@@ -84,6 +84,16 @@ _PREDICT_SECTION = {
   ),
 }
 
+#: Same anchors, for a prediction run with no ground truth to score against. Without it the
+#: "performance" heading would promise a labelled test set that does not exist -- which happens on a
+#: regression run, whose predicted-value panels need no truth and so render either way.
+_PREDICT_SECTION_NO_TRUTH = {
+  "performance": (
+    "Predictions",
+    "What the model predicted for these molecules, against what it was trained on.",
+  ),
+}
+
 
 _PREDICT_GROUP_TITLE = {
   "oof-scores": "Predicted score by true class",

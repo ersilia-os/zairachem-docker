@@ -331,17 +331,17 @@ class ErrorVsSimilarityPlot(BasePlot):
 class ValueConsensusPlot(BasePlot):
   """Pooled predicted value against how much the descriptors disagreed about it (regression only).
 
-  The regression counterpart of the classification consensus panel. A prediction the descriptors
-  agree on is worth more than one they do not, whatever its value, so the spread is the second
-  number to read beside the hitlist. Needs no truth, which is the point: it is a triage signal for
-  compounds nobody has measured.
+  The regression counterpart of the classification consensus panel, and gated the same way: it
+  renders only where there is no truth. A prediction the descriptors agree on is worth more than
+  one they do not, whatever its value, so the spread is the second number to read beside the
+  hitlist -- but once the observed values are in hand the error panels say all this and more.
   """
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "value-consensus"
     self.is_available = False
-    if not self.is_regression():
+    if not self.is_regression() or self.has_reg_data():
       return
     fetcher = ResultsFetcher(path=path)
     pooled = fetcher.get_pred_value_reg()

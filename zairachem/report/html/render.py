@@ -8,7 +8,11 @@ import os
 from zairachem.base.vars import REPORT_SUBFOLDER
 from zairachem.report.html.assets import _CSS, _JS, _about_figures_html, _semantic_css
 from zairachem.report.html.cards import _card, _render_items
-from zairachem.report.html.catalog import _CATEGORIES, _PREDICT_SECTION
+from zairachem.report.html.catalog import (
+  _CATEGORIES,
+  _PREDICT_SECTION,
+  _PREDICT_SECTION_NO_TRUTH,
+)
 from zairachem.report.html.sections import (
   _chemical_space_html,
   _computational_performance_html,
@@ -59,7 +63,9 @@ def write_html_report(output_dir):
   sections.append(("config", "Configuration", "Run settings and model identifiers.", config_table))
   _add_lead_sections(sections, output_dir, report_dir, present, assigned, params, kind)
   _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind)
-  _add_category_sections(sections, report_dir, stems, present, rendered_groups, assigned, kind)
+  _add_category_sections(
+    sections, report_dir, stems, present, rendered_groups, assigned, kind, _has_truth(output_dir)
+  )
   _insert_diagnostics_section(sections, output_dir, report_dir, present, assigned)
   _add_closing_sections(sections, report_dir, stems, assigned, params.get("task", "classification"))
 
@@ -76,6 +82,21 @@ def _write_cv_stats(output_dir, report_dir):
   if cv_stats:
     with open(os.path.join(report_dir, "cv_stats.json"), "w") as f:
       json.dump({"per_descriptor": cv_stats, "summary": _cv_summary(cv_stats)}, f, indent=2)
+
+
+def _has_truth(output_dir):
+  """True when this run's ``data.csv`` carries the observed values of its task."""
+  from zairachem.base.vars import DATA_FILENAME, DATA_SUBFOLDER, TARGET_COLUMN
+
+  try:
+    import pandas as pd
+
+    cols = set(
+      pd.read_csv(os.path.join(output_dir, DATA_SUBFOLDER, DATA_FILENAME), nrows=0).columns
+    )
+  except Exception:
+    return False
+  return any(target in cols for target in TARGET_COLUMN.values())
 
 
 def _add_lead_sections(sections, output_dir, report_dir, present, assigned, params, kind):
@@ -137,11 +158,18 @@ def _add_space_section(sections, output_dir, report_dir, present, rendered_group
       return
 
 
-def _add_category_sections(sections, report_dir, stems, present, rendered_groups, assigned, kind):
-  """Append one section per plot category that has any figure (or table) to show."""
+def _add_category_sections(
+  sections, report_dir, stems, present, rendered_groups, assigned, kind, has_truth=True
+):
+  """Append one section per plot category that has any figure (or table) to show.
+
+  At predict a couple of headings shift meaning, and shift again when the molecules carry no
+  observed values: there is no test-set performance to report on an unlabelled set.
+  """
+  overrides = _PREDICT_SECTION if has_truth else _PREDICT_SECTION_NO_TRUTH
   for anchor, heading, desc, members in _CATEGORIES:
-    if kind == "Predict" and anchor in _PREDICT_SECTION:
-      heading, desc = _PREDICT_SECTION[anchor]
+    if kind == "Predict" and anchor in overrides:
+      heading, desc = overrides[anchor]
     if anchor == "space":
       items = sorted(s for s in stems if s.startswith("projection-"))
     else:
