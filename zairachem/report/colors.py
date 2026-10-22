@@ -94,8 +94,8 @@ def descriptor_colors_hex(n):
 
 
 # Ordered legend entries surfaced as the report's single transversal color key (label, semantic key),
-# per task. "Active" and "Inactive" mean nothing on a regression report, where the same two hues carry
-# the ends of the target's own range instead.
+# per task. "Active" and "Inactive" mean nothing on a regression report, which carries the ends of
+# the target's own range instead.
 _LEGEND = {
   "classification": [
     ("Active", "active"),
@@ -103,11 +103,12 @@ _LEGEND = {
     ("Correct", "correct_positive"),
     ("Error", "false_negative"),
   ],
+  # Only what the regression panels really use consistently: the two ends of the value ramp, and
+  # the hue every "this run's predictions" series is drawn in. Claiming more would be decoration.
   "regression": [
     ("High value", "active"),
-    ("Low value", "inactive"),
-    ("Observed", "correct_positive"),
-    ("Error", "false_negative"),
+    ("Low value", "neutral"),
+    ("Predicted", "correct_positive"),
   ],
 }
 #: Provenance entries, appended to either task's legend (the descriptors are task-neutral).
