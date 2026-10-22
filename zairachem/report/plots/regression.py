@@ -480,6 +480,9 @@ class _PropertyValuePlot(BasePlot):
     if prop is None or len(prop) < 3:
       return
     rho = spearmanr(prop, v).statistic
+    # A constant property (or a constant target) has no rank correlation to report; say so rather
+    # than printing "nan" in the title.
+    rho_text = "—" if rho is None or not np.isfinite(rho) else f"{rho:+.2f}"
     ax = self.ax
     idx, alpha = _subsample(prop.size)
     ax.scatter(prop[idx], v[idx], color=named_colors.blue, s=12, alpha=alpha, edgecolors="none")
@@ -491,7 +494,7 @@ class _PropertyValuePlot(BasePlot):
       ax.set_xlim(lo - pad, hi + pad)
     ax.set_xlabel(self.label)
     ax.set_ylabel(axis)
-    ax.set_title(f"{self.label} vs value · rho = {rho:+.2f}")
+    ax.set_title(f"{self.label} vs value · rho = {rho_text}")
     self.is_available = True
 
 

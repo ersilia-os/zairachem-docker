@@ -6,6 +6,8 @@ tests pin that contract and the arithmetic behind it -- the pooled model, the pr
 and the report surface, which has to speak a different vocabulary without growing a second report.
 """
 
+import os
+
 import numpy as np
 import pytest
 
@@ -527,3 +529,27 @@ def test_the_value_projection_renders_from_a_synthetic_run(tmp_path):
   projection = ResultsFetcher(path=path).get_projections()[0]
   plot = ProjectionValuePlot(ax=None, path=path, projection=projection)
   assert plot.is_available and plot.name == "projection-umap-value"
+
+
+def test_a_degenerate_run_still_produces_readable_panels(tmp_path):
+  """A constant target has no correlation and no spread; the panels must say so, not print "nan"."""
+  import json
+
+  import pandas as pd
+
+  from zairachem.report import plots as plots_module
+
+  path = _synthetic_run(tmp_path / "flat")
+  n = len(pd.read_csv(os.path.join(path, "inputs", "data.csv")))
+  flat = pd.DataFrame({
+    "compound_id": [f"CID{i:03d}" for i in range(n)],
+    "smiles": ["CCO"] * n,
+    "val": [5.0] * n,
+  })
+  flat.to_csv(os.path.join(path, "inputs", "data.csv"), index=False)
+  json.loads(open(os.path.join(path, "metadata", "parameters.json")).read())  # still regression
+
+  for name in REGRESSION_PANELS:
+    plot = getattr(plots_module, name)(ax=None, path=path)  # must not raise
+    title = plot.ax.get_title() if getattr(plot, "is_available", False) else ""
+    assert "nan" not in title.lower(), f"{name} shows a nan in its title: {title!r}"
