@@ -28,6 +28,7 @@ from zairachem.report.plots.cv import (
   CvPrPlot,
   CvRecallPlot,
   CvRocPlot,
+  CvSpearmanPlot,
 )
 from zairachem.report.plots.heldout import (
   HeldoutCalibrationByStrategyPlot,
@@ -79,14 +80,21 @@ from zairachem.report.plots.properties import (
 from zairachem.report.plots.regression import (
   ErrorVsSimilarityPlot,
   IndividualEstimatorsR2Plot,
+  IntervalCoveragePlot,
+  PotencyEnrichmentPlot,
   PredictedValueDistributionPlot,
+  ProjectionValuePlot,
+  PropertyValueLogpPlot,
+  PropertyValueMwPlot,
   RegressionPlotRaw,
   ResidualsPlot,
+  ValueConsensusPlot,
 )
 
 __all__ = [
   "ActivesInactivesPlot",
   "TrainSimilarityPlot",
+  "ValueConsensusPlot",
   "CalibrationCurvePlot",
   "ClassDonutPlot",
   "ClassWafflePlot",
@@ -103,6 +111,7 @@ __all__ = [
   "CvPrecisionPlot",
   "CvRecallPlot",
   "CvRocPlot",
+  "CvSpearmanPlot",
   "DescriptorConsensusPlot",
   "DescriptorCorrelationPlot",
   "EnrichmentCurvePlot",
@@ -116,6 +125,8 @@ __all__ = [
   "HeldoutPrByStrategyPlot",
   "HeldoutRocByStrategyPlot",
   "IndividualEstimatorsR2Plot",
+  "IntervalCoveragePlot",
+  "PotencyEnrichmentPlot",
   "NormalizedConfusionPlot",
   "OofScoreLiftPlot",
   "OofScoreLiftPointsPlot",
@@ -136,8 +147,11 @@ __all__ = [
   "ProjectionClassPlot",
   "ProjectionMergedPlot",
   "ProjectionProbaPlot",
+  "ProjectionValuePlot",
   "PropertyLogpPlot",
   "PropertyMwPlot",
+  "PropertyValueLogpPlot",
+  "PropertyValueMwPlot",
   "ProvenanceBarPlot",
   "RankDistributionPlot",
   "RegressionPlotRaw",

@@ -183,13 +183,21 @@ RESULTS_MAPPED_FILENAME = "results_mapped.csv"
 
 #: The ``inputs/data.csv`` column holding the target of each task.
 TARGET_COLUMN = {"classification": "bin", "regression": "val"}
+
+#: How each task records a descriptor's inner cross-validation skill in its ``cv_report.json``:
+#: ``(out-of-fold key, in-sample key, display label, value at chance)``. lazy-qsar writes AUROC for
+#: a classifier and Spearman's rho for a regressor, and everything that ranks, plots or prints a
+#: descriptor's skill reads it through here so the report cannot rank one way in a figure and
+#: another way in the table beside it.
+CV_SKILL = {
+  "classification": ("oof_auc", "train_auc", "AUROC", 0.5),
+  "regression": ("oof_rho", "train_rho", "Spearman \u03c1", 0.0),
+}
 MIN_CLASS = 30
 # Fewest compounds a regression target may have (lazy-qsar's own floor is 10; this leaves room
 # for the out-of-fold splits its heads are calibrated on).
 MIN_REGRESSION_ROWS = 30
 RANDOM_SEED = 42
-
-_CONFIG_FILENAME = "config.json"
 
 
 # Reference library used to pre-fit the eosframes descriptor transformers. The treat step

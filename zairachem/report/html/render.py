@@ -20,6 +20,7 @@ from zairachem.report.html.sections import (
   _read_cv_stats,
   _run_date,
   _run_mode,
+  _scalar_space_html,
 )
 from zairachem.report.html.tables import _cv_summary, _hitlist_table_html, _validation_table_html
 
@@ -60,7 +61,7 @@ def write_html_report(output_dir):
   _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind)
   _add_category_sections(sections, report_dir, stems, present, rendered_groups, assigned, kind)
   _insert_diagnostics_section(sections, output_dir, report_dir, present, assigned)
-  _add_closing_sections(sections, report_dir, stems, assigned)
+  _add_closing_sections(sections, report_dir, stems, assigned, params.get("task", "classification"))
 
   doc = _page_html(kind, model, report_heading, subtitle, tab_title, sections, report_dir)
   out = os.path.join(report_dir, "report.html")
@@ -86,7 +87,9 @@ def _add_lead_sections(sections, output_dir, report_dir, present, assigned, para
       sections.append((
         "hitlist",
         "Hitlist",
-        "The highest-scoring molecules, ranked by predicted probability.",
+        "The highest-scoring molecules, ranked by predicted value."
+        if params.get("task") == "regression"
+        else "The highest-scoring molecules, ranked by predicted probability.",
         hitlist,
       ))
   perf_section = _computational_performance_html(output_dir, report_dir, present, assigned, params)
@@ -99,36 +102,39 @@ def _add_lead_sections(sections, output_dir, report_dir, present, assigned, para
     ))
   dataset_section = _dataset_html(output_dir, report_dir, present, assigned)
   if dataset_section:
-    sections.append((
-      "dataset",
-      "Dataset",
-      "Class balance and molecular property distributions of the labelled set.",
-      dataset_section,
-    ))
+    desc = (
+      "Spread of the target value and how it relates to molecular properties."
+      if params.get("task") == "regression"
+      else "Class balance and molecular property distributions of the labelled set."
+    )
+    sections.append(("dataset", "Dataset", desc, dataset_section))
 
 
 def _add_space_section(sections, output_dir, report_dir, present, rendered_groups, assigned, kind):
-  """Append the Chemical space section (truth-keyed maps, or predicted-probability maps)."""
-  space_section = _chemical_space_html(output_dir, report_dir, present, assigned)
-  if space_section:
-    sections.append((
-      "space",
-      "Chemical space",
+  """Append the Chemical space section, however this run is able to colour its projections.
+
+  A labelled classification run colours by true class; otherwise the maps are coloured by one
+  scalar -- the predicted probability (predict without truth) or the target value (regression).
+  Every run that has projections at all therefore gets a Chemical space section rather than
+  leaving the maps to the "More" catch-all.
+  """
+  for section, desc in (
+    (
+      _chemical_space_html(output_dir, report_dir, present, assigned),
       "Low-dimensional embeddings of the molecules (MW-vs-LogP and each projection).",
-      space_section,
-    ))
-  elif kind == "Predict":
-    # No truth-keyed (projection-merged-*) maps in a prediction run — gather the projections coloured
-    # by predicted probability instead, so they form a proper Chemical space section (not "More").
-    proba = sorted(s for s in present if s.startswith("projection-") and s.endswith("-proba"))
-    cards = _render_items(report_dir, "space", proba, present, rendered_groups, assigned, kind)
-    if cards:
-      sections.append((
-        "space",
-        "Chemical space",
-        "Each 2-D projection coloured by the predicted probability.",
-        "<div class='grid'>" + "".join(cards) + "</div>",
-      ))
+    ),
+    (
+      _scalar_space_html(report_dir, present, assigned, "-value"),
+      "Each 2-D projection coloured by the target value.",
+    ),
+    (
+      _scalar_space_html(report_dir, present, assigned, "-proba"),
+      "Each 2-D projection coloured by the predicted probability.",
+    ),
+  ):
+    if section:
+      sections.append(("space", "Chemical space", desc, section))
+      return
 
 
 def _add_category_sections(sections, report_dir, stems, present, rendered_groups, assigned, kind):
@@ -165,7 +171,7 @@ def _insert_diagnostics_section(sections, output_dir, report_dir, present, assig
     sections.insert(idx, entry)
 
 
-def _add_closing_sections(sections, report_dir, stems, assigned):
+def _add_closing_sections(sections, report_dir, stems, assigned, task="classification"):
   """Append the More (unassigned figures) and About the figures sections."""
   leftovers = [s for s in stems if s not in assigned]
   if leftovers:
@@ -177,7 +183,7 @@ def _add_closing_sections(sections, report_dir, stems, assigned):
     "about",
     "About the figures",
     "The physical size of each plot and the reference grid for assembling a composite figure.",
-    _about_figures_html(),
+    _about_figures_html(task),
   ))
 
 

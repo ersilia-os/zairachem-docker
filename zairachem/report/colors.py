@@ -17,18 +17,13 @@ _AC = ArticleColors()
 _SEMANTIC = {
   "active": "crimson",
   "inactive": "cobalt",
-  "neutral": "silver",
-  "baseline": "silver",
+  "neutral": "silver",  # the low end of a sequential value ramp
   "correct_positive": "lime",  # TP
   "correct_negative": "cobalt",  # TN
   "false_positive": "periwinkle",  # FP
   "false_negative": "crimson",  # FN
-  "raw": "lime",
-  "transformed": "periwinkle",
   "store": "cobalt",  # descriptor reused from the isaura store
   "computed": "silver",  # descriptor freshly computed this run
-  "cpu": "crimson",
-  "ram": "cobalt",
   "classification": "turquoise",
   "regression": "amber",
 }
@@ -98,12 +93,27 @@ def descriptor_colors_hex(n):
   return [_rgb_to_hex(c) for c in category_palette.get(n)]
 
 
-# Ordered legend entries surfaced as the report's single transversal color key (label, semantic key).
-LEGEND = [
-  ("Active", "active"),
-  ("Inactive", "inactive"),
-  ("Correct", "correct_positive"),
-  ("Error", "false_negative"),
-  ("From store", "store"),
-  ("Computed", "computed"),
-]
+# Ordered legend entries surfaced as the report's single transversal color key (label, semantic key),
+# per task. "Active" and "Inactive" mean nothing on a regression report, where the same two hues carry
+# the ends of the target's own range instead.
+_LEGEND = {
+  "classification": [
+    ("Active", "active"),
+    ("Inactive", "inactive"),
+    ("Correct", "correct_positive"),
+    ("Error", "false_negative"),
+  ],
+  "regression": [
+    ("High value", "active"),
+    ("Low value", "inactive"),
+    ("Observed", "correct_positive"),
+    ("Error", "false_negative"),
+  ],
+}
+#: Provenance entries, appended to either task's legend (the descriptors are task-neutral).
+_LEGEND_SHARED = [("From store", "store"), ("Computed", "computed")]
+
+
+def legend(task="classification"):
+  """Ordered ``(label, semantic key)`` legend entries for the report's transversal colour key."""
+  return _LEGEND.get(task, _LEGEND["classification"]) + _LEGEND_SHARED

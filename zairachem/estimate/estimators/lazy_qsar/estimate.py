@@ -238,24 +238,17 @@ class Fitter(BaseEstimatorIndividual):
 
   def _fit_classifier(self, n_samples, train_idxs, y, t):
     """Fit, persist and score the classifier; return its per-row classification report."""
-    logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {n_samples} samples")
-    X_train, train_order = self._load_train_rows(train_idxs)
-    y_train = y[np.array(train_order)]
-    logger.info(
-      f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
-    )
     # The reference is scored once, after fit (_write_reference_signals), for the pooled rank, which
     # the pool step builds as lazy-qsar's ensemble does. It is not given to fit: lazy-qsar would
     # score it again for a per-descriptor rank nothing uses, and move the descriptor's decision
-    # cutoff onto that rank. Held-out folds (score_reference=False) skip it altogether.
+    # cutoff onto that rank. Held-out folds (score_reference=False) skip it altogether. Resolved
+    # before the fit so the seeding immediately precedes it.
     reference_h5 = self._rank_reference_or_warn() if self.score_reference else None
-    _seed_global_rngs()
-    model = LazyClassifier()
-    model.fit(X=X_train, y=y_train)
+    model, X_train, y_train, train_order_arr, descriptor_dir = self._load_and_fit(
+      LazyClassifier, n_samples, train_idxs, y
+    )
     # Capture lazy-qsar's internal cross-validation outputs (OOF AUROC etc.) before X_train is
     # freed — they are computed during fit and would otherwise be discarded.
-    descriptor_dir = os.path.join(self.trained_path, self.model_id)
-    os.makedirs(descriptor_dir, exist_ok=True)
     channels = self._oof_channels(model, X_train)
     self._write_cv_report(model, y_train, channels, descriptor_dir)
     # Fit the applicability domain (lazy-qsar's PCA+Mahalanobis AD) on the training descriptor
@@ -270,11 +263,8 @@ class Fitter(BaseEstimatorIndividual):
     # (OOF probabilities, plus ranks and AD predicted in batches) so a fold that trains on a subset
     # is fitted on the same kind of signals as the shipped model; rows outside the training set
     # (the held-out slice of a fold) are predicted from the model in a chunked re-read.
-    preds = np.empty(n_samples, dtype=np.float32)
+    preds, ranks, ads = self._blank_signals(n_samples)
     preds_raw = np.full(n_samples, np.nan, dtype=np.float32)  # uncalibrated OOF (report raw lens)
-    ranks = np.full(n_samples, np.nan, dtype=np.float32)
-    ads = np.full(n_samples, np.nan, dtype=np.float32)
-    train_order_arr = np.asarray(train_order)
     covers_all = train_order_arr.size == n_samples and np.unique(train_order_arr).size == n_samples
     self._fill_train_proba(
       model, X_train, channels, train_order_arr, descriptor_dir, preds, preds_raw
@@ -282,12 +272,12 @@ class Fitter(BaseEstimatorIndividual):
     self._fill_train_rank_ad(model, ad_model, X_train, train_order_arr, channels, ranks, ads)
     del X_train
     gc.collect()
-    model_folder = os.path.join(self.trained_path, self.model_id, t)
-    model.save(model_folder)
-    logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
+    self._save_model(model, t)
     if not covers_all:
       # Only the rows the model never saw: training rows already carry their OOF signals above.
-      self._fill_unseen_signals(model, ad_model, train_order_arr, n_samples, preds, ranks, ads)
+      self._fill_unseen_signals(
+        _score_rows, model, ad_model, train_order_arr, n_samples, preds, ranks, ads
+      )
     if self.score_reference and reference_h5 is not None:
       self.substep_cb("rank reference")
       self._write_reference_signals(model, ad_model, reference_h5, descriptor_dir)
@@ -301,8 +291,7 @@ class Fitter(BaseEstimatorIndividual):
       y,
       descriptor_dir,
     )
-    rank_arg = _rank_or_warn(ranks, self.model_id, "fit")
-    ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
+    rank_arg, ad_arg = self._report_args(ranks, ads, ad_model)
     raw_arg = preds_raw if np.isfinite(preds_raw).any() else None
     return make_classification_report(y, preds, y_rank=rank_arg, y_ad=ad_arg, y_raw=raw_arg)
 
@@ -314,26 +303,15 @@ class Fitter(BaseEstimatorIndividual):
     the per-descriptor outputs are the predicted value, its out-of-fold percentile (which indexes
     the reliability curve the pooler weights by) and the applicability-domain score.
     """
-    logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {n_samples} samples")
-    X_train, train_order = self._load_train_rows(train_idxs)
-    y_train = y[np.array(train_order)]
-    logger.info(
-      f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
+    model, X_train, y_train, train_order_arr, descriptor_dir = self._load_and_fit(
+      LazyRegressor, n_samples, train_idxs, y
     )
-    _seed_global_rngs()
-    model = LazyRegressor()
-    model.fit(X=X_train, y=y_train)
-    descriptor_dir = os.path.join(self.trained_path, self.model_id)
-    os.makedirs(descriptor_dir, exist_ok=True)
     channels = self._reg_oof_channels(model, X_train)
     self._write_report(_reg_cv_report(model, y_train), channels, y_train, descriptor_dir)
     self.substep_cb("applicability domain")
     ad_model, ad_cutoff = self._fit_ad(X_train, descriptor_dir)
 
-    preds = np.empty(n_samples, dtype=np.float32)
-    ranks = np.full(n_samples, np.nan, dtype=np.float32)
-    ads = np.full(n_samples, np.nan, dtype=np.float32)
-    train_order_arr = np.asarray(train_order)
+    preds, ranks, ads = self._blank_signals(n_samples)
     covers_all = train_order_arr.size == n_samples and np.unique(train_order_arr).size == n_samples
     self.substep_cb("out-of-fold + percentile")
     if channels is not None:
@@ -351,18 +329,11 @@ class Fitter(BaseEstimatorIndividual):
       ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
     del X_train
     gc.collect()
-    model_folder = os.path.join(self.trained_path, self.model_id, t)
-    model.save(model_folder)
-    logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
+    self._save_model(model, t)
     if not covers_all:
-      is_train = np.zeros(n_samples, dtype=bool)
-      is_train[train_order_arr] = True
-      for start, end, chunk in self._iter_X():
-        idx = np.flatnonzero(~is_train[start:end])
-        if idx.size:
-          _score_reg_rows(model, ad_model, chunk[idx], idx + start, preds, ranks, ads)
-        del chunk
-        gc.collect()
+      self._fill_unseen_signals(
+        _score_reg_rows, model, ad_model, train_order_arr, n_samples, preds, ranks, ads
+      )
     tr = train_order_arr
     curve = self._build_rank_error_curve(ranks[tr], preds[tr], y[tr], normalize=True)
     self._write_pool_signals(
@@ -372,8 +343,7 @@ class Fitter(BaseEstimatorIndividual):
       y,
       descriptor_dir,
     )
-    rank_arg = _rank_or_warn(ranks, self.model_id, "fit")
-    ad_arg = ads if (ad_model is not None and np.isfinite(ads).any()) else None
+    rank_arg, ad_arg = self._report_args(ranks, ads, ad_model)
     return make_regression_report(y, preds, y_rank=rank_arg, y_ad=ad_arg)
 
   def _reg_oof_channels(self, model, X_train):
@@ -472,16 +442,63 @@ class Fitter(BaseEstimatorIndividual):
     if ad_model is not None:
       ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
 
-  def _fill_unseen_signals(self, model, ad_model, train_order_arr, n_samples, preds, ranks, ads):
-    """Predict the rows outside the training set in a chunked re-read, filling arrays in place."""
+  def _fill_unseen_signals(
+    self, score_rows, model, ad_model, train_order_arr, n_samples, preds, ranks, ads
+  ):
+    """Predict the rows outside the training set in a chunked re-read, filling arrays in place.
+
+    ``score_rows`` is the task's row scorer (:func:`_score_rows` or :func:`_score_reg_rows`); the
+    chunked re-read around it is the same either way.
+    """
     is_train = np.zeros(n_samples, dtype=bool)
     is_train[train_order_arr] = True
     for start, end, chunk in self._iter_X():
       idx = np.flatnonzero(~is_train[start:end])
       if idx.size:
-        _score_rows(model, ad_model, chunk[idx], idx + start, preds, ranks, ads)
+        score_rows(model, ad_model, chunk[idx], idx + start, preds, ranks, ads)
       del chunk
       gc.collect()
+
+  def _load_and_fit(self, make_model, n_samples, train_idxs, y):
+    """Load the training rows, fit a freshly seeded lazy-qsar model, and return the pieces.
+
+    The preamble both tasks share. Returns ``(model, X_train, y_train, train_order, dir)``; the
+    caller still owns ``X_train`` and frees it once its own signals are read off.
+    """
+    logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {n_samples} samples")
+    X_train, train_order = self._load_train_rows(train_idxs)
+    y_train = y[np.array(train_order)]
+    logger.info(
+      f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
+    )
+    _seed_global_rngs()
+    model = make_model()
+    model.fit(X=X_train, y=y_train)
+    descriptor_dir = os.path.join(self.trained_path, self.model_id)
+    os.makedirs(descriptor_dir, exist_ok=True)
+    return model, X_train, y_train, np.asarray(train_order), descriptor_dir
+
+  def _save_model(self, model, t):
+    """Persist the fitted model under the descriptor's folder for the algorithm family ``t``."""
+    model_folder = os.path.join(self.trained_path, self.model_id, t)
+    model.save(model_folder)
+    logger.info(f"[lazyqsar:fit] Model saved to {model_folder}")
+
+  def _report_args(self, ranks, ads, ad_model):
+    """``(rank, ad)`` arguments for the per-row report: whichever signals actually came out."""
+    return (
+      _rank_or_warn(ranks, self.model_id, "fit"),
+      ads if (ad_model is not None and np.isfinite(ads).any()) else None,
+    )
+
+  @staticmethod
+  def _blank_signals(n_samples):
+    """Empty ``(preds, ranks, ads)`` arrays, scattered into by original row order."""
+    return (
+      np.empty(n_samples, dtype=np.float32),
+      np.full(n_samples, np.nan, dtype=np.float32),
+      np.full(n_samples, np.nan, dtype=np.float32),
+    )
 
   @staticmethod
   def _record_oof_used(descriptor_dir, oof_used):

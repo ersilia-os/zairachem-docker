@@ -146,3 +146,115 @@ def test_the_output_contract_is_value_not_score():
   assert columns["train_similarity"] == "similarity" and columns["descriptor_std"] == "spread"
   assert OUTPUT_DESCRIPTOR_PREFIX["regression"] == "value_"
   assert TARGET_COLUMN["regression"] == "val"
+
+
+# --- The report surface: every regression panel exists, and no panel belongs to both tasks -------
+
+
+def _plot_specs():
+  from zairachem.report.report import _PLOT_SPECS
+
+  return dict(_PLOT_SPECS)
+
+
+def test_every_regression_panel_is_registered_and_catalogued():
+  from zairachem.report.html.catalog import (
+    _CATEGORIES,
+    _DATASET_GROUPS,
+    _DIAG_GROUPS,
+    _GROUPS,
+    _TITLES,
+  )
+
+  specs = _plot_specs()
+  panels = [
+    "regression-raw",
+    "regression-residuals",
+    "regression-distribution",
+    "regression-error-similarity",
+    "potency-enrichment",
+    "interval-coverage",
+    "value-consensus",
+    "cv-spearman",
+    "property-mw-value",
+    "property-logp-value",
+    "r2-individual",
+    "heldout-r2",
+  ]
+  missing = [p for p in panels if p not in specs]
+  assert not missing, f"not registered in report.py: {missing}"
+  # A figure with no catalogue title falls through to the report's "More" catch-all.
+  untitled = [p for p in panels if p not in _TITLES]
+  assert not untitled, f"no title in the HTML catalog: {untitled}"
+  # A figure reaches the page through one of the section tables; which one depends on the section
+  # that owns it (plot categories, the dataset and diagnostics blocks, or a carousel group).
+  catalogued = {m for _a, _h, _d, members in _CATEGORIES for m in members}
+  for table in (_GROUPS, _DIAG_GROUPS, _DATASET_GROUPS):
+    catalogued |= {m for g in table for m in g["members"]}
+  homeless = [p for p in panels if p not in catalogued]
+  assert not homeless, f"in no HTML section: {homeless}"
+
+
+def test_the_colour_legend_speaks_the_task_s_language():
+  from zairachem.report.colors import hexcol, legend
+
+  clf = dict((lbl, key) for lbl, key in legend("classification"))
+  reg = dict((lbl, key) for lbl, key in legend("regression"))
+  assert "Active" in clf and "Active" not in reg  # no classes in a regression report
+  assert "High value" in reg and "Low value" in reg
+  # Both tasks keep the provenance entries, and every key resolves to a real colour.
+  for entries in (clf, reg):
+    assert "From store" in entries and "Computed" in entries
+    for key in entries.values():
+      assert hexcol(key).startswith("#")
+
+
+def test_every_semantic_colour_key_is_used():
+  """A key nobody asks for is a claim about meaning that nothing keeps honest."""
+  import pathlib
+  import re
+
+  from zairachem.report.colors import _SEMANTIC
+
+  tree = pathlib.Path("zairachem")
+  blob = "\n".join(p.read_text() for p in tree.rglob("*.py"))
+  unused = [
+    key
+    for key in _SEMANTIC
+    if len(re.findall(rf"""["']{re.escape(key)}["']""", blob)) <= 1  # only its own definition
+  ]
+  assert not unused, f"dead semantic colour keys: {unused}"
+
+
+def test_inner_cv_reports_are_read_with_the_right_skill():
+  from zairachem.report.cv import CHANCE, skill_keys, sort_best_first
+
+  clf = [{"descriptor": "a", "oof_auc": 0.7}, {"descriptor": "b", "oof_auc": 0.9}]
+  reg = [{"descriptor": "a", "oof_rho": 0.4}, {"descriptor": "b", "oof_rho": 0.8}]
+  assert skill_keys(clf) == ("oof_auc", "train_auc", "AUROC")
+  assert skill_keys(reg)[0] == "oof_rho"
+  assert CHANCE["oof_auc"] == 0.5 and CHANCE["oof_rho"] == 0.0
+  # Best first, on each task's own skill, and a missing skill never takes the top slot.
+  assert [s["descriptor"] for s in sort_best_first(list(clf))] == ["b", "a"]
+  assert [s["descriptor"] for s in sort_best_first(list(reg))] == ["b", "a"]
+  with_gap = reg + [{"descriptor": "c"}]
+  assert [s["descriptor"] for s in sort_best_first(with_gap)] == ["b", "a", "c"]
+
+
+def test_the_hitlist_ranks_a_regression_run_by_value(tmp_path):
+  import csv
+
+  from zairachem.report.html.tables import _hitlist_table_html
+
+  rows = [
+    {"input_smiles": "CCO", "value": "5.0", "lower": "4.0", "upper": "6.0", "similarity": "0.3"},
+    {"input_smiles": "CCN", "value": "8.5", "lower": "7.5", "upper": "9.5", "similarity": "0.9"},
+  ]
+  with open(tmp_path / "output_table.csv", "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=list(rows[0]))
+    w.writeheader()
+    w.writerows(rows)
+  out = _hitlist_table_html(str(tmp_path))
+  assert "by predicted value" in out and "Interval" in out
+  assert "Call" not in out  # a regression run has no call to make
+  assert out.index("CCN") < out.index("CCO")  # ranked by value, best first

@@ -15,6 +15,7 @@ import os
 
 from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.logging import logger
+from zairachem.base.vars import CV_SKILL
 
 #: Steps that render a persistent live per-item table (see :class:`..live.LiveTableMonitor`). That
 #: table stays on screen as the step's record, so these steps intentionally print no separate detail
@@ -266,12 +267,18 @@ def _cv_stats(output_dir):
 
 
 def _cv_headline(cv):
-  """(mean_oof, best_descriptor, best_oof) or None from a list of cv reports."""
-  aucs = [s["oof_auc"] for s in cv if s.get("oof_auc") is not None]
-  if not aucs:
-    return None
-  best = max(cv, key=lambda s: s.get("oof_auc") if s.get("oof_auc") is not None else -1)
-  return sum(aucs) / len(aucs), best.get("descriptor"), best.get("oof_auc")
+  """``(label, mean_oof, best_descriptor, best_oof)`` or None from a list of cv reports.
+
+  The skill is AUROC for a classification run and Spearman's rho for a regression one, so the
+  label travels with the numbers rather than being assumed by the caller.
+  """
+  for _task, (oof_key, _train_key, label, _chance) in CV_SKILL.items():
+    skills = [s[oof_key] for s in cv if s.get(oof_key) is not None]
+    if not skills:
+      continue
+    best = max(cv, key=lambda s: s.get(oof_key) if s.get(oof_key) is not None else -float("inf"))
+    return label, sum(skills) / len(skills), best.get("descriptor"), best.get(oof_key)
+  return None
 
 
 def summarize_estimate(output_dir=None):
@@ -287,8 +294,8 @@ def summarize_estimate(output_dir=None):
   base = _plurals(len(algos), "algorithm") + " trained" if algos else "estimators trained"
   head = _cv_headline(_cv_stats(d))
   if head:
-    mean, best, best_auc = head
-    base += f" · CV AUROC {mean:.2f} (best {best} {best_auc:.2f})"
+    label, mean, best, best_skill = head
+    base += f" · CV {label} {mean:.2f} (best {best} {best_skill:.2f})"
   return base
 
 
@@ -338,7 +345,7 @@ def summarize_screen(output_dir=None):
 
 
 def summarize_holdout(output_dir=None):
-  """Summarize held-out validation (folds scored and failed, scaffold AUROC); empty string when missing."""
+  """Summarize held-out validation (folds scored and failed, scaffold skill); empty when missing."""
   d = _resolve_output_dir(output_dir)
   if not d:
     return ""
@@ -361,10 +368,14 @@ def summarize_holdout(output_dir=None):
     n_text = f"{n}/{total} folds ({failed} failed)"
   else:
     n_text = _plurals(n, "fold")
-  scaffold = (summary.get("strategies", {}).get("scaffold", {}).get("auroc", {}) or {}).get("mean")
+  # The scaffold split is the honest headline: whichever metric the folds reported for it.
+  scaffold = summary.get("strategies", {}).get("scaffold", {}) or {}
   parts = [n_text]
-  if scaffold is not None:
-    parts.append(f"scaffold AUROC {scaffold:.2f}")
+  for metric, label in (("auroc", "AUROC"), ("r2", "R\u00b2")):
+    mean = (scaffold.get(metric) or {}).get("mean")
+    if mean is not None:
+      parts.append(f"scaffold {label} {mean:.2f}")
+      break
   return " · ".join(parts)
 
 
@@ -538,7 +549,7 @@ def _reliability_rows(d, params, rel):
     f"{rel.get('tier', '?')} [dim]· {_plurals(rel.get('n_descriptors', 0), 'descriptor')}[/]",
   ))
   if rel.get("pruned"):
-    rows.append(("left out", f"[dim]{'  '.join(rel['pruned'])} (weak out-of-fold AUROC)[/]"))
+    rows.append(("left out", f"[dim]{'  '.join(rel['pruned'])} (weak out-of-fold skill)[/]"))
   ad = rel.get("applicability")
   if ad:
     rows.extend(_applicability_rows(rel, ad))

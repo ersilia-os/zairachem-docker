@@ -15,7 +15,11 @@ from zairachem.report.colors import (
   descriptor_colors_rgb,
   named_colors,
 )
+from zairachem.report.cv import CHANCE, skill_keys
 from zairachem.report.fetcher import ResultsFetcher
+
+#: Which task each out-of-fold skill key belongs to (the inverse of ``cv._SKILL``).
+_SKILL_TASK = {"oof_auc": "classification", "oof_rho": "regression"}
 
 
 def _descriptor_color_map(stats):
@@ -24,41 +28,74 @@ def _descriptor_color_map(stats):
   return {s["descriptor"]: palette[i] for i, s in enumerate(stats)}
 
 
-class CvAurocPlot(BasePlot):
-  """Per-descriptor cross-validation (OOF) AUROC bars, with the train AUROC marked for reference.
+class _CvSkillBarPlot(BasePlot):
+  """Per-descriptor cross-validation (OOF) skill bars, with the in-sample skill marked for reference.
 
-  Each bar carries the descriptor's identity colour (matching its ROC/PR line). The gap between the
-  bar (OOF) and the │ marker (train) is the per-descriptor overfitting.
+  Each bar carries the descriptor's identity colour (matching its line in the other CV figures). The
+  gap between the bar (OOF) and the │ marker (train) is the per-descriptor overfitting. Subclasses
+  set ``stem``, ``task``, ``xlabel`` and ``xlim``; the skill is AUROC for classification and
+  Spearman's rho for regression, and the plot renders only for the task whose reports it finds.
   """
+
+  stem = None
+  task = None
+  xlabel = None
+  xlim = (0.4, 1.03)
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
-    self.name = "cv-auroc"
-    ax = self.ax
-    stats_bf = [s for s in ResultsFetcher(path=path).get_cv_stats() if s.get("oof_auc") is not None]
+    self.name = self.stem
+    self.is_available = False
+    all_stats = ResultsFetcher(path=path).get_cv_stats()
+    oof_key, train_key, _label = skill_keys(all_stats)
+    if _SKILL_TASK[oof_key] != self.task:
+      return  # the other task's reports; its own bar plot will draw them
+    stats_bf = [s for s in all_stats if s.get(oof_key) is not None]
     if not stats_bf:
-      self.is_available = False
       return
+    ax = self.ax
     color_of = _descriptor_color_map(stats_bf)
     stats = list(reversed(stats_bf))  # ascending → best on top
     labels = [s["descriptor"] for s in stats]
-    oof = [s["oof_auc"] for s in stats]
+    oof = [s[oof_key] for s in stats]
+    lo, hi = self.xlim
     y = list(range(len(labels)))
     ax.barh(
       y, oof, color=[color_of[s["descriptor"]] for s in stats], alpha=0.9, height=0.6, zorder=2
     )
     for i, s in enumerate(stats):
-      tr = s.get("train_auc")
+      tr = s.get(train_key)
       if tr is not None:
         ax.plot([tr], [i], marker="|", markersize=14, color=named_colors.black, zorder=3)
-      ax.text(0.41, i, f"{oof[i]:.2f}", va="center", ha="left", fontsize=7, zorder=4)
-    ax.axvline(0.5, color=named_colors.gray, lw=1, ls="--", zorder=1)
+      ax.text(
+        lo + (hi - lo) * 0.01, i, f"{oof[i]:.2f}", va="center", ha="left", fontsize=7, zorder=4
+      )
+    ax.axvline(CHANCE[oof_key], color=named_colors.gray, lw=1, ls="--", zorder=1)
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
-    ax.set_xlim(0.4, 1.03)
-    ax.set_xlabel("AUROC")
-    ax.set_title("Cross-validation AUROC (bar) vs train (│)")
+    ax.set_xlim(lo, hi)
+    ax.set_xlabel(self.xlabel)
+    ax.set_title(f"Cross-validation {self.xlabel} (bar) vs train (│)")
     self.is_available = True
+
+
+class CvAurocPlot(_CvSkillBarPlot):
+  """Per-descriptor OOF AUROC bars, with the train AUROC marked (classification only)."""
+
+  stem = "cv-auroc"
+  task = "classification"
+  xlabel = "AUROC"
+  xlim = (0.4, 1.03)
+
+
+class CvSpearmanPlot(_CvSkillBarPlot):
+  """Per-descriptor OOF Spearman rho bars, with the train rho marked (regression only)."""
+
+  stem = "cv-spearman"
+  task = "regression"
+  xlabel = "Spearman \u03c1"
+  # rho runs from 0 (chance) to 1; a negative OOF rho is a broken descriptor and still shows.
+  xlim = (-0.05, 1.03)
 
 
 class _CvBarPlot(BasePlot):

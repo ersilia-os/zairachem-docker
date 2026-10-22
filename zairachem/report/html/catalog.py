@@ -14,6 +14,7 @@ _CATEGORIES = [
     "How much to trust each prediction (descriptor agreement, similarity to the training set).",
     [
       "descriptor-consensus",
+      "value-consensus",
       "tanimoto-similarity-to-train",
       "predicted-property-mw",
       "predicted-property-logp",
@@ -50,6 +51,8 @@ _CATEGORIES = [
       "regression-residuals",
       "regression-distribution",
       "regression-error-similarity",
+      "potency-enrichment",
+      "interval-coverage",
     ],
   ),
   (
@@ -96,7 +99,10 @@ _TITLES = {
   "regression-residuals": "Residuals",
   "regression-distribution": "Predicted values",
   "regression-error-similarity": "Error vs training similarity",
+  "interval-coverage": "Interval coverage",
+  "potency-enrichment": "Selection quality",
   "cv-auroc": "Inner CV AUROC by descriptor",
+  "cv-spearman": "Inner CV Spearman \u03c1 by descriptor",
   "cv-aupr": "Inner CV AUPR by descriptor",
   "cv-mcc": "MCC at ideal cutoff",
   "cv-f1": "F1 at ideal cutoff",
@@ -144,8 +150,11 @@ _TITLES = {
   "class-waffle": "Class balance (waffle)",
   "property-mw": "Molecular weight",
   "property-logp": "LogP",
+  "property-mw-value": "Molecular weight vs value",
+  "property-logp-value": "LogP vs value",
   "predicted-score-hist": "Predicted score distribution",
   "predicted-rank-curve": "Ranked scores (operating point)",
+  "value-consensus": "Descriptor consensus",
   "descriptor-consensus": "Descriptor consensus",
   "tanimoto-similarity-to-train": "Tanimoto similarity to the training set",
   "rank-distribution": "Pooled rank",
@@ -336,6 +345,11 @@ _DATASET_GROUPS = [
     "title": "Property distributions",
     "members": ["property-mw", "property-logp"],
   },
+  {
+    "key": "properties-value",
+    "title": "Property vs value",
+    "members": ["property-mw-value", "property-logp-value"],
+  },
 ]
 
 
@@ -349,6 +363,7 @@ _DIAG_GROUPS = [
     "title": "Per-descriptor metrics",
     "members": [
       "cv-auroc",
+      "cv-spearman",
       "cv-aupr",
       "cv-mcc",
       "cv-f1",

@@ -32,6 +32,7 @@ from zairachem.base.vars import (
   RESULTS_UNMAPPED_FILENAME,
   SMILES_COLUMN,
 )
+from zairachem.report.cv import sort_best_first
 from zairachem.report.utils import ResultsIterator
 
 RAW_INPUT_FILENAME += ".csv"
@@ -147,8 +148,7 @@ class ResultsFetcher(ZairaBase):
         stats.append(rep)
       except Exception:
         continue
-    stats.sort(key=lambda r: r.get("oof_auc") if r.get("oof_auc") is not None else -1, reverse=True)
-    return stats
+    return sort_best_first(stats)
 
   def get_cv_oof(self, descriptor):
     """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None.

@@ -27,7 +27,11 @@ def _npg(n):
 
 
 def _npg_cmap(hex_hi, hex_lo="#ffffff"):
-  """A white→NPG-colour sequential matplotlib colormap for heatmaps."""
+  """A sequential matplotlib colormap from ``hex_lo`` (white by default) to an NPG colour.
+
+  Pass ``hex_lo`` when the low end must stay visible against the page, as it must on a scatter
+  where the low values are data rather than background.
+  """
   from matplotlib.colors import LinearSegmentedColormap
 
   return LinearSegmentedColormap.from_list("npg_seq", [hex_lo, hex_hi])

@@ -18,6 +18,7 @@ from zairachem.base.vars import (
   SESSION_FILE,
 )
 from zairachem.report import colors, perf
+from zairachem.report.cv import sort_best_first
 from zairachem.report.html.cards import _card, _carousel
 from zairachem.report.html.catalog import (
   _COMPUTE_GROUPS,
@@ -375,9 +376,37 @@ def _class_counts(output_dir):
     return None
 
 
+def _value_summary(output_dir):
+  """Spread of the regression target (``val``) over the labelled set, or ``None``.
+
+  The regression counterpart of :func:`_class_counts`: there is no balance to report, but the range
+  and spread of the target are what a reader needs before reading any error in the same units.
+  """
+  try:
+    import pandas as pd
+
+    df = pd.read_csv(os.path.join(output_dir, DATA_SUBFOLDER, DATA_FILENAME))
+    col = next((c for c in df.columns if "val" in c and "_skip" not in c and "_aux" not in c), None)
+    if col is None:
+      return None
+    y = pd.to_numeric(df[col], errors="coerce").dropna()
+    if len(y) == 0:
+      return None
+    return {
+      "total": int(len(y)),
+      "min": float(y.min()),
+      "median": float(y.median()),
+      "max": float(y.max()),
+      "sd": float(y.std()),
+    }
+  except Exception:
+    return None
+
+
 def _dataset_html(output_dir, report_dir, present, assigned):
   """Dataset composition: class-balance stat cells + bar, then the class-balance & property sliders."""
   counts = _class_counts(output_dir)
+  values = None if counts else _value_summary(output_dir)
   fig_cards, fig_stems = [], []
   for g in _DATASET_GROUPS:
     members = [m for m in g["members"] if m in present]
@@ -387,10 +416,25 @@ def _dataset_html(output_dir, report_dir, present, assigned):
     fig_cards.append(
       _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
     )
-  if not counts and not fig_cards:
+  if not counts and not values and not fig_cards:
     return ""
 
   out = []
+  if values:
+    # No balance bar: a continuous target has a range and a spread, not two classes.
+    stats = [
+      ("Compounds", f"{values['total']:,}"),
+      ("Lowest", f"{values['min']:.2f}"),
+      ("Median", f"{values['median']:.2f}"),
+      ("Highest", f"{values['max']:.2f}"),
+      ("Std. deviation", f"{values['sd']:.2f}"),
+    ]
+    cells = "".join(
+      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
+      f"<span class='v'>{html.escape(v)}</span></div>"
+      for k, v in stats
+    )
+    out.append(f"<div class='cfg-grid'>{cells}</div>")
   if counts:
     stats = [
       ("Compounds", f"{counts['total']:,}"),
@@ -467,6 +511,28 @@ def _chemical_space_html(output_dir, report_dir, present, assigned):
   return legend + grid
 
 
+def _scalar_space_html(report_dir, present, assigned, suffix):
+  """Chemical space for the projections coloured by one scalar (``-proba`` or ``-value``), or ''.
+
+  The maps keyed on true class need ground truth and two classes; these need neither, so they are
+  what a regression report shows at fit and at predict, and what a classification report shows when
+  it predicts without truth. One slider over the projections, in the usual order.
+  """
+  stems = [s for s in present if s.startswith("projection-") and s.endswith(suffix)]
+  if not stems:
+    return ""
+
+  def order(stem):
+    base = stem[len("projection-") : -len(suffix)]
+    return (_PROJECTION_ORDER.index(base) if base in _PROJECTION_ORDER else 99, base)
+
+  stems.sort(key=order)
+  g = {"key": f"chemspace{suffix}", "title": "Overview", "members": stems}
+  card = _card(report_dir, stems[0]) if len(stems) == 1 else _carousel(report_dir, g, stems)
+  assigned.update(stems)
+  return "<div class='grid grid2'>" + card + "</div>"
+
+
 def _oof_aupr(oof_path):
   """AUPRC (average precision) from a descriptor's out-of-fold predictions, or None."""
   try:
@@ -500,10 +566,7 @@ def _read_cv_stats(output_dir):
       stats.append(rep)
     except Exception:
       continue
-  # Best first, on whichever skill the task reports (AUROC, or Spearman rho for regression).
-  key = "oof_rho" if any(r.get("oof_rho") is not None for r in stats) else "oof_auc"
-  stats.sort(key=lambda r: r.get(key) if r.get(key) is not None else -1, reverse=True)
-  return stats
+  return sort_best_first(stats)
 
 
 def _cv_stats(output_dir):

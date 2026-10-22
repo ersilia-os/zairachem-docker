@@ -22,6 +22,7 @@ from zairachem.report.plots import (
   CvPrPlot,
   CvRecallPlot,
   CvRocPlot,
+  CvSpearmanPlot,
   DescriptorConsensusPlot,
   DescriptorCorrelationPlot,
   EnrichmentCurvePlot,
@@ -36,6 +37,7 @@ from zairachem.report.plots import (
   HeldoutRocByStrategyPlot,
   HeldOutValidationPlot,
   IndividualEstimatorsR2Plot,
+  IntervalCoveragePlot,
   NormalizedConfusionPlot,
   OofScoreLiftPlot,
   OofScoreLiftPointsPlot,
@@ -49,6 +51,7 @@ from zairachem.report.plots import (
   OofScoreRawPointsPlot,
   PerModelTimingPlot,
   PhaseTimeDonutPlot,
+  PotencyEnrichmentPlot,
   PrCurvePlot,
   PredictedPropertyLogpPlot,
   PredictedPropertyMwPlot,
@@ -57,8 +60,11 @@ from zairachem.report.plots import (
   ProjectionClassPlot,
   ProjectionMergedPlot,
   ProjectionProbaPlot,
+  ProjectionValuePlot,
   PropertyLogpPlot,
   PropertyMwPlot,
+  PropertyValueLogpPlot,
+  PropertyValueMwPlot,
   ProvenanceBarPlot,
   RankDistributionPlot,
   RegressionPlotRaw,
@@ -70,6 +76,7 @@ from zairachem.report.plots import (
   ThresholdSweepPlot,
   TopKOverlapCurvePlot,
   TrainSimilarityPlot,
+  ValueConsensusPlot,
 )
 from zairachem.report.table import OutputTable, PerformanceTable
 
@@ -85,6 +92,7 @@ _PLOT_SPECS = [
   ("predicted-score-hist", PredictedScoreHistogramPlot),
   ("predicted-rank-curve", ScoreRankCurvePlot),
   ("descriptor-consensus", DescriptorConsensusPlot),
+  ("value-consensus", ValueConsensusPlot),
   ("tanimoto-similarity-to-train", TrainSimilarityPlot),
   ("rank-distribution", RankDistributionPlot),
   ("oof-score-proba", OofScoreProbaPlot),
@@ -101,8 +109,11 @@ _PLOT_SPECS = [
   ("regression-raw", RegressionPlotRaw),
   ("regression-distribution", PredictedValueDistributionPlot),
   ("regression-error-similarity", ErrorVsSimilarityPlot),
+  ("interval-coverage", IntervalCoveragePlot),
+  ("potency-enrichment", PotencyEnrichmentPlot),
   ("r2-individual", IndividualEstimatorsR2Plot),
   ("cv-auroc", CvAurocPlot),
+  ("cv-spearman", CvSpearmanPlot),
   ("cv-aupr", CvAuprPlot),
   ("cv-mcc", CvMccPlot),
   ("cv-f1", CvF1Plot),
@@ -132,6 +143,8 @@ _PLOT_SPECS = [
   ("heldout-confusion", HeldoutConfusionByStrategyPlot),
   ("property-mw", PropertyMwPlot),
   ("property-logp", PropertyLogpPlot),
+  ("property-mw-value", PropertyValueMwPlot),
+  ("property-logp-value", PropertyValueLogpPlot),
   ("predicted-property-mw", PredictedPropertyMwPlot),
   ("predicted-property-logp", PredictedPropertyLogpPlot),
   ("step-timing", StepTimingPlot),
@@ -146,6 +159,7 @@ _PLOT_SPECS = [
 # report, which is about the NEW molecules. Excluded when running in predict mode.
 _FIT_ONLY = {
   "cv-auroc",
+  "cv-spearman",
   "cv-aupr",
   "cv-mcc",
   "cv-f1",
@@ -230,6 +244,13 @@ class Reporter(ZairaBase):
         jobs.append((
           f"projection {proj['name']} score",
           ProjectionProbaPlot,
+          {"projection": proj},
+        ))
+      # Regression: the same map coloured by the target value instead of by class.
+      if not self.__skip(f"projection-{proj['name']}-value"):
+        jobs.append((
+          f"projection {proj['name']} value",
+          ProjectionValuePlot,
           {"projection": proj},
         ))
     return jobs

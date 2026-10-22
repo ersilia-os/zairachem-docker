@@ -8,6 +8,7 @@ import os
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import DEFAULT_CUTOFF, GITHUB_ORG, OUTPUT_TABLE_FILENAME
 from zairachem.report import colors as _colors
+from zairachem.report.cv import skill_keys
 from zairachem.report.html.catalog import _BADGE_DISCARDED, _BADGE_KEPT, _VALIDATION_SCHEMAS
 
 
@@ -22,9 +23,11 @@ def _fmt_num(v):
 def _hitlist_table_html(report_dir, top_n=25):
   """Top predictions by score — the actionable deliverable of a predict report (SMILES + scores).
 
-  Reads the already-written ``output_table.csv``, ranks by pooled probability and shows the top N with
-  the binary call, per-descriptor consensus (std of the individual descriptor probabilities) and, when
-  present, the applicability-domain in-domain fraction. No structure depictions."""
+  Reads the already-written ``output_table.csv`` and ranks by the pooled prediction: the probability
+  for classification, shown with its binary call, or the predicted value for regression, shown with
+  its prediction interval (a regression run has no call to make). Both carry the per-descriptor
+  spread and, when present, the similarity to the training set. No structure depictions.
+  """
   import numpy as _np
   import pandas as _pd
 
@@ -35,30 +38,43 @@ def _hitlist_table_html(report_dir, top_n=25):
     df = _pd.read_csv(path)
   except Exception:
     return ""
-  if "proba" not in df.columns or len(df) == 0:
+  score_col = "proba" if "proba" in df.columns else "value"
+  if score_col not in df.columns or len(df) == 0:
     return ""
+  is_clf = score_col == "proba"
   total = len(df)
-  desc_cols = [c for c in df.columns if c.startswith("proba_") and c != "proba_raw"]
+  prefix = "proba_" if is_clf else "value_"
+  desc_cols = [c for c in df.columns if c.startswith(prefix) and c != "proba_raw"]
   has_sim = "similarity" in df.columns
-  top = df.sort_values("proba", ascending=False).head(top_n)
-  headers = ["#", "SMILES", "Score", "Call"]
+  has_interval = not is_clf and {"lower", "upper"} <= set(df.columns)
+  top = df.sort_values(score_col, ascending=False).head(top_n)
+
+  headers = ["#", "SMILES", "Score" if is_clf else "Value"]
+  if is_clf:
+    headers.append("Call")
+  elif has_interval:
+    headers.append("Interval")
   if desc_cols or "spread" in df.columns:
     headers.append("Spread")
   if has_sim:
     headers.append("Similarity")
   head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+
   body = []
   for i, (_, r) in enumerate(top.iterrows(), start=1):
-    try:
-      call = int(r["call"]) if "call" in top.columns else int(float(r["proba"]) >= DEFAULT_CUTOFF)
-    except Exception:
-      call = int(float(r.get("proba", 0) or 0) >= DEFAULT_CUTOFF)
     cells = [
       f"<td>{i}</td>",
       f"<td class='smiles'>{html.escape(str(r.get('input_smiles', '')))}</td>",
-      f"<td>{_fmt_num(r['proba'])}</td>",
-      f"<td>{'active' if call == 1 else 'inactive'}</td>",
+      f"<td>{_fmt_num(r[score_col])}</td>",
     ]
+    if is_clf:
+      try:
+        call = int(r["call"]) if "call" in top.columns else int(float(r["proba"]) >= DEFAULT_CUTOFF)
+      except Exception:
+        call = int(float(r.get("proba", 0) or 0) >= DEFAULT_CUTOFF)
+      cells.append(f"<td>{'active' if call == 1 else 'inactive'}</td>")
+    elif has_interval:
+      cells.append(f"<td>{_fmt_num(r['lower'])} – {_fmt_num(r['upper'])}</td>")
     if "spread" in top.columns:
       cells.append(f"<td>{_fmt_num(r['spread'])}</td>")
     elif desc_cols:
@@ -67,7 +83,12 @@ def _hitlist_table_html(report_dir, top_n=25):
     if has_sim:
       cells.append(f"<td>{_fmt_num(r['similarity'])}</td>")
     body.append(f"<tr>{''.join(cells)}</tr>")
-  note = f"<p style='color:#6e7781;font-size:13px'>Top {len(top)} of {total:,} molecules by predicted probability.</p>"
+
+  ranked_by = "predicted probability" if is_clf else "predicted value"
+  note = (
+    f"<p style='color:#6e7781;font-size:13px'>Top {len(top)} of {total:,} molecules "
+    f"by {ranked_by}.</p>"
+  )
   return (
     note + "<div class='table-wrap'><table class='metrics'>"
     f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
@@ -200,20 +221,8 @@ def _model_table_html(ids, versions, titles, selected=None):
   )
 
 
-#: Inner-CV skill key and its label, by task. A regression ``cv_report.json`` carries Spearman rho
-#: where a classification one carries AUROC.
-_CV_SKILL = {"classification": ("oof_auc", "AUROC"), "regression": ("oof_rho", "Spearman \u03c1")}
-
-
-def _cv_skill_key(cv_stats):
-  """``(key, label)`` of the inner-CV skill these reports carry (AUROC, or Spearman rho)."""
-  if any(s.get("oof_rho") is not None for s in cv_stats):
-    return _CV_SKILL["regression"]
-  return _CV_SKILL["classification"]
-
-
 def _cv_summary(cv_stats):
-  key, label = _cv_skill_key(cv_stats)
+  key, _train_key, label = skill_keys(cv_stats)
   skills = [s[key] for s in cv_stats if s.get(key) is not None]
   if not skills:
     return {}
@@ -232,7 +241,7 @@ def _cv_summary(cv_stats):
 def _cv_table_html(cv_stats):
   if not cv_stats:
     return ""
-  key, label = _cv_skill_key(cv_stats)
+  key, _train_key, label = skill_keys(cv_stats)
   if key == "oof_auc":
     cols = [
       ("descriptor", "Descriptor"),
@@ -294,7 +303,7 @@ def _cv_bars_html(stats):
   The bar carries the descriptor's **identity colour** (matching its line in the ROC/PR figures, so
   this strip doubles as the shared legend); the overfit gap is shown as a colour-coded pill.
   ``stats`` is best-first, so its index is the identity rank."""
-  key, _label = _cv_skill_key(stats)
+  key, _train_key, _label = skill_keys(stats)
   palette = _colors.descriptor_colors_hex(len(stats))
   rows = []
   for i, s in enumerate(stats):

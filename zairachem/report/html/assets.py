@@ -134,17 +134,17 @@ def _grid_svg():
   )
 
 
-def _color_key_html():
-  """The single transversal color key shared by every plot (built from colors.LEGEND)."""
+def _color_key_html(task="classification"):
+  """The single transversal color key shared by every plot (built from ``colors.legend``)."""
   items = "".join(
     f"<span class='item'><span class='swatch' style='background:{_colors.hexcol(key)}'></span>"
     f"{html.escape(label)}</span>"
-    for label, key in _colors.LEGEND
+    for label, key in _colors.legend(task)
   )
   return f"<div class='legend-key'>{items}</div>"
 
 
-def _about_figures_html():
+def _about_figures_html(task="classification"):
   """Show the composite reference grid (full width), a short caption, and the shared color key."""
   cap = (
     f"<p class='grid-cap'>Reference grid: <b>{_GRID_ROWS} rows × {_GRID_COLS} columns</b>, one cell "
@@ -154,7 +154,7 @@ def _about_figures_html():
     "plots and tile them to compose a figure at the right scale.</p>"
   )
   key_caption = "<p class='grid-cap'>Colors are consistent across every plot:</p>"
-  return f"<div class='about'>{_grid_svg()}{cap}{key_caption}{_color_key_html()}</div>"
+  return f"<div class='about'>{_grid_svg()}{cap}{key_caption}{_color_key_html(task)}</div>"
 
 
 def _semantic_css():
