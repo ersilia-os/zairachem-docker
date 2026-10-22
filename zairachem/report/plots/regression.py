@@ -211,8 +211,10 @@ class IntervalCoveragePlot(BasePlot):
         continue
       labels.append(f"{w:.2f}")
       values.append(float(covered[m].mean()))
-    labels.append("All")
-    values.append(float(covered.mean()))
+    if len(labels) > 1:
+      # With a single bin the pooled bar would just repeat it.
+      labels.append("All")
+      values.append(float(covered.mean()))
     ax = self.ax
     x = list(range(len(labels)))
     bar_colors = [named_colors.blue] * (len(labels) - 1) + [named_colors.green]

@@ -512,7 +512,7 @@ def _pooled_row(params, m):
       f"AUROC {fmt('auroc')} [dim]·[/] MCC {fmt('mcc')} [dim]at the {m.get('cutoff', '?')} "
       "cutoff[/]",
     )
-  return ("pooled", f"R² {fmt('r2')}")
+  return ("pooled", f"R² {fmt('r2')} [dim]·[/] RMSE {fmt('rmse')} [dim]·[/] rho {fmt('spearman')}")
 
 
 def _applicability_rows(rel, ad):
@@ -695,7 +695,13 @@ def final_summary_panel(output_dir=None):
         f"AUROC [bold green]{fmt('auroc')}[/] · MCC [bold green]{fmt('mcc')}[/]  [dim]({where})[/]",
       ))
     else:
-      rows.append(("Performance", f"R² [bold green]{fmt('r2')}[/]"))
+      # RMSE alongside R2: the first is unitless, the second is in the target's own units, which is
+      # the one a chemist can judge against the assay.
+      where = "out-of-fold" if not _is_predict(d) else "on this set"
+      rows.append((
+        "Performance",
+        f"R² [bold green]{fmt('r2')}[/] · RMSE [bold green]{fmt('rmse')}[/]  [dim]({where})[/]",
+      ))
 
   plots = _count_plots(d)
   from zairachem.base.vars import OUTPUT_FILENAME, REPORT_SUBFOLDER
