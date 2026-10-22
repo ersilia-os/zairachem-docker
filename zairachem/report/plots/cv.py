@@ -60,6 +60,9 @@ class _CvSkillBarPlot(BasePlot):
     labels = [s["descriptor"] for s in stats]
     oof = [s[oof_key] for s in stats]
     lo, hi = self.xlim
+    # The floor is where a useful descriptor starts, not a clip: one that scores below it is a
+    # finding, and the axis grows to show how far below.
+    lo = min(lo, min(oof) - 0.05)
     y = list(range(len(labels)))
     ax.barh(
       y, oof, color=[color_of[s["descriptor"]] for s in stats], alpha=0.9, height=0.6, zorder=2
@@ -95,7 +98,7 @@ class CvSpearmanPlot(_CvSkillBarPlot):
   stem = "cv-spearman"
   task = "regression"
   xlabel = "Spearman \u03c1"
-  # rho runs from 0 (chance) to 1; a negative OOF rho is a broken descriptor and still shows.
+  # rho runs from 0 (chance) to 1; a negative one means the descriptor orders compounds backwards.
   xlim = (-0.05, 1.03)
 
 
