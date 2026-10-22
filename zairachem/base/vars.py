@@ -168,7 +168,12 @@ RESULTS_UNMAPPED_FILENAME = "results_unmapped.csv"
 RESULTS_MAPPED_FILENAME = "results_mapped.csv"
 
 
+#: The ``inputs/data.csv`` column holding the target of each task.
+TARGET_COLUMN = {"classification": "bin", "regression": "val"}
 MIN_CLASS = 30
+# Fewest compounds a regression target may have (lazy-qsar's own floor is 10; this leaves room
+# for the out-of-fold splits its heads are calibrated on).
+MIN_REGRESSION_ROWS = 30
 RANDOM_SEED = 42
 
 _CONFIG_FILENAME = "config.json"

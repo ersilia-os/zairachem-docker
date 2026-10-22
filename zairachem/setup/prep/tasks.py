@@ -1,20 +1,15 @@
 import os
-from collections import OrderedDict
 
-import joblib
 import numpy as np
 import pandas as pd
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import (
-  COMPOUND_IDENTIFIER_COLUMN,
-  COMPOUNDS_FILENAME,
-  DATA_SUBFOLDER,
   METADATA_SUBFOLDER,
   MIN_CLASS,
+  MIN_REGRESSION_ROWS,
   PARAMETERS_FILE,
-  SMILES_COLUMN,
   TASKS_FILENAME,
   VALUES_COLUMN,
   VALUES_FILENAME,
@@ -47,123 +42,35 @@ class ExpectedTaskType(ZairaBase):
 
 
 class RegTasks(object):
-  """Regression targets derived from activity values, clipped to the credibility range."""
+  """Validation of a continuous target: the values reach lazy-qsar as they are given.
 
-  def __init__(self, data, params, path):
-    file_name = os.path.join(path, DATA_SUBFOLDER, COMPOUNDS_FILENAME)
-    if not os.path.exists(file_name):
-      file_name = os.path.join(path, COMPOUNDS_FILENAME)
-    compounds = pd.read_csv(file_name)
-    cid2smiles = {}
-    for r in compounds[[COMPOUND_IDENTIFIER_COLUMN, SMILES_COLUMN]].values:
-      cid2smiles[r[0]] = r[1]
-    self.smiles_list = []
-    for cid in list(data[COMPOUND_IDENTIFIER_COLUMN]):
-      self.smiles_list += [cid2smiles[cid]]
-    self.values = np.array(data[VALUES_COLUMN])
-    self.direction = params["direction"]
-    self.range = params["credibility_range"]
-    self.path = path
-    self._raw = None
+  lazy-qsar standardises the target internally and reports predictions back in the input's own
+  units, so ZairaChem neither transforms nor clips it. A target it cannot fit (non-finite,
+  constant, or too few compounds) is rejected here, before any descriptor is computed.
+  """
 
-  def smoothen(self, raw):
-    """Return ``raw`` with heavily repeated values spread out by a fingerprint-based ranking."""
-    from .utils import SmoothenY
+  def __init__(self, data):
+    self.values = np.array(data[VALUES_COLUMN], dtype=float)
 
-    return SmoothenY(self.smiles_list, raw).run()
-
-  def raw(self, smoothen=None):
-    """Return the activity values clipped to the credibility range (cached after first call).
-
-    If ``smoothen`` is truthy on the first call, repeated values are spread out with `SmoothenY`.
-    """
-    if self._raw is None:
-      min_cred = self.range["min"]
-      max_cred = self.range["max"]
-      if min_cred is None and max_cred is None:
-        raw = self.values
-      else:
-        raw = np.clip(self.values, min_cred, max_cred)
-      if smoothen:
-        self._raw = self.smoothen(raw)
-      else:
-        self._raw = raw
-    return self._raw
-
-  def pwr(self):
-    """Fit and save a Yeo-Johnson power transform; return the transformed values."""
-    raw = self.raw().reshape(-1, 1)
-    from sklearn.preprocessing import PowerTransformer  # regression only; kept off start-up
-
-    tr = PowerTransformer(method="yeo-johnson")
-    tr.fit(raw)
-    joblib.dump(tr, os.path.join(self.path, DATA_SUBFOLDER, "pwr_transformer.joblib"))
-    return tr.transform(raw).ravel()
-
-  def rnk(self):
-    """Fit and save a uniform quantile transform; return the ranked values."""
-    raw = self.raw().reshape(-1, 1)
-    from sklearn.preprocessing import QuantileTransformer  # regression only
-
-    tr = QuantileTransformer(output_distribution="uniform")
-    tr.fit(raw)
-    joblib.dump(tr, os.path.join(self.path, DATA_SUBFOLDER, "rnk_transformer.joblib"))
-    return tr.transform(raw).ravel()
-
-  def qnt(self):
-    """Fit and save a normal quantile transform; return the transformed values."""
-    raw = self.raw().reshape(-1, 1)
-    from sklearn.preprocessing import QuantileTransformer  # regression only
-
-    tr = QuantileTransformer(output_distribution="normal")
-    tr.fit(raw)
-    joblib.dump(tr, os.path.join(self.path, DATA_SUBFOLDER, "qnt_transformer.joblib"))
-    return tr.transform(raw).ravel()
-
-  def as_dict(self):
-    """Return an ordered dict of the regression task columns (raw, power, rank, quantile)."""
-    res = OrderedDict()
-    res["reg_raw_skip"] = self.raw(smoothen=True)  # TODO revise naming and choose regressor to keep
-    res["reg_pwr_skip"] = self.pwr()
-    res["reg_rnk_skip"] = self.rnk()
-    res["reg_qnt"] = self.qnt()
-    return res
-
-
-class RegTasksForPrediction(RegTasks):
-  """Predict-time `RegTasks` that applies the transformers saved at fit instead of refitting."""
-
-  def __init__(self, data, params, path):
-    RegTasks.__init__(self, data, params, path)
-
-  def load(self, path):
-    """Set the trained model directory whose saved task transformers are applied."""
-    self._load_path = path
-
-  def pwr(self, raw):
-    """Return ``raw`` transformed with the saved fit-time power transformer."""
-    tr = joblib.load(os.path.join(self._load_path, DATA_SUBFOLDER, "pwr_transformer.joblib"))
-    return tr.transform(raw.reshape(-1, 1)).ravel()
-
-  def rnk(self, raw):
-    """Return ``raw`` transformed with the saved fit-time uniform quantile transformer."""
-    tr = joblib.load(os.path.join(self._load_path, DATA_SUBFOLDER, "rnk_transformer.joblib"))
-    return tr.transform(raw.reshape(-1, 1)).ravel()
-
-  def qnt(self, raw):
-    """Return ``raw`` transformed with the saved fit-time normal quantile transformer."""
-    tr = joblib.load(os.path.join(self._load_path, DATA_SUBFOLDER, "qnt_transformer.joblib"))
-    return tr.transform(raw.reshape(-1, 1)).ravel()
-
-  def as_dict(self):
-    """Return an ordered dict of the regression task columns, without smoothing."""
-    res = OrderedDict()
-    raw = self.raw(smoothen=False)
-    res["reg_raw_skip"] = raw
-    res["reg_pwr_skip"] = self.pwr(raw)
-    res["reg_rnk_skip"] = self.rnk(raw)
-    res["reg_qnt"] = self.qnt(raw)
-    return res
+  def validated(self):
+    """The target values, or raise with what is wrong with them."""
+    if not np.isfinite(self.values).all():
+      n = int((~np.isfinite(self.values)).sum())
+      raise Exception(
+        f"{n:,} of {len(self.values):,} activity values are empty or not a number. A regression "
+        "target must be numeric for every compound."
+      )
+    if len(self.values) < MIN_REGRESSION_ROWS:
+      raise Exception(
+        f"Only {len(self.values):,} compounds: a regression model needs at least "
+        f"{MIN_REGRESSION_ROWS}."
+      )
+    if np.ptp(self.values) == 0:
+      raise Exception(
+        f"Every activity value is {self.values[0]:g}: there is nothing to learn from a constant "
+        "target."
+      )
+    return self.values
 
 
 class ClfTasks(object):
@@ -249,15 +156,14 @@ class SingleTasks(ZairaBase):
     return df
 
   def run(self):
-    """Write ``tasks.csv``, adding a binary ``bin`` column for classification."""
+    """Write ``tasks.csv`` with the target: ``bin`` (classification) or ``val`` (regression)."""
     df = self._get_data()
     if self._task == "classification":
       self.logger.debug("It is simply a binary classification")
-      ct = ClfTasks(data=df)
-      df["bin"] = ct.values
+      df["bin"] = ClfTasks(data=df).values
     elif self._task == "regression":
-      self.logger.debug("Data is not simply a binary")
-    # TODO Keep only one column named val
+      self.logger.debug("The target is continuous")
+      df["val"] = RegTasks(data=df).validated()
     else:
       raise Exception("Task is not classification or regression, cannot proceed")
     df.to_csv(os.path.join(self.path, TASKS_FILENAME), index=False)
@@ -270,10 +176,9 @@ class SingleTasksForPrediction(SingleTasks):
     SingleTasks.__init__(self, path=path)
 
   def run(self):
-    """Write ``tasks.csv``, adding ``bin`` for classification when the ground truth is binary.
+    """Write ``tasks.csv`` with the target when the ground truth is usable.
 
-    Non-binary classification ground truth only logs a warning: the run then predicts without
-    validation.
+    Ground truth that cannot be validated only logs a warning: the run then predicts without it.
     """
     logger.info(f"[tasks] Loading values data from {self.path}")
     df = self._get_data()
@@ -293,8 +198,15 @@ class SingleTasksForPrediction(SingleTasks):
         )
       self._task = "classification"
     elif self._task == "regression":
-      self.logger.debug("Data is not simply a binary classification")
+      self.logger.debug("The target is continuous")
       logger.info("[tasks] Processing regression task")
+      try:
+        df["val"] = RegTasks(data=df).validated()
+      except Exception as e:
+        # No usable ground truth: predict without validation, as the classification path does.
+        logger.warning(
+          f"[tasks] Ground-truth values are unusable ({e}); skipping validation, predicting only."
+        )
     out_file = os.path.join(self.path, TASKS_FILENAME)
     logger.info(f"[tasks] Writing tasks to {out_file}")
     df.to_csv(out_file, index=False)

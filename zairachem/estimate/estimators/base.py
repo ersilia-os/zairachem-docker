@@ -21,6 +21,7 @@ from zairachem.base.vars import (
   RANK_REFERENCE_TREATED_FILENAME,
   RAW_DESC_FILENAME,
   SMILES_COLUMN,
+  TARGET_COLUMN,
   TREATED_DESC_FILENAME,
 )
 
@@ -105,11 +106,13 @@ class BaseEstimatorIndividual(BaseEstimator):
       yield start, end, chunk
 
   def _get_Y_col(self):
-    if self.task == "classification":
-      Y_col = "bin"
-    if self.task == "regression":
-      Y_col = "val"
-    return Y_col
+    """The ``data.csv`` column holding this run's target (``bin`` or ``val``)."""
+    try:
+      return TARGET_COLUMN[self.task]
+    except KeyError:
+      raise ValueError(
+        f"Unknown task '{self.task}'; expected classification or regression"
+      ) from None
 
   def _get_y(self):
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))

@@ -26,6 +26,7 @@ from zairachem.base.vars import (
   RANK_REFERENCE_SIGNALS_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
   SMILES_COLUMN,
+  TARGET_COLUMN,
 )
 
 
@@ -125,11 +126,13 @@ class BasePooler(ZairaBase):
     return df
 
   def _get_Y_col(self):
-    if self.task == "classification":
-      Y_col = "bin"
-    if self.task == "regression":
-      Y_col = "val"
-    return Y_col
+    """The ``data.csv`` column holding this run's target (``bin`` or ``val``)."""
+    try:
+      return TARGET_COLUMN[self.task]
+    except KeyError:
+      raise ValueError(
+        f"Unknown task '{self.task}'; expected classification or regression"
+      ) from None
 
   def _get_y(self):
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
@@ -161,10 +164,9 @@ class BasePooler(ZairaBase):
 
   def _get_pred_columns(self, df, task):
     """Ordered list of the per-descriptor prediction columns (no _bin/_rank/_ad, no manifolds)."""
-    if task == "classification":
-      df = self._filter_out_unwanted_columns(df)
-      return [c for c in list(df.columns) if c.endswith("-clf")]
-    return [c for c in list(df.columns) if c.endswith("-reg")]
+    df = self._filter_out_unwanted_columns(df)
+    suffix = "-clf" if task == "classification" else "-reg"
+    return [c for c in list(df.columns) if c.endswith(suffix)]
 
   def _get_signal_matrix(self, df, pred_columns, suffix):
     """(matrix (B,D) aligned to pred_columns, present) for a sibling signal suffix, or (None, False).

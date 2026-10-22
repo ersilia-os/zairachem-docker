@@ -140,16 +140,14 @@ class TrainSetup(BaseSetup):
       # predict runs reuse the exact same library (the transformer copies are also saved per model).
       "reference_library": DEFAULT_REFERENCE_LIBRARY,
       # Held-out validation (--evaluate): when True, setup writes metadata/splits.json and the
-      # holdout step runs the folds after pooling. Classification only. ``evaluate_repeats`` is the
-      # per-schema fold count (random/scaffold/butina); total folds = 1 + 3 * repeats.
-      "evaluate": bool(evaluate) and task == "classification",
+      # holdout step runs the folds after pooling. ``evaluate_repeats`` is the per-schema fold
+      # count (random/scaffold/butina); total folds = 1 + 3 * repeats.
+      "evaluate": bool(evaluate),
       "evaluate_repeats": max(0, int(evaluate_repeats)),
       # Which fold families to run (subset of holdout.splits.FOLD_SCHEMAS); None = all four.
       "evaluate_schemas": list(evaluate_schemas) if evaluate_schemas else None,
-      # Pre-screen descriptors and fully train only the top-K (classification only); None = train all.
-      "max_descriptors": int(max_descriptors)
-      if max_descriptors and task == "classification"
-      else None,
+      # Pre-screen descriptors and fully train only the top-K; None = train all.
+      "max_descriptors": int(max_descriptors) if max_descriptors else None,
     }
     # Set True by run_fit when continuing an unfinished run in an existing dir (no --override).
     self.resume = False
@@ -459,14 +457,7 @@ class TrainSetup(BaseSetup):
     Normalises, standardises, merges, checks and cleans the input, writes held-out splits when
     evaluating, drops featurizers without a reference transformer, checks model images and
     rank references, and seeds the isaura project from the shared lake when a store is set.
-    Regression stops here, before any work: lazyqsar has no regressor yet.
     """
-    if self.task == "regression":
-      echo(
-        "Regression is not supported yet: lazyqsar has no regressor. Use classification (-c).",
-        kind="error",
-      )
-      raise SystemExit(1)
     require_docker_and_base()
     self._initialize()
     self._normalize_input()
