@@ -92,6 +92,8 @@ A regression model (`fit -r`) predicts the value itself, so there is no rank, no
 per-descriptor values (`value_<eos_id>`), and `performance_table.csv` is one row per model with R²,
 RMSE, MAE and the Pearson and Spearman correlations.
 
+`docs/regression.md` covers what a regression run does and does not produce, and why.
+
 `results/cutoffs.json` gives each named cutoff as a probability and as a rank, the scale of `score`:
 `screening` (the call: rank 0.65), `kappa` (Cohen's kappa on the training out-of-fold scores),
 `balanced` (each descriptor's balanced-accuracy cutoff) and `default` (0.5).
