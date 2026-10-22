@@ -490,7 +490,12 @@ class TrainSetup(BaseSetup):
     self._print_summary()
     validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
-    prepare_rank_references(self.featurizer_ids)
+    # Classification only. lazy-qsar's regression ensemble has no reference library -- its single
+    # output is the value, with no rank to position -- so the estimate step never scores these
+    # matrices on a regression fit (see estimate/estimators/pipe.py). Downloading them anyway costs
+    # up to ~1.6 GB and several minutes for nothing.
+    if self.task == "classification":
+      prepare_rank_references(self.featurizer_ids)
     # Coverage/version checks always inspect the central lake (the migration source), not the
     # run's own read/write project.
     check_isaura_version_consistency(

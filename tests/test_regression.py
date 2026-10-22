@@ -553,3 +553,20 @@ def test_a_degenerate_run_still_produces_readable_panels(tmp_path):
     plot = getattr(plots_module, name)(ax=None, path=path)  # must not raise
     title = plot.ax.get_title() if getattr(plot, "is_available", False) else ""
     assert "nan" not in title.lower(), f"{name} shows a nan in its title: {title!r}"
+
+
+def test_a_regression_fit_does_not_prepare_the_rank_reference(monkeypatch):
+  """lazy-qsar's regression ensemble has no reference library; downloading one costs ~1.6 GB."""
+  import inspect
+
+  from zairachem.setup.prep import training
+
+  source = inspect.getsource(training.TrainSetup.setup)
+  call = "prepare_rank_references(self.featurizer_ids)"
+  assert call in source
+  # The call must sit under a classification guard, not at the top level of setup().
+  line = next(ln for ln in source.splitlines() if call in ln)
+  guard = next(
+    ln for ln in reversed(source[: source.index(line)].splitlines()) if ln.strip().startswith("if ")
+  )
+  assert 'self.task == "classification"' in guard, f"rank reference prepared under: {guard.strip()}"
