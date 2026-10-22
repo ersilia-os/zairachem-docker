@@ -4,7 +4,9 @@ Three groups, in the order a reader works through them. **Accuracy** compares pr
 observed and needs the truth, so it renders at fit and at predict against a labelled test set.
 **Confidence** needs no truth at all -- where the predictions sit relative to the training set,
 how much the descriptors disagreed, how wide the intervals are -- which is what makes it the core
-of a prediction run on molecules nobody has measured. **Chemistry** puts both on the molecules
+of a prediction run on molecules nobody has measured. (Descriptor disagreement goes further and
+renders *only* without truth, as its classification counterpart does: once the observed values are
+in hand the accuracy panels say the same thing and more.) **Chemistry** puts both on the molecules
 themselves: the projections and the physico-chemical properties, coloured by value.
 
 Every panel here renders only for a regression run, and every classification panel only for a
@@ -172,12 +174,13 @@ class IntervalCoveragePlot(BasePlot):
   applicability-domain score and each bin gets its own half-width, so every compound is handed the
   width of the bin it falls in. The guarantee is only worth anything if it holds *within* each bin,
   which is what this checks -- one bar per distinct interval width (i.e. per bin), against the
-  nominal level. Needs the observed values, so it renders at fit and at predict with truth.
+  nominal level, which is lazy-qsar's own default rather than a number repeated here. Needs the
+  observed values, so it renders at fit and at predict with truth.
   """
 
-  NOMINAL = 0.9
-
   def __init__(self, ax, path):
+    from lazyqsar.ensemble.intervals import DEFAULT_LEVEL
+
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "interval-coverage"
     self.is_available = False
@@ -214,7 +217,7 @@ class IntervalCoveragePlot(BasePlot):
     x = list(range(len(labels)))
     bar_colors = [named_colors.blue] * (len(labels) - 1) + [named_colors.green]
     ax.bar(x, values, color=bar_colors, alpha=0.9, width=0.6, zorder=2)
-    ax.axhline(self.NOMINAL, color=named_colors.gray, lw=1, ls="--", zorder=3)
+    ax.axhline(DEFAULT_LEVEL, color=named_colors.gray, lw=1, ls="--", zorder=3)
     for i, v in enumerate(values):
       ax.text(i, v + 0.02, f"{v:.2f}", ha="center", va="bottom", fontsize=7, zorder=4)
     ax.set_xticks(x)
@@ -222,7 +225,7 @@ class IntervalCoveragePlot(BasePlot):
     ax.set_ylim(0, 1.12)
     ax.set_xlabel("Interval width")
     ax.set_ylabel("Observed coverage")
-    ax.set_title(f"Interval coverage by width · nominal {self.NOMINAL:.0%} (--)")
+    ax.set_title(f"Interval coverage by width · nominal {DEFAULT_LEVEL:.0%} (--)")
     self.is_available = True
 
 

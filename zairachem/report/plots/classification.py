@@ -417,22 +417,25 @@ class ConfusionBreakdownPlot(BasePlot):
 
 class DescriptorCorrelationPlot(BasePlot):
   """Spearman correlation between the per-descriptor out-of-fold predictions — how redundant vs
-  complementary the descriptor models are (high = agree, lower = adds a distinct signal)."""
+  complementary the descriptor models are (high = agree, lower = adds a distinct signal).
+
+  Correlating predictions with each other says nothing about what they predict, so this reads the
+  same for a probability and for a value; both tasks get it.
+  """
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
     self.name = "descriptor-correlation"
     self.is_available = False
-    if not self.has_clf_data():
-      return
     rf = ResultsFetcher(path=path)
-    tasks = rf.get_clf_tasks()
+    tasks = rf.get_clf_tasks() or rf.get_reg_tasks()
     if not tasks:
       return
     df = rf._read_individual_estimator_results(tasks[0])
     if df is None or df.shape[1] < 2:
       return
-    # Order descriptors best-first (by inner-CV AUROC) when available, for a consistent reading.
+    # Order descriptors best-first (by the task's inner-CV skill) when available, for a consistent
+    # reading across the report.
     ranked = [s["descriptor"] for s in rf.get_cv_stats()]
     cols = sorted(
       df.columns,
