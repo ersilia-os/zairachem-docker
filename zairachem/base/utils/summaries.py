@@ -680,6 +680,64 @@ def _note_held_out_skill(rows, output_dir, task, pooled):
   ))
 
 
+#: A descriptor is called out when it took at least this share of the time spent training, …
+_EXPENSIVE_TIME_SHARE = 0.6
+#: … and that share is at least this many times the share of the pooled weight it earned. A plain
+#: weight floor will not do: with two descriptors one of them almost always takes over half the
+#: time, and being the slower of two is not by itself worth a warning.
+_EXPENSIVE_DISPROPORTION = 3.0
+
+
+def _human_seconds(seconds):
+  """``seconds`` as a short duration: ``"43m"``, ``"2.4h"``, ``"18s"``."""
+  if seconds >= 3600:
+    return f"{seconds / 3600:.1f}h"
+  if seconds >= 60:
+    return f"{seconds / 60:.0f}m"
+  return f"{seconds:.0f}s"
+
+
+def _note_expensive_descriptors(rows, output_dir):
+  """Append a note when one descriptor took most of the fit and contributed little to the model.
+
+  Both halves are measured, not assumed: the time is what this machine actually spent on each
+  descriptor (``fit_seconds`` in its cv report) and the contribution is the weight the pooling
+  gave it. Which descriptors are slow is a property of the model, the hardware and the dataset
+  together, so there is nothing to tabulate in advance — a run can only find it out by doing it,
+  and the next run is the one that can act on it.
+
+  Pre-screening cannot catch this. It ranks descriptors on a shallow forest that costs about the
+  same for all of them, so two descriptors that differ by an order of magnitude in training cost
+  look equally cheap to it and it keeps both.
+  """
+  rel = _reliability_summary(output_dir) or {}
+  weights = rel.get("mean_weights") or {}
+  times = {
+    s["descriptor"]: t
+    for s in _cv_stats(output_dir)
+    if s.get("descriptor") and (t := _finite_or_none(s.get("fit_seconds"))) is not None
+  }
+  total_time = sum(times.values())
+  total_weight = sum(v for v in weights.values() if _finite_or_none(v) is not None)
+  if len(times) < 2 or total_time <= 0 or total_weight <= 0:
+    return
+  eos_id = max(times, key=lambda e: times[e])
+  time_share = times[eos_id] / total_time
+  weight = _finite_or_none(weights.get(eos_id))
+  if weight is None or time_share < _EXPENSIVE_TIME_SHARE:
+    return
+  weight_share = weight / total_weight
+  if time_share < _EXPENSIVE_DISPROPORTION * weight_share:
+    return
+  rows.append((
+    "",
+    f"[yellow]Most of the fit for little of the model[/] [dim]— {eos_id} took "
+    f"{_human_seconds(times[eos_id])} of the {_human_seconds(total_time)} spent training "
+    f"({time_share:.0%}) for {weight_share:.0%} of the pooled weight; leaving it out of `-f` "
+    "would save most of the next fit.[/]",
+  ))
+
+
 def _warn_if_no_signal(rows, task, skill, r2=None):
   """Append at most one caution row when the pooled model is not worth shipping.
 
@@ -945,6 +1003,8 @@ def final_summary_panel(output_dir=None):
       _note_if_at_the_noise_floor(rows, m.get("rmse"), floor)
       _warn_if_no_signal(rows, task, m.get("spearman"), r2=m.get("r2"))
     _note_held_out_skill(rows, d, task, m)
+  if not _is_predict(d):
+    _note_expensive_descriptors(rows, d)
 
   plots = _count_plots(d)
   from zairachem.base.vars import OUTPUT_FILENAME, REPORT_SUBFOLDER

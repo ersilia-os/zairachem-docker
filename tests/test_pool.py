@@ -353,3 +353,51 @@ def test_molecules_the_model_was_trained_on_are_called_out(tmp_path):
   _note_training_overlap(quiet, str(tmp_path))
   assert quiet == []
   assert "Seen in training" not in _config_section_html(str(tmp_path), {"task": "regression"}, 1)
+
+
+def test_a_descriptor_that_costs_the_fit_and_carries_nothing_is_named(tmp_path):
+  """Pre-screening ranks descriptors on a shallow forest that costs the same for all of them, so
+  two that differ by an order of magnitude in training cost look equally cheap and both are kept.
+  Only the finished fit knows, and on real data it was 95% of the time for 16% of the weight."""
+  import inspect
+  import json
+  import shutil
+
+  from zairachem.base.utils import summaries
+  from zairachem.base.utils.summaries import _human_seconds, _note_expensive_descriptors
+  from zairachem.base.vars import ESTIMATORS_SUBFOLDER, POOL_SUBFOLDER
+
+  pool = tmp_path / POOL_SUBFOLDER
+  pool.mkdir(parents=True)
+
+  def build(weights, seconds):
+    (pool / "reliability_summary.json").write_text(json.dumps({"mean_weights": weights}))
+    shutil.rmtree(tmp_path / ESTIMATORS_SUBFOLDER, ignore_errors=True)
+    for eos, s in seconds.items():
+      d = tmp_path / ESTIMATORS_SUBFOLDER / "lq_estimators" / eos
+      d.mkdir(parents=True, exist_ok=True)
+      (d / "cv_report.json").write_text(json.dumps({"fit_seconds": s}))
+    rows = []
+    _note_expensive_descriptors(rows, str(tmp_path))
+    return rows
+
+  rows = build({"eosA": 0.84, "eosB": 0.16}, {"eosA": 142.5, "eosB": 2564.3})
+  assert "eosB took 43m of the 45m spent training (95%) for 16%" in rows[0][1]
+
+  # The expensive one earning its keep is not a complaint.
+  assert build({"eosA": 0.2, "eosB": 0.8}, {"eosA": 142.5, "eosB": 2564.3}) == []
+  # Nor is merely being the slower of two: with two descriptors one almost always takes over half
+  # the time, and half the time for a tenth of the weight is not the case this is for.
+  assert build({"eosA": 0.9, "eosB": 0.1}, {"eosA": 500.0, "eosB": 520.0}) == []
+  # Nor one whose cost is roughly in proportion to what it contributes.
+  assert build({"eosA": 0.3, "eosB": 0.7}, {"eosA": 300.0, "eosB": 700.0}) == []
+  # A single descriptor has nothing to be compared against -- including when the pool names a
+  # second one whose timing never reached disk, where the one that did would otherwise look like
+  # it had taken all of the time for a fraction of the weight.
+  assert build({"eosA": 1.0}, {"eosA": 2564.3}) == []
+  assert build({"eosA": 0.2, "eosB": 0.8}, {"eosA": 2564.3}) == []
+
+  assert (_human_seconds(18), _human_seconds(2564), _human_seconds(9000)) == ("18s", "43m", "2.5h")
+  # Only a fit has both halves of this; predict trains nothing.
+  src = inspect.getsource(summaries.final_summary_panel)
+  assert "_note_expensive_descriptors" in src and "if not _is_predict(d)" in src
