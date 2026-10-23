@@ -411,3 +411,37 @@ def test_the_run_records_its_own_memory_not_just_the_machine_s(tmp_path):
   t = telemetry(older)
   assert t["peak_rss_gb"] is None and t["rss_step"] is None
   assert all(s["rss_added_gb"] is None for s in t["steps"])
+
+
+def test_request_size_follows_the_worker_grant():
+  """The server cuts a request of SERVER_CHUNKING_MOLECULES or more into chunks and runs them on
+  its workers. With several that is what makes a large request fast; with one it only serialises
+  the chunks and pays their overhead. Measured on a live eos3l5f server: 9,999 molecules on one
+  worker ran at 435 mol/s and 10,000 at 391, while 10,000 on four ran at 661 -- and four workers
+  below the line bought nothing (8,192 on four: 436). So the two are one decision."""
+  import inspect
+
+  from zairachem.base.vars import DESCRIBE_BATCH_SIZE, SERVER_CHUNKING_MOLECULES
+  from zairachem.describe.descriptors import raw
+  from zairachem.describe.descriptors.api import BinaryStreamClient
+
+  def sized(batch_size, workers):
+    client = BinaryStreamClient.__new__(BinaryStreamClient)
+    client.batch_size = batch_size
+    client._initial_batch_size = batch_size
+    client.model_id = "eosTEST"
+    client.set_request_size_for_workers(workers)
+    return client.batch_size
+
+  # One worker: just under the line, never on it.
+  assert sized(DESCRIBE_BATCH_SIZE, 1) == SERVER_CHUNKING_MOLECULES - 1
+  assert sized(SERVER_CHUNKING_MOLECULES * 5, 1) == SERVER_CHUNKING_MOLECULES - 1
+  # More than one: on the line, where the chunking is worth having.
+  assert sized(DESCRIBE_BATCH_SIZE, 4) == DESCRIBE_BATCH_SIZE
+  # A request already below the line is left alone, whatever the grant.
+  assert sized(2000, 1) == 2000 and sized(2000, 4) == 2000
+  assert sized(SERVER_CHUNKING_MOLECULES - 1, 1) == SERVER_CHUNKING_MOLECULES - 1
+
+  # And the grant is where describe decides it, so the two cannot drift apart.
+  src = inspect.getsource(raw.RawDescriptors._run_eos)
+  assert "set_request_size_for_workers" in src, src

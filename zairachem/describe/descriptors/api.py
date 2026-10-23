@@ -352,6 +352,28 @@ class BinaryStreamClient(ZairaBase):
     array = np.array(rows, dtype=float)  # None -> NaN
     return array, {}
 
+  def set_request_size_for_workers(self, workers):
+    """Size requests for the number of server workers this model was granted.
+
+    The server cuts a request of SERVER_CHUNKING_MOLECULES or more into chunks and runs them on
+    its workers. With several workers that is what makes a large request fast; with one it only
+    serialises the chunks and costs their overhead for nothing. Measured on eos3l5f: 9,999
+    molecules on one worker ran at 435 mol/s and 10,000 at 391 -- a tenth of the throughput given
+    away for crossing a line the request gets nothing from -- while 10,000 on four workers ran at
+    661. Workers below the line buy nothing at all (8,192 on four workers: 436).
+
+    So the request size and the worker grant are one decision. A model granted one worker stays
+    just under the line; one granted more sits on it.
+    """
+    if workers > 1 or self.batch_size < SERVER_CHUNKING_MOLECULES:
+      return
+    self.batch_size = SERVER_CHUNKING_MOLECULES - 1
+    self._initial_batch_size = self.batch_size
+    logger.debug(
+      f"[api] {self.model_id}: one server worker, so requests stay at {self.batch_size} "
+      "molecules rather than crossing the server's chunking line"
+    )
+
   def _attempt(self, batch, output_type):
     """POST one batch in ``output_type`` ("heavy" or "simple") and return ``(array, results)``.
 

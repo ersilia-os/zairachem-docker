@@ -158,6 +158,7 @@ class RawDescriptors(ZairaBase):
       client.profile = plan["profile"]
       client.sampler = sampler
       client.server_workers = plan.get("server_workers", client.server_workers)
+      client.set_request_size_for_workers(client.server_workers)
     client._show_progress = show_progress
     if progress_cb is not None:
       # The shared live table reports progress; the client must not open its own bar/prints.
