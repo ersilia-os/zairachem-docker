@@ -182,7 +182,7 @@ def _semantic_css():
     ".about .legend-key{display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:center;"
     "margin:8px auto 0;max-width:760px;font-size:13px;color:var(--fg);}"
     ".about .legend-key .item{display:inline-flex;align-items:center;gap:7px;}"
-    ".about .legend-key .fam{color:#6e7781;font-size:12px;letter-spacing:.04em;"
+    ".about .legend-key .fam{color:var(--muted);font-size:12px;letter-spacing:.04em;"
     "text-transform:uppercase;}"
     ".about .swatch{width:13px;height:13px;border-radius:3px;display:inline-block;"
     "border:1px solid rgba(0,0,0,.08);}"
@@ -278,7 +278,8 @@ table.metrics tr.pooled td { font-weight:600; background:#fbfdff; }
 /* A SMILES has no width limit of its own, and a long one pushed the hitlist's value,
    interval and similarity past the right edge of the card. Clipped with an ellipsis; the
    full string is the cell's title. */
-table.metrics th.smiles, table.metrics td.smiles { text-align:left; max-width:32ch; overflow:hidden; text-overflow:ellipsis; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
+table.metrics th.smiles, table.metrics td.smiles { text-align:left; max-width:32ch; overflow:hidden; text-overflow:ellipsis; }
+table.metrics td.smiles { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
 table.kv { border-collapse:collapse; width:100%; max-width:560px; font-size:13.5px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
 table.kv td { padding:9px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
 table.kv tr:last-child td { border-bottom:none; }
