@@ -11,6 +11,7 @@ Re-exported from :mod:`zairachem.base.utils.progress` for backwards compatibilit
 
 import csv
 import json
+import math
 import os
 
 from zairachem.base.utils.console import summary_panel
@@ -564,6 +565,8 @@ def _replicate_sd(output_dir):
 #: whose own error against the truth is ``m`` scores ``RMSE^2 = m^2 + s^2``: the RMSE can never go
 #: below ``s``, however good the model. At ``1.25 s`` the model's own error is ``0.75 s`` — smaller
 #: than the noise in the thing it is being scored against, which is as far as the data can show.
+#: It also keeps the note's claim true: the model's error is the smaller half of the total only
+#: while the RMSE stays under ``sqrt(2) s``, and 1.25 is inside that.
 NOISE_FLOOR_FACTOR = 1.25
 
 
@@ -574,16 +577,25 @@ def _note_if_at_the_noise_floor(rows, rmse, floor):
   far apart two measurements of the same compound were. A model predicting within that spread has
   extracted what the data holds; the way to improve it is more or better measurements, not more
   modelling.
+
+  The note also separates the two. ``RMSE^2 = m^2 + s^2`` inverts, so the model's own error is
+  ``sqrt(RMSE^2 - s^2)`` — and saying it matters, because the headline number invites the opposite
+  reading. An RMSE of 0.548 against a spread of 0.481 looks like a model barely better than noise;
+  it is in fact a model whose own error is 0.263, about half the noise it is being graded through.
+  It is an estimate, resting on the measurement error being independent of the model's, which is
+  the assumption that makes the identity hold in the first place.
   """
   error, spread = _finite_or_none(rmse), _finite_or_none(floor)
   if error is None or spread is None or spread <= 0:
     return
   if error > spread * NOISE_FLOOR_FACTOR:
     return
+  own = math.sqrt(max(0.0, error**2 - spread**2))
   rows.append((
     "",
-    f"[green]At the limit of this data[/] [dim]— repeat measurements of the same compound "
-    f"differ by {spread:.3f}, so an error of {error:.3f} is as small as the data allows.[/]",
+    f"[green]At the limit of this data[/] [dim]— repeat measurements of the same compound differ "
+    f"by {spread:.3f}, so an RMSE of {error:.3f} is as small as this data can show. Most of it is "
+    f"the assay: the model's own error is about {own:.3f}.[/]",
   ))
 
 

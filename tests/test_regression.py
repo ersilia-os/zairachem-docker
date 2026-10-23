@@ -375,3 +375,34 @@ def test_compounds_given_both_labels_are_called_out():
 
   # And the fit summary has to call it, or none of the above is ever reached.
   assert "_note_contradicted_labels" in inspect.getsource(summaries.final_summary_panel)
+
+
+def test_the_noise_floor_note_separates_the_model_from_the_assay():
+  """The headline invites the wrong reading: an RMSE of 0.548 against repeats that differ by
+  0.481 looks like a model barely better than noise. Inverting RMSE^2 = m^2 + s^2 says its own
+  error is 0.263, about half the noise it is graded through -- the real numbers from a T. brucei
+  fit of 700 compounds drawn from 1,577 repeated rows."""
+  import math
+
+  from zairachem.base.utils.summaries import NOISE_FLOOR_FACTOR, _note_if_at_the_noise_floor
+
+  rows = []
+  _note_if_at_the_noise_floor(rows, 0.548, 0.481)
+  assert "0.481" in rows[0][1] and "0.548" in rows[0][1] and "0.263" in rows[0][1]
+
+  # An RMSE at the assay's own spread leaves the model no error of its own at all.
+  rows = []
+  _note_if_at_the_noise_floor(rows, 0.5, 0.5)
+  assert "0.000" in rows[0][1]
+
+  # And an RMSE *below* it -- which happens when the spread is estimated from few repeats -- has
+  # no real root. Unclamped that is a ValueError out of the closing panel, after a finished fit.
+  rows = []
+  _note_if_at_the_noise_floor(rows, 0.3, 0.481)
+  assert "0.000" in rows[0][1]
+
+  # The note claims most of the error is the assay. That holds only below sqrt(2) * s, so the
+  # threshold has to stay inside it or the sentence starts lying.
+  assert NOISE_FLOOR_FACTOR < math.sqrt(2)
+  worst = NOISE_FLOOR_FACTOR  # in units of s, the largest RMSE that still fires
+  assert math.sqrt(worst**2 - 1.0) < 1.0  # the model's share is the smaller one
