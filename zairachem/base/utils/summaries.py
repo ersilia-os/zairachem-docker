@@ -729,13 +729,15 @@ def final_summary_panel(output_dir=None):
   if _is_predict(d):
     # Predict only ever uses the selected descriptors — the pre-screened-out ones are never computed
     # for these molecules, so omit them entirely (in order) rather than listing them as unused.
-    desc_label = "  ".join(f"[green]{m}[/]" for m in (effective or all_desc))
+    desc_label = "  ".join(f"[green]{eos}[/]" for eos in (effective or all_desc))
   elif used and 0 < len(used) < len(all_desc):
     # Fit: keep the screened-out descriptors visible (dimmed) — seeing what was dropped is useful here.
-    cells = " ".join(f"[green]{m}[/]" if m in used else f"[dim strike]{m}[/]" for m in all_desc)
+    cells = " ".join(
+      f"[green]{eos}[/]" if eos in used else f"[dim strike]{eos}[/]" for eos in all_desc
+    )
     desc_label = f"{cells}   [dim]({len(used)}/{len(all_desc)} used · rest pre-screened)[/]"
   else:
-    desc_label = "  ".join(f"[green]{m}[/]" for m in all_desc)
+    desc_label = "  ".join(f"[green]{eos}[/]" for eos in all_desc)
   rows.append(("Descriptors", desc_label))
 
   m = _pooled_metrics(d)
