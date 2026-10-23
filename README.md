@@ -112,6 +112,13 @@ the screening library overlaps the training set.
 `results/performance_table.csv` has the metrics of the pooled model and of each descriptor at each
 of them.
 
+## Scale
+
+Nearly all of a fit is lazy-qsar training one model per descriptor, and `--evaluate` refits the
+pipeline once per fold. [`docs/scale.md`](docs/scale.md) has the measured step costs, what has to
+fit in memory, what gets written to disk, and the two limits a large run meets: Butina splits are
+skipped above 10,000 molecules, and pre-screening scores a sample above 25,000 rows.
+
 ## Rank references
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each
