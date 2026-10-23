@@ -490,3 +490,40 @@ def test_a_refused_request_size_is_remembered_per_image(tmp_path, monkeypatch):
   from zairachem.describe.descriptors import raw
 
   assert "open_below_known_refusals" in inspect.getsource(raw.RawDescriptors._run_eos)
+
+
+def test_a_prediction_can_skip_the_projection_it_only_plots(tmp_path):
+  """The projection model feeds one report figure and is routinely the slowest thing in a
+  prediction: measured across every predict run, it was the longest model every time (45.4s of a
+  47.5s describe on 500 molecules). Describe runs models side by side, so dropping it moves the
+  critical path to the slowest real descriptor -- 47.5s to 30.2s on that run, with the
+  predictions byte-identical. A fit could already say `-p none`; a prediction could not."""
+  import inspect
+  import json
+
+  from zairachem.cli.commands import predict as predict_cmd
+  from zairachem.setup.prep.prediction import PredictSetup
+
+  meta = tmp_path / "metadata"
+  meta.mkdir()
+
+  def updated(projection_ids):
+    (meta / "parameters.json").write_text(
+      json.dumps({"projection_ids": ["eos1klk"], "task": "regression"})
+    )
+    setup = PredictSetup.__new__(PredictSetup)
+    setup.output_dir = str(tmp_path)
+    setup.store = setup.read_store = setup.contribute_store = None
+    setup.projection_ids = projection_ids
+    setup._update_params()
+    return json.loads((meta / "parameters.json").read_text())["projection_ids"]
+
+  assert updated(None) == ["eos1klk"]  # silence inherits the model's own choice
+  for off in ("none", "NONE", "off", ""):
+    assert updated(off) == [], off
+  assert updated("eos2mvc") == ["eos2mvc"]  # and a different projection can be asked for
+
+  # The flag has to reach there, or none of the above is usable from the command line.
+  src = inspect.getsource(predict_cmd)
+  assert "--projection-ids" in src  # the flag exists
+  assert "projection_ids=projection_ids" in src  # ...and is passed on, not accepted and dropped

@@ -47,6 +47,20 @@ stay until the run finishes. Five descriptors over a million compounds at 2,048 
 says so if it will not fit — a warning, early, rather than whatever error the filesystem raises
 when it fills.
 
+## Predicting
+
+A prediction is almost entirely descriptor inference — 82-88% of it across every run measured,
+with the estimate, pooling and report steps together under ten seconds. So its cost is the
+descriptors it was fitted with, and describe runs them side by side: the time is the slowest of
+them, not their sum.
+
+Which makes the projection model worth knowing about. It embeds the molecules for one report
+figure, and on every prediction measured it was the slowest model of the lot — 45.4s of a 47.5s
+describe on 500 molecules. `-p none` skips it and leaves the built-in MW-vs-LogP map, which on
+that run took the whole prediction from 58s to 42s with the predictions byte-identical. The
+saving is whatever the projection was adding over the slowest real descriptor, so it is largest
+when the descriptors are fast.
+
 ## Where it stops
 
 - **Butina splits** compare every pair of molecules, so their time and memory grow with the
@@ -63,6 +77,7 @@ when it fills.
 
 | flag | effect |
 | --- | --- |
+| `-p none` (predict) | skip the projection model, which feeds only a report figure |
 | `--max-descriptors N` | train only the N descriptors that add most to the pool |
 | `--evaluate <schemas>` | which held-out schemas to run; each costs a full refit per fold |
 | `--repeats N` | folds per schema |

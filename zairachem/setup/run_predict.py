@@ -11,6 +11,7 @@ def run(
   output_dir=None,
   override_dir=False,
   store=None,
+  projection_ids=None,
 ):
   """Run the predict setup step for ``input_file`` against the trained ``model_dir``.
 
@@ -27,6 +28,7 @@ def run(
     output_dir,
     override_dir,
     store=store,
+    projection_ids=projection_ids,
   )
   # Predict never runs held-out validation; keep the holdout step out of the tracker order.
   from zairachem.base.utils.pipeline_tracker import PIPELINE_STEPS

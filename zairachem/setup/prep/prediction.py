@@ -50,6 +50,7 @@ class PredictSetup(BaseSetup):
     output_dir,
     override_dir,
     store=None,
+    projection_ids=None,
   ):
     self.input_file = os.path.abspath(input_file)
     self.override_dir = override_dir
@@ -61,6 +62,11 @@ class PredictSetup(BaseSetup):
     # --store reuses the store the model was trained with). read_store/contribute_store keep the
     # internal describe/treat contract (both = the project, or both None).
     self.store = store
+    # Projections drive only the report's 2-D embedding, and the projection model is routinely the
+    # slowest part of a prediction -- measured, 45s of a 48s describe on 500 molecules, because it
+    # embeds every molecule while the descriptors it is plotted against are already done. A predict
+    # inherits the trained model's choice unless it says otherwise.
+    self.projection_ids = projection_ids
     self.read_store = store
     self.contribute_store = store
 
@@ -196,6 +202,15 @@ class PredictSetup(BaseSetup):
     params["store"] = self.store
     params["read_store"] = self.read_store
     params["contribute_store"] = self.contribute_store
+    if self.projection_ids is not None:
+      if str(self.projection_ids).strip().lower() in ("none", "null", "off", ""):
+        params["projection_ids"] = []
+      else:
+        from zairachem.setup.prep.files import ModelIdsFile
+
+        params["projection_ids"] = ModelIdsFile.parse_ids(
+          self.projection_ids, flag="--projection-ids"
+        )
     _atomic_json(pp, params)
 
   def _initialize(self):

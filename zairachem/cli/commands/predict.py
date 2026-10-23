@@ -58,6 +58,18 @@ from zairachem.cli.steps import process_group
   "and the model/ tree). By default a finished predict run keeps only the results and report.",
 )
 @click.option(
+  "--projection-ids",
+  "-p",
+  "projection_ids",
+  required=False,
+  is_flag=False,
+  flag_value="none",
+  default=None,
+  help="Projection model ID(s) for the report's 2-D embedding (default: the model's own). Pass "
+  "'none' — or a bare -p — to skip them and show only the built-in MW-vs-LogP map. The projection "
+  "model is usually the slowest part of a prediction and feeds only a report figure.",
+)
+@click.option(
   "--anonymize",
   is_flag=True,
   help="Blank out molecule structures (SMILES / InChIKey) in all outputs.",
@@ -68,6 +80,7 @@ def predict(
   anonymize,
   output_dir,
   store,
+  projection_ids,
   override_dir,
   batch_size,
   describe_workers,
@@ -95,6 +108,7 @@ def predict(
     output_dir,
     override_dir,
     store=store,
+    projection_ids=projection_ids,
   )
   if proceed:
     process_group(
