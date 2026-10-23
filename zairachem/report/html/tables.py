@@ -259,6 +259,9 @@ def _cv_table_html(cv_stats):
       ("train_rho", f"Train {label}"),
       ("overfit_gap", "Overfit gap"),
     ]
+  if any(r.get("fit_seconds") is not None for r in cv_stats):
+    # One descriptor can cost most of a run; this is the only place that says which.
+    cols.append(("fit_seconds", "Train time"))
   head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
   body = []
   for i, r in enumerate(cv_stats):
@@ -278,6 +281,9 @@ def _cv_cell(key, value):
     return html.escape(str(value))
   if value is None:
     return "—"
+  if key == "fit_seconds":
+    seconds = float(value)
+    return f"{seconds:.0f}s" if seconds < 90 else f"{seconds / 60:.0f}m"
   if key == "overfit_gap":
     return f"<span class='pill {_gap_level(value)}'>{float(value):.3f}</span>"
   try:

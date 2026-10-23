@@ -3,6 +3,7 @@ import contextlib
 import gc
 import json
 import os
+import time
 
 import joblib
 import numpy as np
@@ -232,10 +233,17 @@ class Fitter(BaseEstimatorIndividual):
     train_idxs = self.get_train_indices(path=self.path)
     y = self._get_y()
     t = "reg" if self.task == "regression" else "clf"
+    # One descriptor can dominate a run -- on a 2,000-compound regression fit one took 49 of the
+    # 53 minutes -- and nothing in the durable record said which. Timed here, where the per-model
+    # timing figure cannot reach (it measures featurization, not training).
+    started = time.time()
     if self.task == "classification":
       tasks[t] = self._fit_classifier(shape[0], train_idxs, y, t)
     else:
       tasks[t] = self._fit_regressor(shape[0], train_idxs, y, t)
+    self._patch_cv_report(
+      os.path.join(self.trained_path, self.model_id), fit_seconds=round(time.time() - started, 1)
+    )
     self.update_elapsed_time()
     gc.collect()
     return tasks
@@ -505,17 +513,22 @@ class Fitter(BaseEstimatorIndividual):
     )
 
   @staticmethod
-  def _record_oof_used(descriptor_dir, oof_used):
-    """Record in ``cv_report.json`` whether the pooler input is out-of-fold (else resubstitution)."""
+  def _patch_cv_report(descriptor_dir, **fields):
+    """Merge ``fields`` into an already-written ``cv_report.json``. Best-effort."""
     path = os.path.join(descriptor_dir, "cv_report.json")
     try:
       with open(path) as f:
         report = json.load(f)
-      report["oof_used"] = bool(oof_used)
+      report.update(fields)
       with open(path, "w") as f:
         json.dump(report, f, indent=2)
     except Exception as e:
-      logger.debug(f"[lazyqsar:fit] could not record oof_used in {path}: {e}")
+      logger.debug(f"[lazyqsar:fit] could not update {path}: {e}")
+
+  @classmethod
+  def _record_oof_used(cls, descriptor_dir, oof_used):
+    """Record in ``cv_report.json`` whether the pooler input is out-of-fold (else resubstitution)."""
+    cls._patch_cv_report(descriptor_dir, oof_used=bool(oof_used))
 
   def _write_cv_report(self, model, y_train, channels, descriptor_dir):
     """Persist lazy-qsar's internal cross-validation results for a classifier."""

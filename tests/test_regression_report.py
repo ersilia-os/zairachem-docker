@@ -631,3 +631,19 @@ def test_the_output_table_carries_the_regression_columns(tmp_path):
   assert {"value_eosA", "value_eosB"} <= set(table.columns)
   assert not {"proba", "call", "rank", "score"} & set(table.columns)
   assert (table["lower"] < table["value"]).all() and (table["value"] < table["upper"]).all()
+
+
+def test_the_diagnostics_table_says_what_each_descriptor_cost():
+  """One descriptor can take most of a run; nothing else in the report attributes the time."""
+  from zairachem.report.html.tables import _cv_cell, _cv_table_html
+
+  stats = [
+    {"descriptor": "eosSlow", "oof_rho": 0.81, "train_rho": 0.99, "fit_seconds": 2501.2},
+    {"descriptor": "eosFast", "oof_rho": 0.86, "train_rho": 0.99, "fit_seconds": 137.1},
+  ]
+  table = _cv_table_html(stats)
+  assert "Train time" in table and "42m" in table and "2m" in table
+  assert _cv_cell("fit_seconds", 45.0) == "45s"  # seconds below a minute and a half
+  assert _cv_cell("fit_seconds", None) == "—"
+  # A run whose reports predate the timing simply has no column.
+  assert "Train time" not in _cv_table_html([{"descriptor": "eosA", "oof_rho": 0.8}])
