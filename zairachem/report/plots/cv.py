@@ -369,7 +369,6 @@ class CvErrorCurvePlot(BasePlot):
     if not curves:
       return
     ax = self.ax
-    frac = None
     for name, err in curves:
       frac = np.arange(1, err.size + 1) / err.size
       ax.plot(err, frac, color=color_of[name], lw=1.6, alpha=0.9, label=name, zorder=3)
