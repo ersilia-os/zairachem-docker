@@ -23,7 +23,7 @@ _CATEGORIES = [
   (
     "performance",
     "Inner model performance",
-    "Cross-validated (out-of-fold) performance of the pooled model against the labels.",
+    "Cross-validated (out-of-fold) performance of the pooled model against what was observed.",
     [
       "oof-score-proba",
       "oof-score-proba-pts",
