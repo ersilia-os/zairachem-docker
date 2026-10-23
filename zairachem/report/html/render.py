@@ -108,7 +108,8 @@ def _add_lead_sections(sections, output_dir, report_dir, present, assigned, para
       sections.append((
         "hitlist",
         "Hitlist",
-        "The highest-scoring molecules, ranked by predicted value."
+        "Ranked by predicted value, highest first; which end is the useful one "
+        "depends on the target."
         if params.get("task") == "regression"
         else "The highest-scoring molecules, ranked by predicted probability.",
         hitlist,

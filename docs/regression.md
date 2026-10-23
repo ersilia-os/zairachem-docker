@@ -91,6 +91,17 @@ the 90% interval covered 91.2% — the guarantee holds on chemistry the model ha
 `interval-coverage` panel checks it holds *within* each bin, which is what the Mondrian binning is
 for; a bin that misses its level is the interesting failure.
 
+## Which end of the target is the good one
+
+ZairaChem does not ask, and does not assume. A classification run has a direction built in — the
+probability is the probability of being active — but a continuous target does not: pIC50 runs one
+way and IC50 in nM the other, and nothing in the input says which this is.
+
+So everything in a regression report that is ordered is ordered by **predicted value, highest
+first**, and says so rather than calling that end the best. The hitlist is the largest predicted
+values; "Value by predicted rank" reports what the top of the ranking actually measured, against
+the dataset mean. If a low value is the one you want, read both from the other end.
+
 ## What the error should be compared against
 
 An RMSE is a number in the target's own units, and on its own it says nothing: 0.63 is excellent

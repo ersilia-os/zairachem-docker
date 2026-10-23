@@ -27,6 +27,10 @@ def _hitlist_table_html(report_dir, top_n=25):
   for classification, shown with its binary call, or the predicted value for regression, shown with
   its prediction interval (a regression run has no call to make). Both carry the per-descriptor
   spread and, when present, the similarity to the training set. No structure depictions.
+
+  For classification the top of this table is the active end, because the probability is the
+  probability of being active. For regression it is only the high end: a continuous target carries
+  no direction, so these are the largest predicted values and not necessarily the best compounds.
   """
   import numpy as _np
   import pandas as _pd

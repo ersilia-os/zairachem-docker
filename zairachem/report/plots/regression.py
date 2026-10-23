@@ -165,12 +165,18 @@ class ResidualsPlot(BasePlot):
 
 
 class PotencyEnrichmentPlot(BasePlot):
-  """If you took the top k% by prediction, how potent would they actually be?
+  """What are the observed values of the compounds the model ranks highest?
 
   The screening question, and the one a correlation coefficient does not answer. The curve is the
-  mean *observed* value of the top k% ranked by prediction, against the dataset mean (dashed): the
-  gap at small k is what the model buys over picking compounds at random. Needs the observed
-  values, so it renders at fit and at predict with truth.
+  mean *observed* value of the top k% ranked by predicted value, against the dataset mean
+  (dashed); the gap at small k is how far ranking by this model moves the observed value away
+  from a random pick.
+
+  Read it in the direction the target runs. ZairaChem is never told which end of a continuous
+  target is the good one — that belongs to the assay, and a pIC50 and an IC50 in nM point opposite
+  ways — so the panel reports what the top of the ranking contains and claims nothing about
+  whether that is the end worth having. Needs the observed values, so it renders at fit and at
+  predict with truth.
   """
 
   def __init__(self, ax, path):
@@ -196,9 +202,7 @@ class PotencyEnrichmentPlot(BasePlot):
     top10 = float(running[max(0, int(0.1 * n) - 1)])
     ax.set_xlabel("Top % by predicted value")
     ax.set_ylabel("Mean observed value")
-    ax.set_title(
-      f"Selection quality · top 10% averages {top10:.2f} (set mean {float(yt.mean()):.2f})"
-    )
+    ax.set_title(f"Top 10% average {top10:.2f} · set mean {float(yt.mean()):.2f}")
     self.is_available = True
 
 

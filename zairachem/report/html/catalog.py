@@ -111,7 +111,7 @@ _TITLES = {
   "regression-distribution": "Predicted values",
   "regression-error-similarity": "Reliability vs training similarity",
   "interval-coverage": "Interval coverage",
-  "potency-enrichment": "Selection quality",
+  "potency-enrichment": "Value by predicted rank",
   "cv-auroc": "Inner CV AUROC by descriptor",
   "cv-spearman": "Inner CV Spearman \u03c1 by descriptor",
   "cv-aupr": "Inner CV AUPR by descriptor",
