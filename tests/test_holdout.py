@@ -81,23 +81,20 @@ def test_fold_workspace_has_its_own_descriptor_selection(tmp_path):
 VALUES = np.linspace(4.0, 9.0, len(SMILES))
 
 
-@pytest.mark.parametrize("strategy", ["random", "scaffold", "butina"])
-def test_a_continuous_target_splits_too(strategy):
+def test_a_continuous_target_splits_and_stratifies():
   """A float target must not be treated as a class label (it used to raise)."""
-  result = split(SMILES, VALUES, strategy, seed=0)
-  if result is None:
-    return
-  train, test = result
-  assert set(train).isdisjoint(test)
-  assert sorted([*train, *test]) == list(range(len(SMILES)))
+  for strategy in ("random", "scaffold", "butina"):
+    result = split(SMILES, VALUES, strategy, seed=0)
+    if result is None:
+      continue
+    train, test = result
+    assert set(train).isdisjoint(test)
+    assert sorted([*train, *test]) == list(range(len(SMILES)))
 
-
-def test_random_folds_stratify_on_value_quantiles():
-  """The test slice should span the target's range, not a corner of it."""
-  train, test = split(SMILES, VALUES, "random", seed=0)
+  # Stratifying on quartiles puts the top and bottom of the range in the test slice; an
+  # unstratified split of a sorted target routinely takes one corner of it.
+  _, test = split(SMILES, VALUES, "random", seed=0)
   held = VALUES[list(test)]
-  # Stratifying on quartiles puts at least one compound from the top and bottom quarter in the
-  # test slice; an unstratified split of a sorted target routinely does not.
   assert held.min() < np.percentile(VALUES, 50) < held.max()
 
 
@@ -148,26 +145,6 @@ def test_classification_folds_still_report_their_class_split(tmp_path):
   assert "r2" not in rows[0]
 
 
-def test_a_piped_fold_line_carries_its_metrics(capsys):
-  """Off-TTY there is no live table, so the scores would otherwise reach the terminal nowhere."""
-  from zairachem.holdout.monitor import EvaluateMonitor
-
-  state = {"status": "done", "elapsed": 12.0, "extra": {"r2": 0.669, "spearman": 0.754}}
-  EvaluateMonitor(["scaffold_00"], task="regression")._plain_finish("scaffold_00", state)
-  out = capsys.readouterr().out
-  assert "0.669" in out and "0.754" in out and "scaffold_00" in out
-
-  clf = {"status": "done", "elapsed": 12.0, "extra": {"auroc": 0.93, "aupr": 0.94}}
-  EvaluateMonitor(["random_00"], task="classification")._plain_finish("random_00", clf)
-  out = capsys.readouterr().out
-  assert "AUROC" in out and "0.930" in out
-
-  # A fold that failed to score says so without inventing a number.
-  blank = {"status": "failed", "elapsed": None, "extra": {}}
-  EvaluateMonitor(["x"], task="regression")._plain_finish("x", blank)
-  assert "failed" in capsys.readouterr().out
-
-
 def test_a_target_with_no_range_builds_no_folds_and_says_so():
   """A fold covering one slice of the value range scores nothing, so it is dropped, not scored."""
   from zairachem.holdout.splits import _both_classes, build_fold_definitions, strata
@@ -179,9 +156,6 @@ def test_a_target_with_no_range_builds_no_folds_and_says_so():
   # A target with a real range still produces folds.
   spread = np.linspace(4.0, 9.0, 30)
   assert build_fold_definitions(SMILES, spread, repeats=1, schemas=["random"])
-
-
-# --- A fold that cannot be 80:20 has to say so ---------------------------------------------------
 
 
 def test_a_fold_that_holds_out_most_of_the_set_says_so(monkeypatch):

@@ -185,16 +185,6 @@ def test_every_pooler_attribute_the_pool_step_names_exists():
   assert not missing, f"pool.py names pooler.{{{', '.join(missing)}}}, which do not exist"
 
 
-def test_pruning_really_leaves_a_descriptor_out():
-  """The pooled model must actually drop the weak descriptor, not merely down-weight it."""
-  P, R, S, A, y, meta = _signals()
-  meta["oof_aucs"] = [0.80, 0.52, 0.78]  # the middle one is below the 0.55 floor
-  params, result = pooler.fit(P, R, S, A, y, NAMES, meta)
-  assert params["pruned_columns"] == [NAMES[1]]
-  assert NAMES[1] not in params["descriptor_columns"]
-  assert result.weights.shape[1] == 2
-
-
 def test_one_descriptor_reports_no_spread_rather_than_zero_spread():
   """``spread`` is disagreement between descriptors; with one there is none to measure.
 

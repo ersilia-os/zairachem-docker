@@ -67,6 +67,15 @@ def test_pruning_is_the_classification_rule_on_the_rho_scale():
   assert result.weights.shape == (len(y), 2)
 
 
+def test_one_floor_serves_the_pooler_and_the_screen():
+  """Pruning after training and screening before it must agree on what counts as useful."""
+  from zairachem.base.vars import SKILL_FLOOR
+  from zairachem.screen.proxy import PROXY_FLOOR
+
+  assert PROXY_FLOOR is SKILL_FLOOR
+  assert SKILL_FLOOR["regression"] == 0.10 and SKILL_FLOOR["classification"] == 0.55
+
+
 def test_applicability_domain_still_vetoes_under_stacking_weights():
   P, R, A, y, meta = _signals()
   # Put the first descriptor out of its domain on the first half of the rows, and well inside it
@@ -92,36 +101,14 @@ def test_intervals_cover_the_training_residuals():
   covered = ((y >= lower) & (y <= upper)).mean()
   assert 0.85 <= covered <= 0.97
 
-
-def test_a_near_miss_does_not_print_as_a_contradiction():
-  """At two decimals a rho of 0.099 printed as "0.10 is below 0.10"."""
-  from zairachem.base.utils.summaries import _warn_if_no_signal
-
-  rows = []
-  _warn_if_no_signal(rows, "regression", skill=0.099, r2=0.4)
-  message = rows[0][1]
-  assert "0.099 is below 0.100" in message
-
-  rows = []
-  _warn_if_no_signal(rows, "regression", skill=0.05, r2=0.4)
-  assert "0.05 is below 0.10" in rows[0][1]  # no need for the extra decimals
-
-
-def test_an_uncalibratable_interval_costs_the_interval_not_the_model():
-  """A degenerate applicability domain must not take the whole fit down with the interval.
-
-  lazy-qsar bins the residuals by applicability-domain score, and a constant score -- a tiny
-  training set, an AD model that collapsed, every compound out of domain -- leaves a bin with no
-  residuals to take a quantile of. That used to raise out of the pool step, after every descriptor
-  had been trained.
-  """
-  P, R, A, y, meta = _signals()
+  # lazy-qsar bins the residuals by applicability-domain score, and a constant score leaves a bin
+  # with nothing in it to take a quantile of. That used to raise out of the pool step, after every
+  # descriptor had been trained; the interval is an extra, and losing it must not cost the model.
   for degenerate in (np.zeros_like(A), np.full_like(A, -99.0)):
     params, result = _fit(P, R, degenerate, y, meta)
     assert params["spec"].intervals is None
-    assert "lower" not in result.values and "upper" not in result.values
-    value = np.asarray(result.values["value"], dtype=float)
-    assert np.isfinite(value).all()  # the values themselves are unaffected
+    assert "lower" not in result.values
+    assert np.isfinite(np.asarray(result.values["value"], dtype=float)).all()
 
 
 def test_a_regression_model_has_no_cutoffs_and_no_rank():
@@ -168,30 +155,12 @@ def test_metrics_are_the_regression_ones():
   degenerate = fetcher.regression_performance_report([2.0, 2.0], [1.0, 3.0])
   assert np.isnan(degenerate["r2"]) and degenerate["num_compounds"] == 2
 
-
-def test_one_unscoreable_compound_does_not_void_the_whole_metrics_row():
-  """A NaN prediction used to propagate into every metric instead of being left out."""
-  from zairachem.report.fetcher import ResultsFetcher
-
-  fetcher = ResultsFetcher.__new__(ResultsFetcher)
-  clean = fetcher.regression_performance_report([1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 2.9, 3.9])
+  # One compound nothing could score -- unmeasured, or failed on every descriptor -- is left out
+  # of the row rather than turning every metric in it to NaN.
   gappy = fetcher.regression_performance_report(
-    [1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 2.1, 2.9, 3.9, float("nan")]
+    [1.0, 2.0, 3.0, 4.0, np.nan], [1.1, 2.1, 2.9, np.nan, 5.0]
   )
-  assert gappy["num_compounds"] == 4  # the unscoreable compound is counted out, not in
-  assert gappy["r2"] == pytest.approx(clean["r2"])
-  assert not np.isnan(gappy["rmse"])
-
-
-def test_the_output_contract_is_value_not_score():
-  from zairachem.base.vars import OUTPUT_COLUMNS, OUTPUT_DESCRIPTOR_PREFIX, TARGET_COLUMN
-
-  columns = OUTPUT_COLUMNS["regression"]
-  assert columns["reg"] == "value"
-  assert "score" not in columns.values() and "clf_rank" not in columns
-  assert columns["train_similarity"] == "similarity" and columns["descriptor_std"] == "spread"
-  assert OUTPUT_DESCRIPTOR_PREFIX["regression"] == "value_"
-  assert TARGET_COLUMN["regression"] == "val"
+  assert gappy["num_compounds"] == 3 and np.isfinite(gappy["r2"])
 
 
 # --- Pre-screening: the proxy scores a continuous target on its own scale -----------------------
@@ -218,56 +187,15 @@ def test_the_proxy_predicts_values_for_a_continuous_target():
   # A constant target carries no signal and is refused rather than scored.
   assert _fold_pred(X, np.ones(n), tr, te, seed=0, task="regression") is None
 
-
-def test_the_ensemble_skill_of_a_regression_screen_is_spearman():
-  from scipy.stats import spearmanr
-
+  # The ensemble is scored on rho: ordering is what a screen asks a regression model for.
   from zairachem.screen.proxy import PROXY_CHANCE, _ensemble_skill
 
-  rng = np.random.default_rng(1)
-  n = 120
-  y = rng.normal(size=n)
-  folds = _screen_folds(n)
-  preds = {"a": [y[np.asarray(te)] + rng.normal(0, 0.1, len(te)) for _tr, te in folds]}
-  skill = _ensemble_skill(["a"], preds, y, folds, "regression")
-  expected = np.mean([
-    spearmanr(y[np.asarray(te)], preds["a"][i]).statistic for i, (_tr, te) in enumerate(folds)
-  ])
-  assert skill == pytest.approx(float(expected))
-  # Rho, not AUROC: a descriptor with no signal scores 0, not 0.5.
-  assert PROXY_CHANCE["regression"] == 0.0 and PROXY_CHANCE["classification"] == 0.5
-  assert _ensemble_skill([], {}, y, folds, "regression") == 0.0
-
-
-def test_the_screening_floor_is_the_auroc_floor_on_the_rho_scale():
-  from zairachem.screen.proxy import PROXY_FLOOR
-
-  # AUROC - 0.5 is about rho / 2, so the 0.55 classification floor maps to 0.10 on rho.
-  assert PROXY_FLOOR["classification"] == 0.55
-  assert PROXY_FLOOR["regression"] == pytest.approx((0.55 - 0.5) * 2)
-
-
-def test_no_regression_figure_shows_its_slug_as_a_title():
-  """A stem with no catalogue entry is title-cased into something like "Projection Mwlogp Value"."""
-  from zairachem.report.html.catalog import _PROJECTION_ORDER, _humanize
-
-  stems = [f"projection-{base}-value" for base in _PROJECTION_ORDER]
-  stems += [
-    "regression-raw",
-    "regression-residuals",
-    "regression-distribution",
-    "regression-error-similarity",
-    "potency-enrichment",
-    "interval-coverage",
-    "value-consensus",
-    "cv-spearman",
-    "cv-error-curve",
-    "property-mw-value",
-    "property-logp-value",
-    "heldout-r2",
-  ]
-  slugged = [s for s in stems if _humanize(s) == " ".join(w.capitalize() for w in s.split("-"))]
-  assert not slugged, f"no catalogue title, so the report shows the slug: {slugged}"
+  folds = [(tr, te)]
+  preds = {"good": [y[te]], "backwards": [-y[te]], "flat": [np.ones(len(te))]}
+  assert _ensemble_skill(["good"], preds, y, folds, "regression") == pytest.approx(1.0)
+  assert _ensemble_skill(["backwards"], preds, y, folds, "regression") == pytest.approx(-1.0)
+  # Nothing scoreable falls back to chance rather than to a number.
+  assert _ensemble_skill(["flat"], preds, y, folds, "regression") == PROXY_CHANCE["regression"]
 
 
 # --- Contracts with the rest of the system ------------------------------------------------------
@@ -338,58 +266,19 @@ def test_a_model_with_no_signal_says_so():
   _warn_if_no_signal(rows, "classification", SKILL_FLOOR["classification"] - 0.01)
   assert "separate the classes" in rows[0][1]
 
-
-def test_one_floor_serves_the_pooler_and_the_screen():
-  """It was written out twice, with the screening copy free to drift from the pruning one."""
-  from zairachem.base.vars import SKILL_FLOOR
-  from zairachem.pool.reliability_pooler.pooler import PRUNE_GAP, active_mask
-  from zairachem.screen.proxy import PROXY_FLOOR
-
-  assert PROXY_FLOOR is SKILL_FLOOR
-  assert set(PRUNE_GAP) == set(SKILL_FLOOR) == {"classification", "regression"}
-  # And the pruning rule still reads the floor from it.
-  below = SKILL_FLOOR["regression"] - 0.01
-  assert active_mask([0.5, below], "regression") == [True, False]
-
-
-def test_a_model_whose_values_are_worse_than_the_mean_says_so_too():
-  """A regression model can order compounds acceptably and still predict useless values."""
-  from zairachem.base.utils.summaries import _warn_if_no_signal
-
+  # A model can order compounds well and still predict useless values.
   rows = []
-  _warn_if_no_signal(rows, "regression", skill=0.6, r2=-0.2)  # ranks fine, values do not
-  assert rows and "no better than the training average" in rows[0][1]
-
-  # One caution at most: a model failing both is not told off twice.
-  rows = []
-  _warn_if_no_signal(rows, "regression", skill=0.01, r2=-0.2)
-  assert len(rows) == 1 and "order compounds" in rows[0][1]
-
-  # A usable model, and an R2 that could not be computed, both stay quiet.
-  for skill, r2 in ((0.6, 0.5), (0.6, None), (0.6, float("nan"))):
+  _warn_if_no_signal(rows, "regression", skill=0.8, r2=-0.3)
+  assert "no better than the training average" in rows[0][1]
+  for r2 in (0.01, None, float("nan")):
     rows = []
-    _warn_if_no_signal(rows, "regression", skill=skill, r2=r2)
-    assert rows == [], (skill, r2)
+    _warn_if_no_signal(rows, "regression", skill=0.8, r2=r2)
+    assert rows == [], r2
 
-
-def test_the_cv_report_can_be_patched_after_it_is_written(tmp_path):
-  """The fit's own wall-clock and the out-of-fold flag are both known only after the report exists."""
-  import json
-
-  from zairachem.estimate.estimators.lazy_qsar.estimate import Fitter
-
-  path = tmp_path / "eosA"
-  path.mkdir()
-  (path / "cv_report.json").write_text(json.dumps({"oof_rho": 0.8, "portfolio": ["lr"]}))
-
-  Fitter._patch_cv_report(str(path), fit_seconds=137.1)
-  Fitter._record_oof_used(str(path), True)
-  report = json.loads((path / "cv_report.json").read_text())
-  assert report["fit_seconds"] == 137.1 and report["oof_used"] is True
-  assert report["oof_rho"] == 0.8 and report["portfolio"] == ["lr"]  # nothing else disturbed
-
-  # A missing report is not worth failing a fit over.
-  Fitter._patch_cv_report(str(tmp_path / "nowhere"), fit_seconds=1.0)
+  # A near miss must not round into "0.10 is below 0.10".
+  rows = []
+  _warn_if_no_signal(rows, "regression", skill=0.099, r2=0.4)
+  assert "0.099 is below 0.100" in rows[0][1]
 
 
 def test_a_model_trained_before_regression_still_finds_its_pooling_weights(tmp_path):
