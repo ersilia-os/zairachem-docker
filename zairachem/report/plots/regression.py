@@ -178,6 +178,9 @@ class IntervalCoveragePlot(BasePlot):
   observed values, so it renders at fit and at predict with truth.
   """
 
+  #: Most distinct interval widths that can still be read as applicability-domain bins.
+  MAX_BINS = 8
+
   def __init__(self, ax, path):
     from lazyqsar.ensemble.intervals import DEFAULT_LEVEL
 
@@ -202,8 +205,12 @@ class IntervalCoveragePlot(BasePlot):
     covered = (truth >= lo) & (truth <= hi)
     width = np.round(hi - lo, 6)
     # One bar per Mondrian bin (a bin is exactly one half-width), narrowest -- most typical
-    # chemistry -- first, then an "All" bar for the pooled coverage.
+    # chemistry -- first, then an "All" bar for the pooled coverage. The design gives three bins at
+    # most; anything else is not a bin structure, and a bar per compound would say nothing, so the
+    # panel falls back to the pooled coverage alone.
     bins = sorted(set(width.tolist()))
+    if len(bins) > self.MAX_BINS:
+      bins = []
     labels, values = [], []
     for w in bins:
       m = width == w
@@ -211,8 +218,8 @@ class IntervalCoveragePlot(BasePlot):
         continue
       labels.append(f"{w:.2f}")
       values.append(float(covered[m].mean()))
-    if len(labels) > 1:
-      # With a single bin the pooled bar would just repeat it.
+    if len(labels) != 1:
+      # With a single bin the pooled bar would just repeat it; with none it is all there is.
       labels.append("All")
       values.append(float(covered.mean()))
     ax = self.ax

@@ -614,3 +614,21 @@ def test_a_declined_plot_does_not_leave_its_figure_open(tmp_path):
     status, _name, _cells = _render_one(RocCurvePlot, path, {})
     assert status == "na"
   assert plt.get_fignums() == []
+
+
+def test_the_coverage_panel_falls_back_when_the_widths_are_not_bins(tmp_path):
+  """Mondrian gives three widths at most; a width per compound would be a bar per compound."""
+  import pandas as pd
+
+  from zairachem.report.plots import IntervalCoveragePlot
+
+  path = _synthetic_run(tmp_path / "unbinned")
+  pooled_path = os.path.join(path, "model", "pool", "results_unmapped.csv")
+  df = pd.read_csv(pooled_path)
+  half = np.linspace(0.5, 2.0, len(df))  # a distinct width for every compound
+  df["reg_lower"], df["reg_upper"] = df["reg"] - half, df["reg"] + half
+  df.to_csv(pooled_path, index=False)
+
+  plot = IntervalCoveragePlot(ax=None, path=path)
+  assert plot.is_available
+  assert [t.get_text() for t in plot.ax.get_xticklabels()] == ["All"]
