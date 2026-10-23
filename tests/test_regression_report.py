@@ -537,3 +537,19 @@ def test_the_error_curve_is_the_cumulative_distribution_of_the_errors(tmp_path):
   baseline = plot.ax.get_lines()[-1]
   assert baseline.get_linestyle() == "--"
   assert max(baseline.get_xdata()) == pytest.approx(np.abs(truth - truth.mean()).max())
+
+
+def test_rendering_one_plot_does_not_delete_the_others(tmp_path, monkeypatch):
+  """``--plot-name`` rebuilds one figure; it used to clear the figure directory first."""
+  from zairachem.report.report import Reporter
+
+  path = _synthetic_run(tmp_path / "run")
+  png = tmp_path / "run" / "report" / "png"
+  png.mkdir(parents=True, exist_ok=True)
+  for stem in ("regression-raw", "cv-spearman", "potency-enrichment"):
+    (png / f"{stem}.png").write_bytes(b"not a real png")
+
+  reporter = Reporter(path=path, plot_name="potency-enrichment")
+  reporter._render_plots(reporter._plot_jobs())
+  survivors = {p.stem for p in png.glob("*.png")}
+  assert {"regression-raw", "cv-spearman"} <= survivors, survivors

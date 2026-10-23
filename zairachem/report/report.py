@@ -260,8 +260,11 @@ class Reporter(ZairaBase):
 
   def _clean_figure_dirs(self):
     """Delete previously-rendered figures before a fresh render, so plots dropped from the registry
-    (or renamed) don't linger as orphan PNGs and resurface in the report's 'More' catch-all. Every
-    current figure is re-rendered right after, so this only removes stale ones."""
+    (or renamed) don't linger as orphan PNGs and resurface in the report's 'More' catch-all.
+
+    Only safe for a full render, where every current figure is re-rendered immediately after. A
+    ``--plot-name`` render would otherwise delete the whole report to rebuild one figure of it.
+    """
     import contextlib
     import glob
 
@@ -282,7 +285,8 @@ class Reporter(ZairaBase):
     skipped rather than sinking the whole report."""
     if not jobs:
       return
-    self._clean_figure_dirs()
+    if self.plot_name is None:
+      self._clean_figure_dirs()
     workers = _render_workers(len(jobs))
     if workers > 1:
       try:
