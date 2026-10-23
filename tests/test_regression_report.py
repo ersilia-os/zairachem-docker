@@ -553,3 +553,19 @@ def test_rendering_one_plot_does_not_delete_the_others(tmp_path, monkeypatch):
   reporter._render_plots(reporter._plot_jobs())
   survivors = {p.stem for p in png.glob("*.png")}
   assert {"regression-raw", "cv-spearman"} <= survivors, survivors
+
+
+def test_the_tables_are_written_even_with_no_report_folder(tmp_path):
+  """``--skip-report`` renders no figures, and nothing else creates the folder they would live in."""
+  import shutil
+
+  from zairachem.report.table import PerformanceTable
+
+  path = _synthetic_run(tmp_path / "tables")
+  shutil.rmtree(os.path.join(path, "report"), ignore_errors=True)
+  assert not os.path.exists(os.path.join(path, "report"))
+
+  # The performance table alone: the output table additionally needs the input mapping, which this
+  # fixture does not build. Both go through the same path helper.
+  PerformanceTable(path=path).run()
+  assert os.listdir(os.path.join(path, "report")) == ["performance_table.csv"]

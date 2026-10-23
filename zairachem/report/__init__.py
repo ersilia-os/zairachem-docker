@@ -82,6 +82,16 @@ class BaseTable(BaseResults):
   def __init__(self, path):
     BaseResults.__init__(self, path=path)
 
+  def _report_path(self, filename):
+    """Path to ``filename`` under the run's ``report/``, creating the folder if it is not there.
+
+    The tables are written even when the plots are skipped (``--skip-report``), and nothing else
+    creates that folder on a run that renders no figures.
+    """
+    report_dir = os.path.join(self.path, REPORT_SUBFOLDER)
+    os.makedirs(report_dir, exist_ok=True)
+    return os.path.join(report_dir, filename)
+
 
 class BasePlot(BaseResults):
   """Base for report figures: a stylia axis sized from a footprint of 3 cm grid cells.

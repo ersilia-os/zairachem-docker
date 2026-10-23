@@ -1,5 +1,4 @@
 import collections
-import os
 
 import pandas as pd
 from rdkit import Chem
@@ -13,7 +12,6 @@ from zairachem.base.vars import (
   OUTPUT_DESCRIPTOR_PREFIX,
   OUTPUT_TABLE_FILENAME,
   PERFORMANCE_TABLE_FILENAME,
-  REPORT_SUBFOLDER,
 )
 from zairachem.report import BaseTable
 from zairachem.report.fetcher import ResultsFetcher
@@ -104,9 +102,7 @@ class PerformanceTable(BaseTable, ResultsFetcher):
       data["model"].append(model)
       for k, v in row.items():
         data[k].append(v)
-    pd.DataFrame(data).to_csv(
-      os.path.join(self.path, REPORT_SUBFOLDER, PERFORMANCE_TABLE_FILENAME), index=False
-    )
+    pd.DataFrame(data).to_csv(self._report_path(PERFORMANCE_TABLE_FILENAME), index=False)
 
 
 def _descriptor_of(column):
@@ -228,7 +224,4 @@ class OutputTable(BaseTable, ResultsFetcher):
     for k, v in self._get_manifolds_columns():
       data[k] = v
     data = pd.DataFrame(data)
-    data.to_csv(
-      os.path.join(self.path, REPORT_SUBFOLDER, OUTPUT_TABLE_FILENAME),
-      index=False,
-    )
+    data.to_csv(self._report_path(OUTPUT_TABLE_FILENAME), index=False)
