@@ -121,8 +121,8 @@ Every panel answers a question, and they group by which question:
 
 Two golden fixtures pin the pipeline, one per task; see `tests/test_golden.py` for how to record
 them. They are opt-in because they need a fit kept with its descriptor matrices, so the default
-test run relies on `tests/test_regression.py`, which builds a synthetic run folder and walks every
-panel.
+test run relies on `tests/test_regression.py` (the pooled model and the pre-screening proxy) and
+`tests/test_regression_report.py`, which builds a synthetic run folder and walks every panel.
 
 Do not validate on the DILI example alone. It is unrepresentative of the models this repo is
 built for: pull a real target from the ChEMBL web API instead, keep one `standard_type`, take the
