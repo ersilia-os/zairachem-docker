@@ -687,3 +687,38 @@ def test_one_unscoreable_compound_does_not_void_the_whole_metrics_row():
   assert gappy["num_compounds"] == 4  # the unscoreable compound is counted out, not in
   assert gappy["r2"] == pytest.approx(clean["r2"])
   assert not np.isnan(gappy["rmse"])
+
+
+def test_the_plot_registry_and_the_html_catalog_agree():
+  """Covers both tasks: adding a plot without a section leaves it in the "More" catch-all.
+
+  Five tables between them decide where a figure lands and what it is called, and nothing ties
+  them to the registry. A regression panel reached the catch-all this way during development.
+  """
+  import collections
+
+  from zairachem.report.html.catalog import (
+    _CATEGORIES,
+    _COMPUTE_GROUPS,
+    _DATASET_GROUPS,
+    _DIAG_GROUPS,
+    _GROUPS,
+    _TITLES,
+  )
+  from zairachem.report.report import _FIT_ONLY, _PLOT_SPECS
+
+  names = [name for name, _cls in _PLOT_SPECS]
+  assert not [n for n, c in collections.Counter(names).items() if c > 1], "registered twice"
+
+  catalogued = {m for _a, _h, _d, members in _CATEGORIES for m in members}
+  for table in (_GROUPS, _DIAG_GROUPS, _DATASET_GROUPS, _COMPUTE_GROUPS):
+    catalogued |= {m for group in table for m in group["members"]}
+
+  # The projection figures are registered per discovered projection, not in _PLOT_SPECS.
+  fixed = [n for n in names if not n.startswith("projection-")]
+  assert not [n for n in fixed if n not in catalogued], "registered but in no section"
+  assert not [n for n in fixed if n not in _TITLES], "registered but untitled"
+  assert not [m for m in catalogued if m not in names and not m.startswith("projection-")], (
+    "a section names a figure nothing registers"
+  )
+  assert not [n for n in _FIT_ONLY if n not in names], "fit-only name is not a registered plot"
