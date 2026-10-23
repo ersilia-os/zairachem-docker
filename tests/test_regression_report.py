@@ -671,3 +671,21 @@ def test_the_panels_hold_up_with_many_descriptors(tmp_path):
 
   colours = descriptor_colors_rgb(len(descriptors))
   assert len(colours) == len(descriptors)
+
+
+def test_the_terminal_plot_breakdown_names_what_a_run_rendered(tmp_path):
+  """Every panel a run renders should land in a named bucket, not in "other"."""
+  from zairachem.base.utils.summaries import _plots_by_category
+  from zairachem.report.report import _PLOT_SPECS
+
+  png = tmp_path / "report" / "png"
+  png.mkdir(parents=True)
+  for name, _cls in _PLOT_SPECS:
+    (png / f"{name}.png").write_bytes(b"")
+  for stem in ("projection-umap-value", "projection-umap-proba", "projection-umap-class"):
+    (png / f"{stem}.png").write_bytes(b"")
+
+  cats = _plots_by_category(str(tmp_path))
+  assert cats.get("other", 0) == 0, sorted(cats)
+  # The two tasks' own panels are each named, not lumped together.
+  assert {"regression", "intervals", "out-of-fold scores", "confusion"} <= set(cats)

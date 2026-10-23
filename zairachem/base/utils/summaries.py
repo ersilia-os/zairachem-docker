@@ -435,12 +435,19 @@ def _active_inactive(output_dir):
 
 
 def _plots_by_category(output_dir):
-  """Group report PNGs into coarse categories by filename keyword. Returns {category: count}."""
+  """Group report PNGs into coarse categories by filename keyword. Returns {category: count}.
+
+  The keywords are matched in the order written, so the more specific ones come first. The list
+  spans both tasks: a regression run renders none of the classification panels and vice versa, and
+  what neither names lands in ``other``.
+  """
   from zairachem.base.vars import REPORT_SUBFOLDER
 
   buckets = {
+    "heldout": "held-out validation",
     "roc": "ROC",
     "auroc": "ROC",
+    "pr-curve": "PR",
     "calib": "calibration",
     "dist": "distributions",
     "violin": "distributions",
@@ -450,7 +457,25 @@ def _plots_by_category(output_dir):
     "confusion": "confusion",
     "r2": "regression",
     "obs": "regression",
+    "regression": "regression",
+    "value": "regression",
+    "interval": "intervals",
+    "enrich": "enrichment",
+    "potency": "enrichment",
     "hist": "histograms",
+    "oof-score": "out-of-fold scores",
+    "class-": "class balance",
+    "actives": "class balance",
+    "property": "properties",
+    "descriptor": "descriptors",
+    "topk": "descriptors",
+    "threshold": "thresholds",
+    "timing": "compute",
+    "time": "compute",
+    "resource": "compute",
+    "provenance": "compute",
+    "rank": "rank",
+    "similarity": "similarity",
   }
   out = {}
   try:
