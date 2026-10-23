@@ -45,6 +45,9 @@ MAPPING_FILENAME = "mapping.csv"
 #: Duplicate structure of the input and, for regression, how much repeats of one compound
 #: disagreed -- the assay's own reproducibility, which is what an RMSE has to be read against.
 REPLICATES_FILENAME = "replicates.json"
+#: Written by the pooler at predict, beside the input it describes: how many of the molecules
+#: being predicted were in the training set.
+TRAIN_OVERLAP_FILENAME = "train_overlap.json"
 VALUES_FILENAME = "values.csv"
 TASKS_FILENAME = "tasks.csv"
 PARAMETERS_FILE = "parameters.json"

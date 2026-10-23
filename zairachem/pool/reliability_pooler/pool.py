@@ -16,6 +16,7 @@ from zairachem.base.vars import (
   POOLED_DESCRIPTORS_FILENAME,
   SKILL_FLOOR,
   SMILES_COLUMN,
+  TRAIN_OVERLAP_FILENAME,
 )
 
 from ..base import BasePooler
@@ -24,6 +25,48 @@ from . import pooler
 
 #: Summary written by the pooler and rendered under the Pool step banner (see progress.py).
 SUMMARY_FILENAME = "reliability_summary.json"
+
+
+def write_training_overlap(folder, query_smiles, train_smiles):
+  """Record how many of ``query_smiles`` the model was trained on, by standardised SMILES.
+
+  ``train_similarity`` cannot answer this. It averages a query's five nearest training molecules
+  and leaves the query's own entry out, so a molecule that *was* in the training set scores like
+  its neighbourhood rather than like itself -- by design, because that is what makes the column an
+  applicability domain. The consequence is that nothing in a predict run compares the two sets,
+  and predicting on a library that overlaps the training set is a common way to read a model as
+  better than it is: for those rows the model is recalling a label, not predicting one.
+
+  Parameters
+  ----------
+  folder : str
+    Directory the summary is written to: the run's input folder, because at predict ``finish``
+    deletes ``model/`` wholesale and a record left there would never reach the closing panel.
+  query_smiles : list of str
+    Standardised SMILES being predicted.
+  train_smiles : list of str
+    Standardised SMILES the model was trained on.
+
+  Returns
+  -------
+  dict
+    ``n_query``, ``n_in_training`` (rows) and ``n_distinct_in_training`` (molecules).
+  """
+  trained = set(train_smiles)
+  seen = [s for s in query_smiles if s in trained]
+  summary = {
+    "n_query": len(query_smiles),
+    "n_in_training": len(seen),
+    "n_distinct_in_training": len(set(seen)),
+  }
+  with open(os.path.join(folder, TRAIN_OVERLAP_FILENAME), "w") as f:
+    json.dump(summary, f, indent=2)
+  if seen:
+    logger.warning(
+      f"[reliability_pool:predict] {len(seen)} of {len(query_smiles)} molecules were in the "
+      "training set; for those rows the model is recalling a label, not predicting one"
+    )
+  return summary
 
 
 def _prettify(col):
@@ -334,9 +377,9 @@ class Predictor(BasePooler):
     def smiles(folder):
       return list(pd.read_csv(os.path.join(folder, DATA_SUBFOLDER, DATA_FILENAME))[SMILES_COLUMN])
 
-    return training_similarity(
-      smiles(self.path), smiles(self.get_trained_dir()), os.path.join(self.path, POOL_SUBFOLDER)
-    )
+    query, train = smiles(self.path), smiles(self.get_trained_dir())
+    write_training_overlap(os.path.join(self.path, DATA_SUBFOLDER), query, train)
+    return training_similarity(query, train, os.path.join(self.path, POOL_SUBFOLDER))
 
 
 class ReliabilityPooler(ZairaBase):

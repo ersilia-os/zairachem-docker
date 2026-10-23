@@ -150,6 +150,18 @@ def _cfg_grid(pairs):
   return f"<div class='cfg-grid'>{cells}</div>"
 
 
+def _training_overlap(output_dir):
+  """Read the pooler's record of how many predicted molecules were in the training set, or None."""
+  from zairachem.base.vars import DATA_SUBFOLDER, TRAIN_OVERLAP_FILENAME
+
+  try:
+    with open(os.path.join(output_dir, DATA_SUBFOLDER, TRAIN_OVERLAP_FILENAME)) as f:
+      overlap = json.load(f)
+  except Exception:
+    return None
+  return overlap if overlap.get("n_in_training") else None
+
+
 def _config_section_html(output_dir, params, n):
   """Render the run configuration: a scalar stat grid plus featurizer and projection model tables."""
   task = params.get("task") or ""
@@ -162,6 +174,11 @@ def _config_section_html(output_dir, params, n):
   date = _run_date(output_dir)
   if date:
     stats.append(("Run date", date))
+  overlap = _training_overlap(output_dir)
+  if overlap:
+    # Predict only, and only when it is not zero: a count of molecules whose "prediction" is the
+    # label the model was trained on. Silence here is what makes an overlapping library look good.
+    stats.append(("Seen in training", f"{overlap['n_in_training']:,}"))
   # Task as a colored badge (Classification = turquoise / Regression = amber); plain text otherwise.
   t = task.lower()
   if t == "classification":

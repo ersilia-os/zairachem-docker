@@ -587,6 +587,30 @@ def _note_if_at_the_noise_floor(rows, rmse, floor):
   ))
 
 
+def _note_training_overlap(rows, output_dir):
+  """Append a caution when molecules being predicted were in the model's training set.
+
+  Their predicted value is a recollection of the label the model was fitted on, so including them
+  in a summary of how the model does on new chemistry flatters it.
+  """
+  from zairachem.base.vars import DATA_SUBFOLDER, TRAIN_OVERLAP_FILENAME
+
+  path = os.path.join(output_dir, DATA_SUBFOLDER, TRAIN_OVERLAP_FILENAME)
+  try:
+    with open(path) as f:
+      overlap = json.load(f)
+  except Exception:
+    return
+  seen, total = overlap.get("n_in_training", 0), overlap.get("n_query", 0)
+  if not seen or not total:
+    return
+  rows.append((
+    "",
+    f"[yellow]Already seen[/] [dim]— {seen:,} of {total:,} of these molecules were in the "
+    "training set, so the model is recalling those labels rather than predicting them.[/]",
+  ))
+
+
 def _note_contradicted_labels(rows, output_dir):
   """Say how many compounds the input called both active and inactive.
 
@@ -811,6 +835,8 @@ def final_summary_panel(output_dir=None):
   rows = [("Output", f"[dim]{_collapse(d)}[/]"), ("Task", f"[magenta]{task}[/]")]
   if n is not None:
     rows.append(("Compounds", f"[bold]{n:,}[/]"))
+  if _is_predict(d):
+    _note_training_overlap(rows, d)
   # List the requested featurizers, distinguishing the ones the pooled model actually uses (green)
   # from those dropped by --max-descriptors pre-screening (dimmed). effective_descriptors reads
   # metadata/selected_eos.json when screening ran, else falls back to all trained descriptors.

@@ -309,3 +309,47 @@ def test_a_finished_run_does_not_need_the_user_s_input_file_any_more(tmp_path):
   assembler = BaseOutcomeAssembler.__new__(BaseOutcomeAssembler)
   assembler.path = str(root)
   assert assembler._get_original_input_size() == 7
+
+
+def test_molecules_the_model_was_trained_on_are_called_out(tmp_path):
+  """`similarity` cannot say a query was in the training set -- it leaves the query's own entry
+  out -- so a library overlapping the training set reads as a clean prediction. The pooler
+  records the overlap; the closing panel and the report both have to surface it."""
+  import inspect
+  import json
+
+  from zairachem.base.utils import summaries
+  from zairachem.base.utils.summaries import _note_training_overlap
+  from zairachem.base.vars import DATA_SUBFOLDER, TRAIN_OVERLAP_FILENAME
+  from zairachem.pool.reliability_pooler.pool import Predictor, write_training_overlap
+  from zairachem.report.html.sections import _config_section_html
+
+  # Deliberately the input folder, not model/: at predict `finish` removes model/ wholesale, so a
+  # record written there would be gone before the closing panel ever read it.
+  assert "write_training_overlap(os.path.join(self.path, DATA_SUBFOLDER)" in inspect.getsource(
+    Predictor._train_similarity
+  )
+  pool_dir = tmp_path / DATA_SUBFOLDER
+  pool_dir.mkdir(parents=True)
+  # "CCO" is predicted twice and was trained on; "CCN" is new.
+  summary = write_training_overlap(str(pool_dir), ["CCO", "CCN", "CCO"], ["CCO", "CCC"])
+  assert summary == {"n_query": 3, "n_in_training": 2, "n_distinct_in_training": 1}
+  assert json.loads((pool_dir / TRAIN_OVERLAP_FILENAME).read_text()) == summary
+
+  rows = []
+  _note_training_overlap(rows, str(tmp_path))
+  assert "2 of 3" in rows[0][1] and "recalling" in rows[0][1]
+  # Only at predict, and only from the panel -- a fit run has no trained_dir to compare against.
+  assert "_note_training_overlap" in inspect.getsource(summaries.final_summary_panel)
+  # The pooler is the only place holding both sets of SMILES, so it is the only place that can
+  # record this; nothing above runs if it stops doing so.
+  assert "write_training_overlap" in inspect.getsource(Predictor._train_similarity)
+
+  assert "Seen in training" in _config_section_html(str(tmp_path), {"task": "regression"}, 3)
+
+  # A run that shares nothing says nothing, in either place.
+  write_training_overlap(str(pool_dir), ["CCN"], ["CCO"])
+  quiet = []
+  _note_training_overlap(quiet, str(tmp_path))
+  assert quiet == []
+  assert "Seen in training" not in _config_section_html(str(tmp_path), {"task": "regression"}, 1)

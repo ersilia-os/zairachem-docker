@@ -94,7 +94,17 @@ RMSE, MAE and the Pearson and Spearman correlations.
 
 `docs/regression.md` covers what a regression run does and does not produce, and why.
 
-When the input measures a compound more than once, setup records how far those repeats disagreed (`inputs/replicates.json`). That spread is the assay's own reproducibility and the scale a regression model's RMSE has to be read against; the fit summary and the report both show it.
+When the input measures a compound more than once, setup records how far those repeats
+disagreed (`inputs/replicates.json`). That spread is the assay's own reproducibility and the
+scale a regression model's RMSE has to be read against; the fit summary and the report both
+show it.
+
+A `predict` run records how many of the molecules it was given the model had already been
+trained on (`inputs/train_overlap.json`), and says so in the summary and the report. The
+`similarity` column cannot: it averages a molecule's nearest *other* training molecules, so a
+molecule that was in the training set scores like its neighbourhood. For those rows the model
+is recalling a label rather than predicting one, which is easy to mistake for accuracy when
+the screening library overlaps the training set.
 
 `results/cutoffs.json` gives each named cutoff as a probability and as a rank, the scale of `score`:
 `screening` (the call: rank 0.65), `kappa` (Cohen's kappa on the training out-of-fold scores),
