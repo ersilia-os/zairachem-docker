@@ -1,4 +1,9 @@
-"""Held-out validation: split generation and the summary written for the report."""
+"""Held-out validation: that the splits are honest, and that the folds report what they scored.
+
+A fold is only worth reading if its test rows never reached training and its test slice spans the
+target, so those are what these pin -- for a binary label and for a continuous one -- along with
+the two cases where a split cannot be drawn at all and has to say so.
+"""
 
 import json
 

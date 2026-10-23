@@ -156,11 +156,29 @@ Neither stops the run. A metric that could not be computed says nothing: unknown
 
 ## Validating a change
 
-Two golden fixtures pin the pipeline, one per task; see `tests/test_golden.py` for how to record
-them. They are opt-in because they need a fit kept with its descriptor matrices, so the default
-test run relies on `tests/test_regression.py` (the pooled model and the pre-screening proxy) and
-`tests/test_regression_report.py`, which builds a synthetic run folder and walks every panel.
+**The numbers** are pinned by two golden fixtures, one per task: `tests/test_golden.py` re-runs
+estimate → pool → report → finish on a kept fit and compares every column against a recorded
+reference. It is the only thing here that can tell you a result moved. It is opt-in, because it
+needs a fit kept with its descriptor matrices (~25 MB, not in git), and the module docstring says
+how to record one. Run it against both fixtures before merging anything that touches the
+modelling path.
 
-Do not validate on the DILI example alone. It is unrepresentative of the models this repo is
-built for: pull a real target from the ChEMBL web API instead, keep one `standard_type`, take the
-median per molecule, and hold out a genuine external set rather than trusting out-of-fold numbers.
+**The behaviour** is pinned by `pytest`, deliberately thin. It is there to catch what someone
+could ship, not to describe how the code is written:
+
+- `tests/test_regression.py` — the pooled model (its agreement with lazy-qsar's own `combine`,
+  the applicability-domain veto, the conformal intervals, pruning), the pre-screening proxy, and
+  the contracts regression has with the rest of the system.
+- `tests/test_regression_report.py` — a synthetic run folder, built here rather than by the
+  pipeline, that every panel must render against or decline without raising; that the plot
+  registry and the HTML catalogue agree; and what the delivered tables carry for each
+  task-and-truth combination.
+
+Before adding a test, reintroduce the bug it would catch and check nothing else already fails.
+Before deleting one, do the same. Most of what this suite could assert about the report is
+implementation, and a test that only restates the code costs more to maintain than it protects.
+
+Neither of those is a substitute for running the thing. Do not validate on the DILI example
+alone: it is unrepresentative of the models this repo is built for. Pull a real target from the
+ChEMBL web API instead, keep one `standard_type`, take the median per molecule, and hold out a
+genuine external set rather than trusting out-of-fold numbers.

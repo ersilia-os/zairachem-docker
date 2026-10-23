@@ -21,6 +21,12 @@ ZairaChem is an automated QSAR modelling pipeline built on the Ersilia Model Hub
 - Write succinct NumPy-style docstrings for public classes, functions and methods. Ruff enforces their presence (D101–D103, numpy convention); vendored code under `setup/tools/chembl_structure/` and `estimate/tools/ghost/ghostml/` is exempt.
 - Log through `loguru`; do not add new `logging.getLogger(...)` calls.
 
+## Tests
+
+- The suite guards behaviour, not implementation. Before adding a test, reintroduce the bug it would catch and check nothing else already fails; a test that only restates the code costs more to maintain than it protects.
+- `pytest` does not pin the numbers a run produces. `tests/test_golden.py` does, and it is opt-in (`ZAIRACHEM_GOLDEN_MODEL=<fixture>`): run it against a classification **and** a regression fixture for any change to the modelling path, and report the result.
+- Never record a new golden reference to make a test pass. Explain the delta first.
+
 ## Data
 
 - Rank-reference matrices are cached per user in `~/zairachem/rank_reference/` and downloaded over HTTPS from the public bucket. `data/` (gitignored) is only the eosvc publishing area: to publish a newly computed matrix, copy it (with its `.json`) from the cache into `data/rank_reference/<library>/` and run `eosvc upload --path data/rank_reference`. Never commit datasets, model artefacts or large binaries.

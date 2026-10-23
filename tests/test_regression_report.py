@@ -1,9 +1,13 @@
-"""The regression report: its panels, its sections, and the words it puts on them.
+"""The regression report: that it renders at all, and that it delivers the right columns.
 
-A regression run renders a different set of figures from a classification one, under the same
-section headings and from the same registry. These tests pin that the two agree -- every panel
-registered, titled and owned by a section -- and that each panel renders, or declines, without
-raising against a run folder built here rather than by the pipeline.
+A regression run draws a different set of figures from a classification one, under the same
+section headings and from the same registry. What is worth guarding is thin: that the registry
+and the HTML catalogue agree, that every panel renders or declines without raising against a run
+folder built here rather than by the pipeline, that the two panels making the strongest claims
+compute what they say, and that the delivered tables follow the run's task rather than whether
+its truth happens to be present.
+
+What the figures look like is not in here, and should not be: see ``docs/regression.md``.
 """
 
 import os

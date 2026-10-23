@@ -2,8 +2,13 @@
 
 Regression deliberately has no reference library, no rank, no decision cutoff and no binary call
 (lazy-qsar's ``qsar_regressor``): the single output is the value, with a conformal interval. These
-tests pin that contract and the arithmetic behind it -- the pooled model and the pre-screening
-proxy. The report it produces is in ``test_regression_report.py``.
+tests pin that contract and the arithmetic behind it -- the pooled model, the pre-screening proxy,
+and the handful of promises regression makes to the rest of the pipeline.
+
+Two things they deliberately do not do. They do not re-derive lazy-qsar's own arithmetic: where
+the pooled value has to equal ``combine``'s, that is asserted against ``combine`` itself. And
+they do not pin the numbers a run produces -- that is ``test_golden.py``, which is opt-in and the
+only thing here that can tell you a result moved. The report is in ``test_regression_report.py``.
 """
 
 import numpy as np
