@@ -388,23 +388,43 @@ class Fitter(BaseEstimatorIndividual):
       ``(X_train, train_order)``: the stacked training matrix and the global row index of each of
       its rows, which is the order ``y`` must be indexed by.
     """
-    X_train_parts = []
-    train_order = []
+    idxs = np.asarray(train_idxs)
+    if idxs.size == 0:
+      raise RuntimeError(
+        f"[lazyqsar:fit] {self.model_id}: no training rows were selected. A fit cannot proceed "
+        "without them; check the run's split or, for a held-out fold, its train slice."
+      )
+    # Where each wanted row sits, ordered by the row itself, so each chunk's slice of them is one
+    # searchsorted away instead of a rescan of every training index per chunk. That rescan was
+    # quadratic in the dataset: 5s per descriptor per fold at a million rows, all of it in Python.
+    rank = np.argsort(idxs, kind="stable")
+    by_row = idxs[rank]
+    # X_train is filled in place rather than concatenated from per-chunk pieces. concatenate holds
+    # the pieces AND the result at once, so it peaks at twice the matrix -- which for a wide
+    # descriptor over a million rows is the difference between fitting and running out of memory.
+    X_train = None
+    train_order = np.empty(idxs.size, dtype=idxs.dtype)
+    at = 0
     for start, end, chunk in self._iter_X():
-      # Global indices of the training rows that fall in this chunk, kept in
-      # train_idxs order. X_train is assembled chunk by chunk, so y MUST be indexed
-      # by this same accumulated order — NOT by the global train_idxs order, or X
-      # rows and y labels get permuted relative to each other across chunks
-      # (multi-chunk / large datasets) and the model trains on mismatched pairs.
-      sel = [i for i in train_idxs if start <= i < end]
-      if sel:
-        X_train_parts.append(chunk[[i - start for i in sel]])
-        train_order.extend(sel)
+      lo, hi = np.searchsorted(by_row, (start, end))
+      if hi > lo:
+        # Back into train_idxs order within this chunk. X_train is assembled chunk by chunk and y
+        # is indexed by the same accumulated order, so the two must agree row for row -- NOT the
+        # global train_idxs order, or X rows and y labels get permuted relative to each other
+        # across chunks and the model trains on mismatched pairs.
+        sel = idxs[np.sort(rank[lo:hi])]
+        if X_train is None:
+          X_train = np.empty((idxs.size, chunk.shape[1]), dtype=chunk.dtype)
+        X_train[at : at + sel.size] = chunk[sel - start]
+        train_order[at : at + sel.size] = sel
+        at += sel.size
       del chunk
       gc.collect()
-    X_train = np.concatenate(X_train_parts, axis=0)
-    del X_train_parts
-    gc.collect()
+    if at != idxs.size:
+      raise RuntimeError(
+        f"[lazyqsar:fit] {self.model_id}: {idxs.size:,} training rows were asked for but "
+        f"{at:,} were found in the descriptor matrix. The matrix does not cover the run's rows."
+      )
     return X_train, train_order
 
   def _rank_reference_or_warn(self):
@@ -486,7 +506,7 @@ class Fitter(BaseEstimatorIndividual):
     """
     logger.info(f"[lazyqsar:fit] Loading training subset: {len(train_idxs)} of {n_samples} samples")
     X_train, train_order = self._load_train_rows(train_idxs)
-    y_train = y[np.array(train_order)]
+    y_train = y[train_order]
     logger.info(
       f"[lazyqsar:fit] Training on {X_train.shape[0]} samples, {X_train.shape[1]} features"
     )
@@ -495,7 +515,7 @@ class Fitter(BaseEstimatorIndividual):
     model.fit(X=X_train, y=y_train)
     descriptor_dir = os.path.join(self.trained_path, self.model_id)
     os.makedirs(descriptor_dir, exist_ok=True)
-    return model, X_train, y_train, np.asarray(train_order), descriptor_dir
+    return model, X_train, y_train, train_order, descriptor_dir
 
   def _save_model(self, model, t):
     """Persist the fitted model under the descriptor's folder for the algorithm family ``t``."""
