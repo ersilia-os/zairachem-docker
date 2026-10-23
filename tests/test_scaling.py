@@ -86,3 +86,70 @@ def test_the_training_matrix_is_not_held_twice():
 
   matrix = X_train.nbytes
   assert peak < matrix * 1.5, f"peaked at {peak / matrix:.2f}x the matrix"
+
+
+def test_butina_distances_are_an_array_not_boxed_floats():
+  """Butina compares every pair, so it holds n(n-1)/2 distances. Kept as a Python list each one
+  is a separate object and the same numbers cost four times the memory (248 MB against 61 MB at
+  n=4,000), which is what decides how large a set the schema can be offered on at all. The
+  clusters must not change."""
+  from rdkit import Chem, DataStructs, RDLogger
+  from rdkit.Chem import rdFingerprintGenerator
+  from rdkit.ML.Cluster import Butina
+
+  from zairachem.holdout.splits import _BUTINA_CUTOFF, _groups_butina
+
+  RDLogger.DisableLog("rdApp.*")
+  smiles = [
+    "CCO", "CCN", "CCC", "CCCl", "c1ccccc1", "c1ccccc1C", "c1ccccc1O", "CC(=O)O", "CC(=O)N",
+    "C1CCCCC1", "C1CCNCC1", "CCS", "CCF", "c1ccncc1", "CC(C)O", "OCCO", "NCCN", "CCCCCC",
+  ]  # fmt: skip
+
+  # The reference: condensed distances built the way a list comprehension would.
+  gen = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+  fps = [gen.GetFingerprint(Chem.MolFromSmiles(s)) for s in smiles]
+  ref = []
+  for i in range(1, len(fps)):
+    ref.extend(1.0 - s for s in DataStructs.BulkTanimotoSimilarity(fps[i], fps[:i]))
+  expected = Butina.ClusterData(ref, len(fps), _BUTINA_CUTOFF, isDistData=True)
+
+  groups = _groups_butina(smiles, _BUTINA_CUTOFF)
+  rebuilt = {}
+  for position, g in enumerate(groups):
+    rebuilt.setdefault(int(g), []).append(position)
+  assert sorted(sorted(v) for v in rebuilt.values()) == sorted(sorted(c) for c in expected)
+
+  # Degenerate sets have no pairs at all and must not divide by anything.
+  assert _groups_butina([], _BUTINA_CUTOFF).tolist() == []
+  assert _groups_butina(["CCO"], _BUTINA_CUTOFF).tolist() == [0]
+  assert len(set(_groups_butina(["%%%", "&&&"], _BUTINA_CUTOFF).tolist())) == 2
+
+
+def test_butina_is_refused_rather_than_attempted_on_a_large_set(monkeypatch):
+  """Every pair means tens of GB and the better part of an hour at 50,000 molecules, to produce
+  nothing. Offering it anyway is how a large run dies in the first step."""
+  import numpy as np
+
+  from zairachem.holdout import splits
+  from zairachem.holdout.splits import _BUTINA_MAX_MOLECULES, select_folds
+
+  said = []
+  monkeypatch.setattr(splits.logger, "warning", lambda m, *a, **k: said.append(str(m)))
+  # A fixed size, not one derived from the constant: a test that sizes its own input from the
+  # ceiling moves with it and can never catch the ceiling being raised.
+  big = ["CCO", "c1ccccc1"] * 6000  # 12,000 molecules, 72 million pairs
+  y = np.arange(len(big)) % 2
+  assert select_folds(big, y, "butina", 1) == []
+  # Specifically the ceiling, not select_folds' own "produced no valid split" message, which also
+  # names the strategy and also says "skipping".
+  assert any("every pair" in m and "the limit is" in m for m in said), said
+
+  # And only butina: a large set still gets its other folds, which is the point of refusing.
+  said.clear()
+  assert select_folds(big, y, "random", 1), "the ceiling must not reach the linear schemas"
+  assert not any("every pair" in m for m in said), said
+
+  # And the ceiling has to stay where the work is affordable. Butina holds n(n-1)/2 float64
+  # distances before it clusters anything, so the constant is really a memory budget.
+  implied_gb = _BUTINA_MAX_MOLECULES * (_BUTINA_MAX_MOLECULES - 1) / 2 * 8 / 2**30
+  assert implied_gb < 0.5, f"the ceiling implies a {implied_gb:.1f} GB distance matrix"

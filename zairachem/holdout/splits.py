@@ -34,6 +34,12 @@ _MORGAN_NBITS = 2048
 # Butina works on a Tanimoto *distance* threshold; 0.6 distance (0.4 similarity) is a common cluster
 # granularity for scaffold-like separation.
 _BUTINA_CUTOFF = 0.6
+#: Most molecules Butina will be attempted on. It compares every pair, so both its time and its
+#: memory grow with the square of the set: measured, 4,000 molecules cost 5s and 61 MB, 8,000 cost
+#: 21s and 244 MB, and 50,000 would need ~9 GB and the better part of an hour before clustering
+#: even starts. There is no cutoff at which that becomes reasonable, so above this one the schema
+#: is skipped and said to be skipped -- scaffold grouping asks the same question and is linear.
+_BUTINA_MAX_MOLECULES = 10_000
 _DEFAULT_TEST_FRACTION = 0.2
 # Seeded candidates generated per schema before the best k are selected.
 _CANDIDATE_POOL = 50
@@ -160,6 +166,16 @@ def select_folds(
     ``mean_jaccard``. Empty if no valid candidate exists.
   """
   labels = np.asarray(labels)
+  if strategy == "butina" and len(smiles) > _BUTINA_MAX_MOLECULES:
+    # Refused rather than attempted: it compares every pair, so this set would need tens of GB and
+    # a long time to produce nothing. The other schemas still run, and scaffold grouping asks the
+    # same question of the chemistry at linear cost.
+    logger.warning(
+      f"[evaluate] strategy 'butina' needs to compare every pair of molecules, which is not "
+      f"affordable for {len(smiles):,} of them (the limit is {_BUTINA_MAX_MOLECULES:,}); skipping "
+      "it. The scaffold schemas cover chemically distinct held-out sets."
+    )
+    return []
   candidates = []
   groups = strategy_groups(smiles, strategy)
   for seed in range(pool):
@@ -317,11 +333,18 @@ def _groups_butina(smiles, cutoff):
   valid_idx = [i for i, fp in enumerate(fps) if fp is not None]
   valid_fps = [fps[i] for i in valid_idx]
   n = len(valid_fps)
-  # Condensed lower-triangle distance list (1 - Tanimoto), the input Butina expects.
-  dists = []
+  # Condensed lower-triangle distance array (1 - Tanimoto), the input Butina expects. Held as one
+  # float64 array rather than a Python list: the list boxes every one of the n(n-1)/2 distances
+  # into an object, which costs four times the memory for the same numbers (measured 248 MB
+  # against 61 MB at n=4,000) and is what makes the ceiling above as low as it is. The clusters
+  # are identical either way.
+  dists = np.empty(n * (n - 1) // 2, dtype=np.float64)
+  at = 0
   for i in range(1, n):
     sims = DataStructs.BulkTanimotoSimilarity(valid_fps[i], valid_fps[:i])
-    dists.extend(1.0 - s for s in sims)
+    dists[at : at + i] = sims
+    at += i
+  np.subtract(1.0, dists, out=dists)
   clusters = Butina.ClusterData(dists, n, cutoff, isDistData=True) if n else []
   groups = np.empty(len(smiles), dtype=int)
   next_id = 0
