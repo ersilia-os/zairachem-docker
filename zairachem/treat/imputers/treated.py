@@ -235,6 +235,21 @@ class TreatedDescriptors(DescriptorBase):
     gc.collect()
     return len(raw_features), len(expected_cols)
 
+  def _warn_if_disk_is_short(self, eos_ids):
+    """Say so before treating when the scaled matrices will not fit beside the raw ones.
+
+    Treat doubles the descriptor footprint: every raw matrix gains a scaled copy of the same
+    shape, and both stay until the run finishes. The raw ones are already on disk, so what the
+    step is about to write is measured rather than guessed. Checked here because this is the last
+    cheap moment -- the step after it is the one that takes hours.
+    """
+    from zairachem.base.utils.disk import path_bytes, warn_if_short
+
+    descriptors_dir = os.path.join(self.path, DESCRIPTORS_SUBFOLDER)
+    needed = sum(path_bytes(os.path.join(descriptors_dir, eos_id)) for eos_id in eos_ids)
+    if needed:
+      warn_if_short(self.path, needed, f"scaling {len(eos_ids)} descriptors")
+
   def run(self):
     """Apply the reference transformer to every featurizer's raw descriptors.
 
@@ -242,6 +257,7 @@ class TreatedDescriptors(DescriptorBase):
     live table; featurizers without raw data are skipped, transformer errors are raised.
     """
     eos_ids = list(self.done_eos_iter())
+    self._warn_if_disk_is_short(eos_ids)
     transformers = self._prefetch_transformers(eos_ids)
     monitor = TreatMonitor(eos_ids, color=STEP_COLORS.get("treat", "magenta"))
     with monitor.live():

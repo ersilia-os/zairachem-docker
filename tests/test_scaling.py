@@ -233,3 +233,40 @@ def test_the_proxy_scores_every_row_until_it_cannot():
   widest = 2048  # features of a wide descriptor
   implied_mb = PROXY_MAX_ROWS * widest * 4 * 1.8 / 2**20  # the matrix, plus the fit's copy
   assert implied_mb < 512, f"the cap implies {implied_mb:.0f} MB per descriptor"
+
+
+def test_a_run_says_it_will_not_fit_before_it_spends_the_time(tmp_path, monkeypatch):
+  """Treat doubles the descriptor footprint, and running out of disk surfaces as whatever error
+  h5py raises on a short write -- hours in, with the run unfinishable. The raw matrices are
+  already there, so what is about to be written is measured, not guessed."""
+  import inspect
+
+  from zairachem.base.utils import disk
+  from zairachem.base.utils.disk import free_bytes, path_bytes, warn_if_short
+  from zairachem.treat.imputers.treated import TreatedDescriptors
+
+  tree = tmp_path / "descriptors" / "eosA"
+  tree.mkdir(parents=True)
+  (tree / "raw.h5").write_bytes(b"x" * 4096)
+  (tree / "more").mkdir()
+  (tree / "more" / "chunk.h5").write_bytes(b"y" * 2048)
+  assert path_bytes(str(tree)) == 6144
+  assert path_bytes(str(tree / "raw.h5")) == 4096
+  assert path_bytes(str(tmp_path / "absent")) == 0
+
+  # A path that does not exist yet is still on a filesystem: measure its nearest ancestor.
+  assert free_bytes(str(tmp_path / "not" / "created" / "yet")) == free_bytes(str(tmp_path))
+
+  said = []
+  monkeypatch.setattr(disk.logger, "warning", lambda m, *a, **k: said.append(str(m)))
+  assert warn_if_short(str(tmp_path), 1024, "scaling 1 descriptor") is False
+  assert said == []
+  assert warn_if_short(str(tmp_path), 900 * 2**40, "scaling 5 descriptors") is True
+  assert "900.0 TB" in said[0] and "free" in said[0]
+
+  # An unmeasurable filesystem must not stop a run that is otherwise fine.
+  monkeypatch.setattr(disk, "free_bytes", lambda _p: None)
+  assert warn_if_short(str(tmp_path), 900 * 2**40, "scaling 5 descriptors") is False
+
+  # And treat has to ask, before the step that takes the hours.
+  assert "_warn_if_disk_is_short" in inspect.getsource(TreatedDescriptors.run)
