@@ -244,3 +244,44 @@ def test_the_pooler_reads_the_skill_its_estimator_wrote(tmp_path, task, suffix, 
   meta = io._get_descriptor_meta(columns, task)
   assert meta["oof_aucs"] == [0.81, 0.42]
   assert meta["train_aucs"] == [pytest.approx(0.91), pytest.approx(0.52)]
+
+
+def test_descriptors_that_disagree_on_their_compounds_are_refused(tmp_path):
+  """The per-descriptor matrices are stacked side by side by position, with the ids dropped.
+
+  A descriptor whose rows ever came back in another order would be pooled against a different
+  descriptor's compounds — every prediction wrong, and nothing in the output to show it.
+  """
+  import json
+
+  import pandas as pd
+
+  from zairachem.pool.base import XGetter
+
+  root = tmp_path / "run"
+  (root / "descriptors").mkdir(parents=True)
+  (root / "descriptors" / "done_eos.json").write_text(json.dumps(["eosA", "eosB"]))
+  (root / "model" / "pool").mkdir(parents=True)
+  (root / "session.json").write_text(
+    json.dumps({"mode": "fit", "output_dir": str(root), "model_dir": str(root)})
+  )
+  cids = [f"CID{i:03d}" for i in range(6)]
+
+  def write(eos, ids):
+    d = root / "model" / "estimators" / "lq_estimators" / eos
+    d.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"compound_id": ids, "smiles": ["CCO"] * len(ids), "clf": range(len(ids))}).to_csv(
+      d / "results_unmapped.csv", index=False
+    )
+
+  write("eosA", cids)
+  write("eosB", cids)
+  assert XGetter(path=str(root)).get().shape == (6, 2)  # agreeing descriptors pool as before
+
+  write("eosB", cids[::-1])
+  with pytest.raises(RuntimeError, match="different compound"):
+    XGetter(path=str(root)).get()
+
+  write("eosB", cids[:4])
+  with pytest.raises(RuntimeError, match="result rows"):
+    XGetter(path=str(root)).get()

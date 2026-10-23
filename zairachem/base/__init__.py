@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import random
@@ -46,9 +47,34 @@ def read_session(path):
 
 
 def write_session(path, data):
-  """Write the run's ``session.json``."""
-  with open(os.path.join(session_dir(path), SESSION_FILE), "w") as f:
-    json.dump(data, f, indent=4)
+  """Write the run's ``session.json``, atomically.
+
+  Every step rewrites this file, and a run that loses it loses more than its place: the model
+  directory, the mode and the resume list all live here, so a truncated one makes even
+  ``zairachem report -m <dir>`` unable to read the run. Writing in place leaves a window where an
+  interrupted process -- Ctrl-C, the OOM killer, a laptop suspending -- leaves half a file. The
+  temporary file is created beside it so the replace is on the same filesystem, and therefore
+  atomic.
+  """
+  _atomic_json(os.path.join(session_dir(path), SESSION_FILE), data)
+
+
+def _atomic_json(path, data):
+  """Write ``data`` as JSON to ``path`` so a reader sees either the old file or the new one."""
+  import tempfile
+
+  directory = os.path.dirname(path) or "."
+  fd, tmp = tempfile.mkstemp(dir=directory, prefix=".session-", suffix=".tmp")
+  try:
+    with os.fdopen(fd, "w") as f:
+      json.dump(data, f, indent=4)
+      f.flush()
+      os.fsync(f.fileno())
+    os.replace(tmp, path)
+  except BaseException:
+    with contextlib.suppress(OSError):
+      os.remove(tmp)
+    raise
 
 
 class ZairaBase(object):

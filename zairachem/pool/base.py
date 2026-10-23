@@ -43,9 +43,37 @@ class XGetter(ZairaBase):
 
   @staticmethod
   def _read_results_file(file_path):
+    """``(values, compound_ids)``: the descriptor's prediction columns, and who each row is."""
     df = pd.read_csv(file_path)
+    ids = list(df[COMPOUND_IDENTIFIER_COLUMN]) if COMPOUND_IDENTIFIER_COLUMN in df.columns else None
     df = df[[c for c in list(df.columns) if c not in [SMILES_COLUMN, COMPOUND_IDENTIFIER_COLUMN]]]
-    return df
+    return df, ids
+
+  @staticmethod
+  def _check_same_compounds(prefixes, ids):
+    """Raise unless every descriptor's results list the same compounds in the same order.
+
+    The matrices are stacked side by side by position, and the compound ids are dropped on the way
+    in, so a descriptor whose rows ever came back in a different order would be silently pooled
+    against another descriptor's compounds -- every prediction wrong, nothing to see. Each file
+    carries the ids; comparing them costs one column read and turns that into an error.
+    """
+    reference = next((i for i in ids if i is not None), None)
+    if reference is None:
+      return
+    for prefix, got in zip(prefixes, ids):
+      if got is None or got == reference:
+        continue
+      if len(got) != len(reference):
+        raise RuntimeError(
+          f"[pool] {prefix} has {len(got):,} result rows, but {len(reference):,} were expected. "
+          "The run's descriptors disagree on how many compounds they scored."
+        )
+      first = next(k for k, (a, b) in enumerate(zip(got, reference)) if a != b)
+      raise RuntimeError(
+        f"[pool] {prefix} lists a different compound from the other descriptors at row {first} "
+        f"({got[first]!r} instead of {reference[first]!r}); pooling them would mix compounds."
+      )
 
   def _get_results(self):
     # Idempotent: reset accumulators so a second call (or get() after iter_get() on the same
@@ -54,13 +82,17 @@ class XGetter(ZairaBase):
     self.columns = []
     prefixes = []
     dfs = []
+    ids = []
     for rpath in ResultsIterator(path=self.path).iter_relpaths():
       file_name = "/".join([self.path, ESTIMATORS_SUBFOLDER] + rpath + [RESULTS_UNMAPPED_FILENAME])
       if not os.path.exists(file_name):
         logger.warning(f"[pool] Results file not found: {file_name}")
         continue
+      df, cids = self._read_results_file(file_name)
       prefixes += ["-".join(rpath)]
-      dfs += [self._read_results_file(file_name)]
+      dfs += [df]
+      ids += [cids]
+    self._check_same_compounds(prefixes, ids)
     for prefix, df in zip(prefixes, dfs):
       self.X += [np.array(df, dtype=np.float32)]
       self.columns += ["{0}-{1}".format(prefix, c) for c in list(df.columns)]

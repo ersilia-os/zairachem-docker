@@ -49,8 +49,9 @@ class SessionFile(ZairaBase):
       "mode": self.mode,
       "host": self._host_info(),
     }
-    with open(self.session_file, "w") as f:
-      json.dump(data, f, indent=4)
+    from zairachem.base import _atomic_json
+
+    _atomic_json(self.session_file, data)
 
 
 class PipelineStep(ZairaBase):
@@ -72,8 +73,9 @@ class PipelineStep(ZairaBase):
     return data
 
   def _write_session(self, data):
-    with open(self.session_file, "w") as f:
-      json.dump(data, f, indent=4)
+    from zairachem.base import _atomic_json
+
+    _atomic_json(self.session_file, data)
 
   def _telemetry(self):
     """A per-step telemetry snapshot: completion time plus host CPU/RAM (psutil-guarded)."""
