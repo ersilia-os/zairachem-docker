@@ -17,14 +17,15 @@ import numpy as np
 
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import ChunkedH5Store, open_h5
-from zairachem.base.vars import RANDOM_SEED, SKILL_FLOOR, TREATED_DESC_FILENAME
+from zairachem.base.vars import CV_SKILL, RANDOM_SEED, SKILL_FLOOR, TREATED_DESC_FILENAME
 
 #: A candidate must clear this solo held-out skill to enter the greedy pool (else it can't be the
 #: seed either — but the single best descriptor is always kept, so a run is never empty). The same
 #: floor the pooler prunes on, from :data:`zairachem.base.vars.SKILL_FLOOR`.
 PROXY_FLOOR = SKILL_FLOOR
-#: Skill of a descriptor that carries no signal: chance for AUROC, no correlation for rho.
-PROXY_CHANCE = {"classification": 0.5, "regression": 0.0}
+#: Skill of a descriptor that carries no signal: chance for AUROC, no correlation for rho. The
+#: same value the inner cross-validation reads at chance, from :data:`zairachem.base.vars.CV_SKILL`.
+PROXY_CHANCE = {task: skill[-1] for task, skill in CV_SKILL.items()}
 #: Minimum ensemble-skill gain for a descriptor to be added to the pool (strict improvement; guards
 #: against adding redundant descriptors on noise).
 PROXY_MARGIN = 1e-3
