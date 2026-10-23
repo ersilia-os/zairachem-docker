@@ -228,3 +228,38 @@ def test_disagreeing_duplicates_say_by_how_much(tmp_path):
   assert checker._disagreement_phrase() == ""
 
   assert "_disagreement_phrase" in inspect.getsource(SetupChecker.check_activity)
+
+
+def test_a_failed_parameters_write_leaves_the_run_resumable(tmp_path):
+  """Every step reads `parameters.json` back, so a plain open(path, "w") that is interrupted
+  between the truncate and the flush leaves a run that cannot be resumed at all. The write goes
+  to a temp file and is renamed, so the reader sees the old file or the new one and never a
+  half-written one."""
+  import inspect
+  import json
+
+  import pytest
+
+  from zairachem.base import _atomic_json
+  from zairachem.describe.descriptors import api, raw
+  from zairachem.report.html import sections
+  from zairachem.setup.prep import prediction, training
+  from zairachem.treat.imputers import treated
+
+  path = tmp_path / "parameters.json"
+  path.write_text(json.dumps({"task": "regression"}))
+  with pytest.raises(TypeError):  # fails while serializing, after the old file would be gone
+    _atomic_json(str(path), {"task": object()})
+  assert json.loads(path.read_text()) == {"task": "regression"}
+  assert [p.name for p in tmp_path.iterdir()] == ["parameters.json"]  # no temp file left behind
+
+  # And every writer of that file goes through it.
+  for owner in (
+    training.TrainSetup._save_params,
+    prediction.PredictSetup._update_params,
+    treated.TreatedDescriptors._save_params,
+    raw.RawDescriptors._prewarm_versions,
+    api.BinaryStreamClient._save_params,
+    sections._model_titles,
+  ):
+    assert "_atomic_json" in inspect.getsource(owner), owner

@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 
-from zairachem.base import params_path
+from zairachem.base import _atomic_json, params_path
 from zairachem.base.utils.console import echo, summary_panel
 from zairachem.base.utils.isaura_report import (
   check_isaura_version_consistency,
@@ -154,8 +154,7 @@ class TrainSetup(BaseSetup):
     self.resume = False
 
   def _save_params(self):
-    with open(params_path(self.output_dir), "w") as f:
-      json.dump(self.params, f, indent=4)
+    _atomic_json(params_path(self.output_dir), self.params)
 
   def _make_output_dir(self):
     if os.path.exists(self.output_dir):

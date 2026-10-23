@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from eosframes.scale import transform as eosframes_transform
 
-from zairachem.base import params_path
+from zairachem.base import _atomic_json, params_path
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.matrices import (
@@ -81,8 +81,7 @@ class TreatedDescriptors(DescriptorBase):
       return json.load(f)
 
   def _save_params(self):
-    with open(params_path(self.path), "w") as f:
-      json.dump(self._params, f, indent=4)
+    _atomic_json(params_path(self.path), self._params)
 
   def _featurizer_version(self, eos_id):
     versions = self._params.get("latest_featurizer_version") or {}

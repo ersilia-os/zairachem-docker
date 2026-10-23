@@ -103,7 +103,7 @@ def _model_titles(output_dir, params, ids):
     if title:
       newly[mid] = title
   if newly:
-    from zairachem.base import params_path
+    from zairachem.base import _atomic_json, params_path
 
     try:
       cached.update(newly)
@@ -111,8 +111,7 @@ def _model_titles(output_dir, params, ids):
       with open(params_path(output_dir)) as f:
         on_disk = json.load(f)
       on_disk["model_titles"] = {**(on_disk.get("model_titles") or {}), **newly}
-      with open(params_path(output_dir), "w") as f:
-        json.dump(on_disk, f, indent=2)
+      _atomic_json(params_path(output_dir), on_disk)
     except (OSError, ValueError) as e:
       logger.debug(f"[report] model titles not cached in params: {e}")
   return resolved

@@ -178,7 +178,7 @@ class RawDescriptors(ZairaBase):
     its worker thread and rewrites the shared ``parameters.json`` — concurrent, non-atomic writes that
     could race and corrupt the file. Pre-populating it means every client finds its version already
     cached (``ersilia_model_version`` is itself memoised) and never writes during the parallel phase."""
-    from zairachem.base import params_path
+    from zairachem.base import _atomic_json, params_path
     from zairachem.base.utils.model_version import ersilia_model_version
 
     versions = self.params.get("latest_featurizer_version") or {}
@@ -190,8 +190,7 @@ class RawDescriptors(ZairaBase):
       with ThreadPoolExecutor(max_workers=min(8, len(missing))) as ex:
         versions.update(zip(missing, ex.map(ersilia_model_version, missing)))
       self.params["latest_featurizer_version"] = versions
-      with open(params_path(self.path), "w") as f:
-        json.dump(self.params, f, indent=2)
+      _atomic_json(params_path(self.path), self.params)
 
   def _warn_if_versions_moved(self, eos_ids):
     """At predict, warn when a featurizer's image is not the version the model was fitted with.

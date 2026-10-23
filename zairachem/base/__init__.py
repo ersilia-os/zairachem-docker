@@ -60,11 +60,18 @@ def write_session(path, data):
 
 
 def _atomic_json(path, data):
-  """Write ``data`` as JSON to ``path`` so a reader sees either the old file or the new one."""
+  """Write ``data`` as JSON to ``path`` so a reader sees either the old file or the new one.
+
+  Every run-level JSON the pipeline rewrites goes through this. A plain ``open(path, "w")``
+  truncates first, so an interrupt between the truncate and the flush leaves the file empty or
+  half-written — and ``parameters.json`` is read back by every later step, so a run interrupted
+  mid-write could not be resumed. It does not make a read-modify-write sequence safe: two writers
+  can still lose one another's changes, only never leave a broken file behind.
+  """
   import tempfile
 
   directory = os.path.dirname(path) or "."
-  fd, tmp = tempfile.mkstemp(dir=directory, prefix=".session-", suffix=".tmp")
+  fd, tmp = tempfile.mkstemp(dir=directory, prefix=".zairachem-", suffix=".tmp")
   try:
     with os.fdopen(fd, "w") as f:
       json.dump(data, f, indent=4)

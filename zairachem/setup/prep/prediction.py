@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 
-from zairachem.base import params_path
+from zairachem.base import _atomic_json, params_path
 from zairachem.base.utils.console import echo, summary_panel
 from zairachem.base.utils.isaura_report import (
   check_isaura_version_consistency,
@@ -196,8 +196,7 @@ class PredictSetup(BaseSetup):
     params["store"] = self.store
     params["read_store"] = self.read_store
     params["contribute_store"] = self.contribute_store
-    with open(pp, "w") as f:
-      json.dump(params, f, indent=4)
+    _atomic_json(pp, params)
 
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)

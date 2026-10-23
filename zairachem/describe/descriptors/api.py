@@ -24,7 +24,7 @@ from rich.progress import (
   TimeRemainingColumn,
 )
 
-from zairachem.base import ZairaBase
+from zairachem.base import ZairaBase, _atomic_json
 from zairachem.base.utils.console import console, echo
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.model_version import ersilia_model_version
@@ -199,8 +199,7 @@ class BinaryStreamClient(ZairaBase):
 
   def _save_params(self, params):
     try:
-      with open(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), "w") as f:
-        json.dump(params, f, indent=2)
+      _atomic_json(os.path.join(self.path, METADATA_SUBFOLDER, PARAMETERS_FILE), params)
     except Exception as e:
       logger.error(f"Error saving params to disk: {e}")
       raise
