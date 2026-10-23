@@ -60,19 +60,17 @@ def _hitlist_table_html(report_dir, top_n=25):
     headers.append("Similarity")
   # The SMILES heading takes the cell class too, so it sits over its column rather than over the
   # numbers to its right (every other column in this table is right-aligned).
-  head = "".join(
-    "<th class='smiles'>{}</th>".format(html.escape(h))
-    if h == "SMILES"
-    else f"<th>{html.escape(h)}</th>"
-    for h in headers
-  )
+  head = ""
+  for h in headers:
+    klass = " class='smiles'" if h == "SMILES" else ""
+    head += f"<th{klass}>{html.escape(h)}</th>"
 
   body = []
   for i, (_, r) in enumerate(top.iterrows(), start=1):
+    smiles = html.escape(str(r.get("input_smiles", "")))
     cells = [
       f"<td>{i}</td>",
-      f"<td class='smiles' title='{html.escape(str(r.get('input_smiles', '')))}'>"
-      f"{html.escape(str(r.get('input_smiles', '')))}</td>",
+      f"<td class='smiles' title='{smiles}'>{smiles}</td>",
       f"<td>{_fmt_num(r[score_col])}</td>",
     ]
     if is_clf:

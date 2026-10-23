@@ -527,8 +527,12 @@ def _setup_rows(d, params):
   return rows
 
 
-def _as_float(value):
-  """``value`` as a float, or None when it is missing or could not be computed (NaN)."""
+def _finite_or_none(value):
+  """``value`` as a float, or None when it is missing or could not be computed (NaN).
+
+  Named apart from ``estimate``'s ``_float_or_none``, which keeps a NaN: here a metric that could
+  not be computed must not be read as a number, because every caller compares it to a threshold.
+  """
   try:
     number = float(value)
   except (TypeError, ValueError):
@@ -562,7 +566,7 @@ def _warn_if_no_signal(rows, task, skill, r2=None):
   def caution(text):
     rows.append(("", f"[yellow]No usable signal[/] [dim]— {text}[/]"))
 
-  value, floor = _as_float(skill), SKILL_FLOOR.get(task)
+  value, floor = _finite_or_none(skill), SKILL_FLOOR.get(task)
   if value is not None and floor is not None and value < floor:
     measure, orders = (
       ("AUROC", "separate the classes")
@@ -575,7 +579,7 @@ def _warn_if_no_signal(rows, task, skill, r2=None):
     )
     return
   # A model can order compounds acceptably and still predict useless values.
-  explained = _as_float(r2)
+  explained = _finite_or_none(r2)
   if explained is not None and explained <= 0:
     caution(
       f"R² {explained:.2f}: these predicted values are no better than the training average, "
