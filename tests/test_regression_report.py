@@ -454,3 +454,55 @@ def test_the_plot_registry_and_the_html_catalog_agree():
     "a section names a figure nothing registers"
   )
   assert not [n for n in _FIT_ONLY if n not in names], "fit-only name is not a registered plot"
+
+
+def test_the_enrichment_curve_reports_the_mean_of_the_top_slice(tmp_path):
+  """Checked against a case whose answer is known by construction."""
+  import pandas as pd
+
+  from zairachem.report.plots import PotencyEnrichmentPlot
+
+  path = _synthetic_run(tmp_path / "ranked", n=100)
+  # A perfect ranker on a known target: the top 10% are exactly the ten highest values.
+  values = np.linspace(1.0, 100.0, 100)
+  cid = [f"CID{i:03d}" for i in range(100)]
+  smiles = pd.read_csv(os.path.join(path, "inputs", "data.csv"))["smiles"].tolist()
+  pd.DataFrame({"compound_id": cid, "smiles": smiles, "val": values}).to_csv(
+    os.path.join(path, "inputs", "data.csv"), index=False
+  )
+  pooled = os.path.join(path, "model", "pool", "results_unmapped.csv")
+  df = pd.read_csv(pooled)
+  df["reg"] = values  # prediction order == truth order
+  df.to_csv(pooled, index=False)
+
+  plot = PotencyEnrichmentPlot(ax=None, path=path)
+  assert plot.is_available
+  # Top 10 of 100 are 91..100, mean 95.5; the whole set averages 50.5.
+  assert "95.50" in plot.ax.get_title(), plot.ax.get_title()
+  line = plot.ax.get_lines()[0]
+  assert line.get_ydata()[-1] == pytest.approx(values.mean())  # the full set, at 100%
+  assert np.all(np.diff(line.get_ydata()) <= 1e-9)  # a perfect ranker only ever gets worse
+
+
+def test_the_coverage_panel_counts_the_compounds_inside_their_interval(tmp_path):
+  import pandas as pd
+
+  from zairachem.report.plots import IntervalCoveragePlot
+
+  path = _synthetic_run(tmp_path / "coverage", n=100)
+  truth = pd.read_csv(os.path.join(path, "inputs", "data.csv"))["val"].to_numpy(float)
+  pooled_path = os.path.join(path, "model", "pool", "results_unmapped.csv")
+  df = pd.read_csv(pooled_path)
+  # Centre every interval on the truth, then push exactly ten compounds outside their own.
+  df["reg_lower"], df["reg_upper"] = truth - 1.0, truth + 1.0
+  df.loc[:9, "reg_lower"] = truth[:10] + 0.5
+  df.to_csv(pooled_path, index=False)
+
+  plot = IntervalCoveragePlot(ax=None, path=path)
+  assert plot.is_available
+  labels = [t.get_text() for t in plot.ax.get_xticklabels()]
+  heights = [bar.get_height() for bar in plot.ax.patches]
+  # Moving ten lower bounds also changed their width, so those ten are their own bin: it covers
+  # none of them, the untouched bin covers all of its own, and the pooled bar is 90 of 100.
+  assert labels[-1] == "All" and heights[-1] == pytest.approx(0.90)
+  assert sorted(heights[:-1]) == [pytest.approx(0.0), pytest.approx(1.0)]
