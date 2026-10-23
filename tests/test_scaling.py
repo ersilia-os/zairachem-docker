@@ -153,3 +153,83 @@ def test_butina_is_refused_rather_than_attempted_on_a_large_set(monkeypatch):
   # distances before it clusters anything, so the constant is really a memory budget.
   implied_gb = _BUTINA_MAX_MOLECULES * (_BUTINA_MAX_MOLECULES - 1) / 2 * 8 / 2**30
   assert implied_gb < 0.5, f"the ceiling implies a {implied_gb:.1f} GB distance matrix"
+
+
+def _store_pair(tmp_path, n, f):
+  """The same matrix as a single HDF5 file and as a chunked store, with uneven chunks."""
+  from zairachem.base.utils.matrices import ChunkedH5Store, Data, Hdf5
+
+  X = np.arange(n * f, dtype=np.float32).reshape(n, f)
+  feats = [f"f{i}" for i in range(f)]
+  ins = [f"s{i}" for i in range(n)]
+  single = str(tmp_path / "a.h5")
+  data = Data()
+  data.set(inputs=ins, values=X, features=feats)
+  Hdf5(single).save(data)
+  chunked = ChunkedH5Store(str(tmp_path / "b.h5"))
+  chunked.create(f, feats)
+  for s in range(0, n, 97):
+    chunked.save_chunk(X[s : s + 97], ins[s : s + 97])
+  return X, Hdf5(single), chunked
+
+
+def test_a_row_subset_costs_the_subset(tmp_path):
+  """Screening scores a sample of the rows. Reading the whole matrix to throw most of it away is
+  what made the sample pointless: a wide descriptor over a million rows is 8 GB, per descriptor,
+  plus a copy of most of it again for every fold's fit."""
+  import tracemalloc
+
+  X, single, chunked = _store_pair(tmp_path, 1200, 64)
+  rows = np.sort(np.random.default_rng(0).choice(1200, 150, replace=False))
+
+  for store in (single, chunked):
+    assert np.array_equal(store.take_rows(rows), X[rows])
+    assert np.array_equal(store.take_rows(np.arange(1200)), X)  # full range still reads everything
+    assert store.take_rows([]).shape == (0, 64)
+
+  # A row past the end is a mismatch between the run and its matrix, not something to read around.
+  with pytest.raises(IndexError):
+    chunked.take_rows(np.array([5, 1199, 1200]))
+
+    tracemalloc.start()
+    store.take_rows(rows)
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < X.nbytes / 2, f"{type(store).__name__} peaked at {peak / X.nbytes:.2f}x"
+
+
+def test_the_proxy_scores_every_row_until_it_cannot():
+  """Below the cap nothing changes -- same rows, same folds, same targets, so the same ranking.
+  Above it the proxy keeps a stratified sample, because holding the matrix per descriptor is not
+  available at that size and a shallow forest's ranking has long since settled."""
+  from zairachem.screen.proxy import PROXY_MAX_ROWS, _compact_folds
+
+  n = 3000
+  y = np.linspace(4.0, 9.0, n)
+  idx = np.arange(n)
+  folds = [(np.setdiff1d(idx, idx[k::5]), idx[k::5]) for k in range(5)]
+
+  rows, compact, y_rows = _compact_folds(folds, y, "regression", PROXY_MAX_ROWS, 42)
+  assert np.array_equal(rows, idx) and np.array_equal(y_rows, y)
+  for (tr, te), (ctr, cte) in zip(folds, compact):
+    assert np.array_equal(tr, ctr) and np.array_equal(te, cte)
+
+  rows, compact, y_rows = _compact_folds(folds, y, "regression", 500, 42)
+  assert rows.size == 500
+  assert np.array_equal(y_rows, y[rows])
+  for ctr, cte in compact:  # renumbered into the sample, not left pointing at the full run
+    assert ctr.max() < rows.size and cte.max() < rows.size
+  assert y_rows.min() < np.percentile(y, 10) and y_rows.max() > np.percentile(y, 90)
+
+  # A class rare enough that a flat draw of 500 from 3,000 would usually miss it entirely has to
+  # survive the thinning, or the proxy ranks descriptors on folds with nothing in them to find.
+  rare = np.zeros(n, dtype=int)
+  rare[[7, 1500, 2998]] = 1  # three positives in three thousand
+  for seed in range(5):
+    _, _, y_rare = _compact_folds(folds, rare, "classification", 500, seed)
+    assert y_rare.sum() >= 1, f"the rare class was dropped at seed {seed}"
+
+  # And the cap is a memory budget: it is what a descriptor's matrix costs while it is scored.
+  widest = 2048  # features of a wide descriptor
+  implied_mb = PROXY_MAX_ROWS * widest * 4 * 1.8 / 2**20  # the matrix, plus the fit's copy
+  assert implied_mb < 512, f"the cap implies {implied_mb:.0f} MB per descriptor"

@@ -417,16 +417,16 @@ def test_a_descriptor_no_fold_could_score_does_not_win_the_screen(monkeypatch):
   folds = [(list(range(30)), list(range(30, 40)))]
   current = {}
 
-  def load(_dir, eos_id):
+  def load(_dir, eos_id, rows):
     current["eos"] = eos_id
-    return np.zeros((40, 2), dtype="float32")
+    return np.zeros((len(rows), 2), dtype="float32")
 
   def fold_pred(_X, yy, _tr, te, _seed, _task):
     if current["eos"] == "dead":  # every fold declines to score it
       return None
     return -yy[np.asarray(te)]  # anti-correlated: a real, below-chance score
 
-  monkeypatch.setattr(proxy, "_load_treated", load)
+  monkeypatch.setattr(proxy, "_load_rows", load)
   monkeypatch.setattr(proxy, "_fold_pred", fold_pred)
 
   selected, scores, _ = proxy.select_descriptors(
@@ -461,11 +461,11 @@ def test_the_screen_shows_what_each_descriptor_added(monkeypatch):
   seed = y + rng.normal(0, 1.5, n)
   signal = {"seed": seed, "adds": y + rng.normal(0, 1.5, n), "copy": seed}
 
-  def load(_dir, eos_id):
+  def load(_dir, eos_id, rows):
     load.current = eos_id
-    return np.zeros((n, 2), dtype="float32")
+    return np.zeros((len(rows), 2), dtype="float32")
 
-  monkeypatch.setattr(proxy, "_load_treated", load)
+  monkeypatch.setattr(proxy, "_load_rows", load)
   monkeypatch.setattr(
     proxy, "_fold_pred", lambda _X, _y, _tr, te, _s, _t: signal[load.current][np.asarray(te)]
   )

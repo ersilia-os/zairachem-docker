@@ -102,6 +102,22 @@ class Hdf5(object):
     with self._open("r") as f:
       return f["Values"][:]
 
+  def take_rows(self, rows) -> np.ndarray:
+    """Read just ``rows`` (sorted, distinct row indices) into one array.
+
+    For a caller that wants a sample of a large matrix, reading the whole thing to throw most of
+    it away is what makes the sample pointless. HDF5 selects the rows itself, so the cost is the
+    sample rather than the matrix.
+    """
+    idx = np.asarray(rows, dtype=np.int64)
+    with self._open("r") as f:
+      ds = f["Values"]
+      if idx.size == 0:
+        return np.empty((0, ds.shape[1]), dtype=ds.dtype)
+      if idx.size == ds.shape[0] and idx[0] == 0 and idx[-1] == idx.size - 1:
+        return ds[:]  # every row, in order: a plain read beats a selection of all of them
+      return ds[idx, :]
+
   def iter_values(self, chunk_size=DEFAULT_CHUNK_SIZE) -> Iterator[np.ndarray]:
     """Yield the matrix in row chunks of ``chunk_size``."""
     with self._open("r") as f:
@@ -331,6 +347,31 @@ class ChunkedH5Store:
       end = offset + vals.shape[0]
       yield offset, end, vals, inputs
       offset = end
+
+  def take_rows(self, rows) -> np.ndarray:
+    """Read just ``rows`` (sorted, distinct row indices) into one array.
+
+    Only the chunks holding one of them are opened, and only their wanted rows are read, so a
+    sample costs the sample rather than the store.
+    """
+    idx = np.asarray(rows, dtype=np.int64)
+    out = np.empty((idx.size, self.n_features()), dtype=np.float32)
+    at = 0
+    offset = 0
+    for path in self._sorted_chunk_paths():
+      if at >= idx.size:
+        break
+      with h5py.File(path, "r") as f:
+        ds = f["Values"]
+        end = offset + ds.shape[0]
+        lo, hi = np.searchsorted(idx, (offset, end))
+        if hi > lo:
+          out[at : at + (hi - lo)] = ds[(idx[lo:hi] - offset), :]
+          at += hi - lo
+      offset = end
+    if at != idx.size:
+      raise IndexError(f"{idx.size} rows were asked for but only {at} are in {self.dir}")
+    return out
 
   def values(self) -> np.ndarray:
     """Read every chunk into one array."""
