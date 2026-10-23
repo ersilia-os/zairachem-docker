@@ -746,3 +746,17 @@ def test_the_performance_table_skips_quietly_on_unlabelled_molecules(tmp_path, t
 
   PerformanceTable(path=str(root)).run()
   assert not (root / "report" / "performance_table.csv").exists()
+
+
+def test_the_colour_key_separates_the_families_that_share_a_colour():
+  """Two swatches of the same colour under one heading read as one meaning; they are not."""
+  from zairachem.report.colors import hexcol, legend, legend_groups
+
+  for task, family in (("classification", "Classes"), ("regression", "Values")):
+    groups = legend_groups(task)
+    assert [g for g, _ in groups] == [family, "Descriptors"]
+    # Nothing is lost or duplicated by the grouping.
+    assert [e for _, entries in groups for e in entries] == legend(task)
+    # The collision this grouping exists for: a colour that appears in both families.
+    task_colors = {hexcol(k) for _, k in groups[0][1]}
+    assert task_colors & {hexcol(k) for _, k in groups[1][1]}

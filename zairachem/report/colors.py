@@ -133,7 +133,8 @@ def legend_groups(task="classification"):
   list of (str, list)
     ``(family label, [(label, semantic key), ...])``, in display order.
   """
+  family = "Values" if task == "regression" else "Classes"
   return [
-    ("Predictions", _LEGEND.get(task, _LEGEND["classification"])),
+    (family, _LEGEND.get(task, _LEGEND["classification"])),
     ("Descriptors", _LEGEND_SHARED),
   ]
