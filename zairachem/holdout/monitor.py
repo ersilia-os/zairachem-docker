@@ -59,6 +59,24 @@ class EvaluateMonitor(LiveTableMonitor):
       table.add_column(_METRIC_LABEL[name], justify="right", width=8, no_wrap=True)
     table.add_column("Time", justify="right", width=8, no_wrap=True)
 
+  def _plain_finish(self, item_id, s):
+    """Off-TTY completion line, carrying the fold's metrics.
+
+    Piped to a log there is no live table, and the per-fold scores would otherwise appear nowhere
+    in the terminal output at all -- only in ``report/validation_table.csv``.
+    """
+    from zairachem.base.utils.console import echo
+
+    e = s["extra"] if s else {}
+    scored = "  ".join(
+      f"{_METRIC_LABEL[name]} {_fmt_metric(e.get(name))}"
+      for name in self.metrics
+      if e.get(name) is not None
+    )
+    el = f"{s['elapsed']:.1f}s" if s and s["elapsed"] is not None else "—"
+    status = s["status"] if s else "done"
+    echo(f"{status} {item_id}  {scored}  [dim]{el}[/]", kind="info")
+
   def _row_cells(self, item_id, s):
     e = s["extra"]
     return [

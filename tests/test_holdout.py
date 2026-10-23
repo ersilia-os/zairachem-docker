@@ -146,3 +146,23 @@ def test_classification_folds_still_report_their_class_split(tmp_path):
   rows = list(csv.DictReader((tmp_path / "report" / "validation_table.csv").open()))
   assert rows[0]["auroc"] == "0.8" and rows[0]["num_1"] == "1" and rows[0]["num_0"] == "1"
   assert "r2" not in rows[0]
+
+
+def test_a_piped_fold_line_carries_its_metrics(capsys):
+  """Off-TTY there is no live table, so the scores would otherwise reach the terminal nowhere."""
+  from zairachem.holdout.monitor import EvaluateMonitor
+
+  state = {"status": "done", "elapsed": 12.0, "extra": {"r2": 0.669, "spearman": 0.754}}
+  EvaluateMonitor(["scaffold_00"], task="regression")._plain_finish("scaffold_00", state)
+  out = capsys.readouterr().out
+  assert "0.669" in out and "0.754" in out and "scaffold_00" in out
+
+  clf = {"status": "done", "elapsed": 12.0, "extra": {"auroc": 0.93, "aupr": 0.94}}
+  EvaluateMonitor(["random_00"], task="classification")._plain_finish("random_00", clf)
+  out = capsys.readouterr().out
+  assert "AUROC" in out and "0.930" in out
+
+  # A fold that failed to score says so without inventing a number.
+  blank = {"status": "failed", "elapsed": None, "extra": {}}
+  EvaluateMonitor(["x"], task="regression")._plain_finish("x", blank)
+  assert "failed" in capsys.readouterr().out
