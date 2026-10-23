@@ -445,3 +445,47 @@ def test_request_size_follows_the_worker_grant():
   # And the grant is where describe decides it, so the two cannot drift apart.
   src = inspect.getsource(raw.RawDescriptors._run_eos)
   assert "set_request_size_for_workers" in src, src
+
+
+def test_a_refused_request_size_is_remembered_per_image(tmp_path, monkeypatch):
+  """Some images cannot serve a request past a size of their own: eos4ex3 refuses 8,192 molecules
+  after about 28 seconds and serves 6,144. Without a memory of it every run spends its first
+  request discovering the same ceiling. Opening smaller is close to free -- throughput is flat
+  across these sizes and only the per-request overhead grows -- so the trade is one-sided."""
+  import inspect
+
+  from zairachem.describe.descriptors import profiles
+  from zairachem.describe.descriptors.api import BinaryStreamClient
+  from zairachem.describe.descriptors.profiles import ModelProfile
+
+  p = ModelProfile("eos4ex3", "sha256:abc")
+  assert p.first_request(9999) == 9999  # nothing known, nothing changed
+  p.record_failure(8192)
+  assert p.failed_at == 8192 and p.first_request(9999) == 4096  # halved below the refusal
+  p.record_failure(9999)
+  assert p.failed_at == 8192  # a larger refusal says nothing new
+  p.record_failure(2048)
+  assert p.failed_at == 2048 and p.first_request(9999) == 1024  # a smaller one does
+  assert ModelProfile("x", failed_at=1).first_request(9999) == 1  # never below one molecule
+
+  # It survives a round trip, keyed to the image like the rest of the profile.
+  monkeypatch.setattr(profiles, "BASE_DIR", str(tmp_path))
+  monkeypatch.setattr(profiles, "_path", lambda: str(tmp_path / "model_profiles.json"))
+  profiles.save(p)
+  assert profiles.load("eos4ex3", "sha256:abc").failed_at == 2048
+  assert profiles.load("eos4ex3", "sha256:different").failed_at is None  # a new image learns again
+
+  # The client asks before its first request, and records a refusal when it meets one.
+  client = BinaryStreamClient.__new__(BinaryStreamClient)
+  client.batch_size = 9999
+  client._initial_batch_size = 9999
+  client.model_id = "eos4ex3"
+  client.profile = ModelProfile("eos4ex3", "sha256:abc", failed_at=8192)
+  client.open_below_known_refusals()
+  assert client.batch_size == 4096 and client._initial_batch_size == 4096
+  assert "record_failure" in inspect.getsource(BinaryStreamClient._fetch_batch)
+
+  # ...and describe asks it to, or the memory is written and never read.
+  from zairachem.describe.descriptors import raw
+
+  assert "open_below_known_refusals" in inspect.getsource(raw.RawDescriptors._run_eos)

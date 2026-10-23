@@ -352,6 +352,25 @@ class BinaryStreamClient(ZairaBase):
     array = np.array(rows, dtype=float)  # None -> NaN
     return array, {}
 
+  def open_below_known_refusals(self):
+    """Drop the opening request under a size this image has refused before, if it has.
+
+    Some images cannot serve a request past a size of their own, and the refusal costs its full
+    timeout: eos4ex3 refuses 8,192 molecules after about 28 seconds, every run, before the client
+    halves and carries on. The profile remembers it per image, so only the first run that meets a
+    ceiling pays for it.
+    """
+    if self.profile is None:
+      return
+    opening = self.profile.first_request(self.batch_size)
+    if opening < self.batch_size:
+      logger.info(
+        f"{self.model_id}: this image refused {self.profile.failed_at} molecules before, so "
+        f"starting at {opening} per request rather than {self.batch_size}."
+      )
+      self.batch_size = opening
+      self._initial_batch_size = opening
+
   def set_request_size_for_workers(self, workers):
     """Size requests for the number of server workers this model was granted.
 
@@ -473,6 +492,8 @@ class BinaryStreamClient(ZairaBase):
     try:
       array, results = self._try_request(batch)
     except (requests.RequestException, IOError) as e:
+      if self.profile is not None:
+        self.profile.record_failure(len(batch))
       self.batch_size = max(MIN_DESCRIBE_BATCH_SIZE, len(batch) // 2)
       logger.warning(
         f"{self.model_id}: a request of {len(batch)} molecules failed; continuing with "

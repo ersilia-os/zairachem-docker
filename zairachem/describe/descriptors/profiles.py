@@ -61,14 +61,41 @@ class ModelProfile:
       the model can read the server's binary input, else JSON "simple"); None until known.
   cores : float, optional
       CPU cores a request keeps busy (median container CPU, highest seen); None until measured.
+  failed_at : int, optional
+      Smallest request this image has ever refused, in molecules; None until one is refused.
   """
 
-  def __init__(self, model_id, digest=None, samples=None, output_type=None, cores=None):
+  def __init__(
+    self, model_id, digest=None, samples=None, output_type=None, cores=None, failed_at=None
+  ):
     self.model_id = model_id
     self.digest = digest
     self.samples = [list(s) for s in (samples or [])]
     self.output_type = output_type
     self.cores = cores  # CPU cores a request keeps busy (highest median seen), or None
+    self.failed_at = failed_at
+
+  def record_failure(self, n):
+    """Note that a request of ``n`` molecules was refused, keeping the smallest such size.
+
+    Some images cannot serve a request past a size of their own -- measured, eos4ex3 refuses 8,192
+    and serves 6,144 -- and a run that does not know this spends its first request discovering it
+    again. Keyed to the image digest like the rest of the profile, so a new image learns afresh.
+    """
+    n = int(n)
+    self.failed_at = n if self.failed_at is None else min(self.failed_at, n)
+
+  def first_request(self, wanted):
+    """The request size to open with: ``wanted``, or under a size this image has refused.
+
+    Halved below the refusal, which is what the client does when it meets one mid-run. Opening
+    smaller is close to free -- throughput is flat across these sizes, and only the per-request
+    overhead grows, by about a minute over a million molecules -- while the refused request costs
+    its full timeout every run.
+    """
+    if not self.failed_at:
+      return wanted
+    return max(1, min(wanted, self.failed_at // 2))
 
   def record(self, n, peak_gb, seconds):
     """Add one successful request (``peak_gb`` 0 when the memory could not be sampled).
@@ -165,6 +192,7 @@ def load(model_id, digest):
     entry.get("samples"),
     entry.get("output_type"),
     entry.get("cores"),
+    entry.get("failed_at"),
   )
 
 
@@ -185,6 +213,7 @@ def save(profile):
       "samples": profile.samples,
       "output_type": profile.output_type,
       "cores": profile.cores,
+      "failed_at": profile.failed_at,
     }
     path = _path()
     tmp = f"{path}.{os.getpid()}.tmp"
