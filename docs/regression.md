@@ -39,6 +39,11 @@ which is a large time saving, and `results/cutoffs.json` is not written.
 `results/output_table.csv` adds the conformal interval (`lower`, `upper`), the per-descriptor
 predictions (`value_<eos_id>`) and the 2-D projections.
 
+A predict report opens with a hitlist of the 25 highest predicted values, which assumes the target
+is one where **more is better** — a pChEMBL or a pIC50, not a raw IC50 in nM. ZairaChem has no
+notion of a target's direction and does not try to infer one; on a lower-is-better assay, negate
+or transform the column before fitting, as you would for any other QSAR model.
+
 `results/performance_table.csv` is one row per model — the pooled model and each descriptor — with
 `r2`, `rmse`, `mae`, `pearson` and `spearman`. There are no cutoff columns because there are no
 cutoffs.
