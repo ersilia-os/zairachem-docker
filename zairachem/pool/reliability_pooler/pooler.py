@@ -40,6 +40,7 @@ from lazyqsar.utils.ranking import (
   subsample_knots,
 )
 
+from zairachem.base.utils.logging import logger
 from zairachem.base.vars import DEFAULT_CUTOFF, SKILL_FLOOR
 
 #: Saved weighting of a trained model (in its pool folder). One artefact serves both tasks.
@@ -208,6 +209,25 @@ def _descriptor_ranks(cutoffs, P, y, reference_P):
   return ranks
 
 
+def _fit_intervals_or_none(y, pooled, A):
+  """Split-conformal intervals for the training rows, or None when they cannot be calibrated.
+
+  The interval is an extra the model reports, not something it needs to predict a value, and the
+  Mondrian binning can degenerate: applicability-domain scores that are constant -- every compound
+  out of domain, a tiny training set, an AD model that collapsed -- can leave a bin with no
+  residuals in it, which lazy-qsar's quantile step cannot take a quantile of. Losing the interval
+  is the right cost for that; losing the pooled model after the whole fit is not.
+  """
+  try:
+    return fit_intervals(y, pooled, ad_summary(A))
+  except Exception as e:
+    logger.warning(
+      f"[reliability_pool:fit] prediction intervals could not be calibrated ({e}); "
+      "the model reports values without them."
+    )
+    return None
+
+
 def _fit_regression(spec, P, R, S, A, y, pruned_columns):
   """Finish a regression fit from the pruned matrices; return ``(params, result)``.
 
@@ -224,7 +244,7 @@ def _fit_regression(spec, P, R, S, A, y, pruned_columns):
   weights = stacking_weights(np.asarray(P, dtype=np.float64), np.asarray(y, dtype=np.float64))
   spec = dataclasses.replace(spec, descriptor_weights=tuple(float(w) for w in weights))
   p_train = _pooled(pool(P, R, S, A, spec, _outputs(REGRESSION)), spec)
-  intervals = fit_intervals(np.asarray(y, dtype=np.float64), p_train, ad_summary(A))
+  intervals = _fit_intervals_or_none(np.asarray(y, dtype=np.float64), p_train, A)
   if intervals:
     spec = dataclasses.replace(spec, intervals=intervals)
   params = {

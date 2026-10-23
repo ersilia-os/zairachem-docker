@@ -93,6 +93,23 @@ def test_intervals_cover_the_training_residuals():
   assert 0.85 <= covered <= 0.97
 
 
+def test_an_uncalibratable_interval_costs_the_interval_not_the_model(caplog):
+  """A degenerate applicability domain must not take the whole fit down with the interval.
+
+  lazy-qsar bins the residuals by applicability-domain score, and a constant score -- a tiny
+  training set, an AD model that collapsed, every compound out of domain -- leaves a bin with no
+  residuals to take a quantile of. That used to raise out of the pool step, after every descriptor
+  had been trained.
+  """
+  P, R, A, y, meta = _signals()
+  for degenerate in (np.zeros_like(A), np.full_like(A, -99.0)):
+    params, result = _fit(P, R, degenerate, y, meta)
+    assert params["spec"].intervals is None
+    assert "lower" not in result.values and "upper" not in result.values
+    value = np.asarray(result.values["value"], dtype=float)
+    assert np.isfinite(value).all()  # the values themselves are unaffected
+
+
 def test_a_regression_model_has_no_cutoffs_and_no_rank():
   P, R, A, y, meta = _signals()
   params, result = _fit(P, R, A, y, meta)
