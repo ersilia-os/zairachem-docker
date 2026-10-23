@@ -569,3 +569,37 @@ def test_the_tables_are_written_even_with_no_report_folder(tmp_path):
   # fixture does not build. Both go through the same path helper.
   PerformanceTable(path=path).run()
   assert os.listdir(os.path.join(path, "report")) == ["performance_table.csv"]
+
+
+def test_a_target_that_goes_negative_renders_like_any_other(tmp_path):
+  """LogD, binding free energy and pKa shifts are all routinely negative."""
+  import pandas as pd
+
+  from zairachem.report import plots as plots_module
+
+  path = _synthetic_run(tmp_path / "negative", n=80)
+  rng = np.random.default_rng(3)
+  truth = rng.normal(-2.5, 1.5, 80)  # centred below zero, straddling it
+  data_path = os.path.join(path, "inputs", "data.csv")
+  data = pd.read_csv(data_path)
+  data["val"] = truth
+  data.to_csv(data_path, index=False)
+  pooled_path = os.path.join(path, "model", "pool", "results_unmapped.csv")
+  pooled = pd.read_csv(pooled_path)
+  predicted = truth + rng.normal(0, 0.4, 80)
+  pooled["reg"] = predicted
+  pooled["reg_lower"], pooled["reg_upper"] = predicted - 1.0, predicted + 1.0
+  pooled.to_csv(pooled_path, index=False)
+  for eos in ("eosA", "eosB"):
+    d = os.path.join(path, "model", "estimators", "lq_estimators", eos)
+    per = pd.read_csv(os.path.join(d, "results_unmapped.csv"))
+    per["reg"] = truth + rng.normal(0, 0.6, 80)
+    per.to_csv(os.path.join(d, "results_unmapped.csv"), index=False)
+
+  drawn = []
+  for name in REGRESSION_PANELS:
+    plot = getattr(plots_module, name)(ax=None, path=path)  # must not raise
+    if getattr(plot, "is_available", False):
+      drawn.append(name)
+      assert "nan" not in plot.ax.get_title().lower(), name
+  assert {"RegressionPlotRaw", "PotencyEnrichmentPlot", "IntervalCoveragePlot"} <= set(drawn)
