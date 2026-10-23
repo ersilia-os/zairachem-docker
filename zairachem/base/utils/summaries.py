@@ -540,6 +540,18 @@ def _finite_or_none(value):
   return None if number != number else number  # NaN is unknown, not zero
 
 
+def _distinct(value, other, places=2, limit=6):
+  """``value`` with just enough decimals that it cannot print the same as ``other``.
+
+  The two numbers here are a metric and the floor it fell below, and at two decimals a near miss
+  prints as "0.10 is below 0.10" -- a contradiction that makes a reader doubt the rest of the
+  panel.
+  """
+  while places < limit and f"{value:.{places}f}" == f"{other:.{places}f}":
+    places += 1
+  return f"{value:.{places}f}"
+
+
 def _warn_if_no_signal(rows, task, skill, r2=None):
   """Append at most one caution row when the pooled model is not worth shipping.
 
@@ -574,7 +586,7 @@ def _warn_if_no_signal(rows, task, skill, r2=None):
       else ("Spearman rho", "order compounds")
     )
     caution(
-      f"held-out {measure} {value:.2f} is below {floor:.2f}: "
+      f"held-out {measure} {_distinct(value, floor)} is below {_distinct(floor, value)}: "
       f"this model does not {orders} better than chance."
     )
     return

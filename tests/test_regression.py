@@ -93,6 +93,20 @@ def test_intervals_cover_the_training_residuals():
   assert 0.85 <= covered <= 0.97
 
 
+def test_a_near_miss_does_not_print_as_a_contradiction():
+  """At two decimals a rho of 0.099 printed as "0.10 is below 0.10"."""
+  from zairachem.base.utils.summaries import _warn_if_no_signal
+
+  rows = []
+  _warn_if_no_signal(rows, "regression", skill=0.099, r2=0.4)
+  message = rows[0][1]
+  assert "0.099 is below 0.100" in message
+
+  rows = []
+  _warn_if_no_signal(rows, "regression", skill=0.05, r2=0.4)
+  assert "0.05 is below 0.10" in rows[0][1]  # no need for the extra decimals
+
+
 def test_an_uncalibratable_interval_costs_the_interval_not_the_model():
   """A degenerate applicability domain must not take the whole fit down with the interval.
 
