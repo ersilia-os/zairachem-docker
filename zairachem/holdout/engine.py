@@ -1,10 +1,10 @@
 """Execute one held-out fold end to end: fit descriptors on train, pool, score the held-out slice.
 
-The pooled classifier is the product we score. For each fold: re-fit every descriptor's estimator on
-the train slice (predictions for all rows fall out of the parent Fitter), stack them, fit the
-reliability pooler on the train slice, then combine on the held-out slice — giving an honest pooled
-prediction on molecules the fold never trained on. Descriptors are read from the shared workspace, so
-no featurization is repeated.
+The pooled model is the product we score, whichever task it is. For each fold: re-fit every
+descriptor's estimator on the train slice (predictions for all rows fall out of the parent Fitter),
+stack them, fit the reliability pooler on the train slice, then combine on the held-out slice —
+giving an honest pooled prediction on molecules the fold never trained on. Descriptors are read from
+the shared workspace, so no featurization is repeated.
 """
 
 import json
