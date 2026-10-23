@@ -270,3 +270,61 @@ def test_a_run_says_it_will_not_fit_before_it_spends_the_time(tmp_path, monkeypa
 
   # And treat has to ask, before the step that takes the hours.
   assert "_warn_if_disk_is_short" in inspect.getsource(TreatedDescriptors.run)
+
+
+def test_the_screen_thins_the_run_before_it_builds_the_folds():
+  """Thinning inside select_descriptors bounded the matrices but still paid for a fold menu over
+  every molecule: a Bemis-Murcko scaffold each, and a pass over every label per candidate seed.
+  Neither is worth spending on rows that will not be scored."""
+  import inspect
+
+  from zairachem.screen import pipe
+  from zairachem.screen.proxy import PROXY_MAX_ROWS, screening_rows
+
+  assert np.array_equal(
+    screening_rows(np.linspace(0, 1, 3000), "regression", PROXY_MAX_ROWS, 0), np.arange(3000)
+  )  # at or below the cap, every row, so the folds are the ones it always built
+
+  rows = screening_rows(np.linspace(0, 1, 80_000), "regression", 25_000, 0)
+  assert rows.size == 25_000
+  assert np.all(np.diff(rows) > 0) and np.unique(rows).size == rows.size  # sorted and distinct
+
+  rare = (np.arange(80_000) % 50 == 0).astype(float)  # 2% positives
+  kept = screening_rows(rare, "classification", 25_000, 0)
+  assert abs(rare[kept].mean() - rare.mean()) < 0.005
+
+  # The ordering is the point: thinned, then the menu built from the thinned rows. Match the
+  # call, not the name -- the import of it sits at the top of the same function.
+  src = inspect.getsource(pipe.ScreenPipeline.run)
+  assert "rows = screening_rows(" in src, src
+  assert src.index("rows = screening_rows(") < src.index("build_fold_definitions("), src
+  # ...and the rows it kept are handed on, or they would be thinned a second time.
+  assert "rows=rows" in src, src
+
+
+def test_a_caller_that_already_thinned_is_not_thinned_again(monkeypatch):
+  """The screen passes the rows it kept and fold indices that are positions within them. Thinning
+  those a second time would renumber indices that are already compact."""
+  from zairachem.screen import proxy
+
+  y = np.linspace(4.0, 9.0, 40)  # 40 kept rows, drawn from a much larger run
+  folds = [(np.arange(30), np.arange(30, 40))]
+  rows = np.sort(np.random.default_rng(0).choice(5000, 40, replace=False))
+
+  seen = {}
+
+  def load(_dir, eos_id, asked):
+    seen[eos_id] = np.asarray(asked)
+    return np.zeros((len(asked), 2), dtype="float32")
+
+  monkeypatch.setattr(proxy, "_load_rows", load)
+  monkeypatch.setattr(proxy, "_fold_pred", lambda _X, yy, _tr, te, _s, _t: yy[np.asarray(te)])
+  monkeypatch.setattr(
+    proxy, "_compact_folds", lambda *a, **k: pytest.fail("the rows were thinned twice")
+  )
+
+  selected, _scores, _gains = proxy.select_descriptors(
+    "d", ["eosA"], y, folds, 1, task="regression", rows=rows
+  )
+  assert selected == ["eosA"]
+  assert np.array_equal(seen["eosA"], rows)  # exactly the rows it was given, read once

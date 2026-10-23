@@ -68,6 +68,24 @@ def _stratified_sample(y_rows, task, limit, seed):
   return np.sort(sel)
 
 
+def screening_rows(y, task, limit, seed):
+  """The run's row indices, thinned to ``limit`` if there are more, keeping the target's shape.
+
+  Offered to the caller so the thinning can happen before the fold menu is built: a fold costs a
+  scaffold per molecule and a pass over every label per candidate seed, and neither is worth
+  spending on rows the proxy will not score. At or below ``limit`` this is simply every row.
+  """
+  y = np.asarray(y)
+  if y.size <= limit:
+    return np.arange(y.size)
+  rows = _stratified_sample(y, task, limit, seed)
+  logger.info(
+    f"[screen] scoring the proxy on {rows.size:,} of {y.size:,} rows: the ranking it produces "
+    "settles well before that, and reading every row would hold the whole matrix per descriptor"
+  )
+  return rows
+
+
 def _compact_folds(folds, y, task, limit, seed):
   """The rows the proxy will actually read, the folds renumbered into them, and their targets.
 
@@ -146,7 +164,15 @@ def _ensemble_skill(members, preds, y, folds, task):
 
 
 def select_descriptors(
-  descriptors_dir, eos_ids, y, folds, k, task="classification", floor=None, margin=PROXY_MARGIN
+  descriptors_dir,
+  eos_ids,
+  y,
+  folds,
+  k,
+  task="classification",
+  floor=None,
+  margin=PROXY_MARGIN,
+  rows=None,
 ):
   """Greedy ensemble-aware descriptor selection over the evaluate ``folds``.
 
@@ -188,7 +214,13 @@ def select_descriptors(
   y = np.asarray(y)
   floor = PROXY_FLOOR[task] if floor is None else floor
   chance = PROXY_CHANCE[task]
-  rows, folds, y = _compact_folds(folds, y, task, PROXY_MAX_ROWS, RANDOM_SEED)
+  if rows is None:
+    # Fold indices are the run's own row numbers; thin them here. A caller that already thinned
+    # (the screen step, which does it before building the folds) passes the rows it kept, and the
+    # fold indices are then positions within them.
+    rows, folds, y = _compact_folds(folds, y, task, PROXY_MAX_ROWS, RANDOM_SEED)
+  else:
+    rows = np.asarray(rows)
   preds, scores = {}, {}
   for eos_id in eos_ids:
     try:

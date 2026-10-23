@@ -89,8 +89,14 @@ class ScreenPipeline(ZairaBase):
       step.update()
       return
 
+    from zairachem.base.vars import RANDOM_SEED
     from zairachem.holdout.splits import build_fold_definitions
-    from zairachem.screen.proxy import PROXY_FLOOR, select_descriptors
+    from zairachem.screen.proxy import (
+      PROXY_FLOOR,
+      PROXY_MAX_ROWS,
+      screening_rows,
+      select_descriptors,
+    )
 
     task = self.params["task"]
     df = pd.read_csv(os.path.join(self.path, DATA_SUBFOLDER, DATA_FILENAME))
@@ -99,10 +105,16 @@ class ScreenPipeline(ZairaBase):
       f"[screen] Scoring {len(pool)} descriptors on the evaluate splits "
       f"({SCREEN_REPEATS} repeats, all schemas) → greedily keeping up to {k} that add to the pool"
     )
-    folds = build_fold_definitions(list(df[SMILES_COLUMN]), list(y), repeats=SCREEN_REPEATS)
+    # Thin the run down to the rows the proxy will score BEFORE the folds are built, not after:
+    # the fold menu costs a Bemis-Murcko scaffold per molecule and a pass over every label per
+    # candidate seed, and there is no reason to spend either on rows that will not be scored. On
+    # a set at or below the cap this is every row, and the folds are the ones it always built.
+    rows = screening_rows(y, task, PROXY_MAX_ROWS, RANDOM_SEED)
+    smiles = list(df[SMILES_COLUMN])
+    folds = build_fold_definitions([smiles[i] for i in rows], list(y[rows]), repeats=SCREEN_REPEATS)
     fold_pairs = [(f["train_idx"], f["test_idx"]) for f in folds.values()]
     selected, scores, gains = select_descriptors(
-      os.path.join(self.path, DESCRIPTORS_SUBFOLDER), pool, y, fold_pairs, k, task
+      os.path.join(self.path, DESCRIPTORS_SUBFOLDER), pool, y[rows], fold_pairs, k, task, rows=rows
     )
     meta_dir = os.path.join(self.path, METADATA_SUBFOLDER)
     with open(os.path.join(meta_dir, SELECTED_EOS_FILENAME), "w") as f:
