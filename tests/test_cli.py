@@ -28,7 +28,7 @@ def test_import_keeps_heavy_stacks_lazy():
   """Importing the CLI must not load the modelling/plotting stacks (kept lazy for fast start-up)."""
   code = (
     "import sys, zairachem.cli;"
-    "heavy = [m for m in ('sklearn', 'matplotlib', 'rdkit', 'lazyqsar') if m in sys.modules];"
+    "heavy = [m for m in ('sklearn', 'scipy', 'matplotlib', 'rdkit', 'lazyqsar') if m in sys.modules];"
     "sys.exit(1 if heavy else 0)"
   )
   assert subprocess.run([sys.executable, "-c", code]).returncode == 0
