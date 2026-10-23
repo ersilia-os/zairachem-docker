@@ -689,3 +689,60 @@ def test_the_terminal_plot_breakdown_names_what_a_run_rendered(tmp_path):
   assert cats.get("other", 0) == 0, sorted(cats)
   # The two tasks' own panels are each named, not lumped together.
   assert {"regression", "intervals", "out-of-fold scores", "confusion"} <= set(cats)
+
+
+@pytest.mark.parametrize(
+  ("task", "truth", "expect_clf"),
+  [
+    ("classification", False, True),  # the case regression broke: a predict on unlabelled molecules
+    ("classification", True, True),
+    ("regression", False, False),
+    ("regression", True, False),
+  ],
+)
+def test_the_output_table_follows_the_run_s_task_not_its_truth(tmp_path, task, truth, expect_clf):
+  """A predict on unlabelled molecules has no truth column, and still belongs to its own task."""
+  import json
+
+  import pandas as pd
+
+  from zairachem.report.table import OutputTable, PerformanceTable
+
+  root = tmp_path / f"{task}-{truth}"
+  (root / "inputs").mkdir(parents=True)
+  (root / "metadata").mkdir()
+  (root / "metadata" / "parameters.json").write_text(json.dumps({"task": task}))
+  (root / "session.json").write_text(
+    json.dumps({"mode": "predict", "output_dir": str(root), "model_dir": str(root)})
+  )
+  data = {"compound_id": ["CID0"], "smiles": ["CCO"]}
+  if truth:
+    data["bin" if task == "classification" else "val"] = [1 if task == "classification" else 6.5]
+  pd.DataFrame(data).to_csv(root / "inputs" / "data.csv", index=False)
+
+  assert OutputTable(path=str(root)).is_clf is expect_clf
+  assert PerformanceTable(path=str(root)).is_clf is expect_clf
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_the_performance_table_skips_quietly_on_unlabelled_molecules(tmp_path, task):
+  """A predict with nothing to score against writes no table and does not fail the run."""
+  import json
+
+  import pandas as pd
+
+  from zairachem.report.table import PerformanceTable
+
+  root = tmp_path / task
+  (root / "inputs").mkdir(parents=True)
+  (root / "metadata").mkdir()
+  (root / "metadata" / "parameters.json").write_text(json.dumps({"task": task}))
+  (root / "session.json").write_text(
+    json.dumps({"mode": "predict", "output_dir": str(root), "model_dir": str(root)})
+  )
+  pd.DataFrame({"compound_id": ["CID0"], "smiles": ["CCO"]}).to_csv(
+    root / "inputs" / "data.csv", index=False
+  )
+
+  PerformanceTable(path=str(root)).run()
+  assert not (root / "report" / "performance_table.csv").exists()

@@ -30,7 +30,9 @@ class PerformanceTable(BaseTable, ResultsFetcher):
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
-    self.is_clf = self.has_clf_data()
+    # The run's task, not whether the truth happens to be there: a classification predict on
+    # unlabelled molecules has no ``bin`` column and still writes classification columns.
+    self.is_clf = not self.is_regression()
 
   def _rows(self):
     from zairachem.pool.cutoffs import read_cutoffs
@@ -83,7 +85,12 @@ class PerformanceTable(BaseTable, ResultsFetcher):
     if self.is_clf:
       # Validation needs at least two classes among the labelled (current-run) compounds. At
       # predict with no, partial or single-class truth this is degenerate: skip, don't crash.
-      yt_labeled = self.clf_truth_proba()[0]
+      # An unlabelled predict has no truth column at all, which raises rather than coming back
+      # empty, so it is caught here as the regression branch catches its own.
+      try:
+        yt_labeled = self.clf_truth_proba()[0]
+      except Exception:
+        yt_labeled = pd.Series(dtype=float)
       degenerate = len(yt_labeled) == 0 or len(set(yt_labeled.tolist())) < 2
     else:
       # The regression analogue of "both classes present": at least two distinct observed values.
@@ -121,7 +128,9 @@ class OutputTable(BaseTable, ResultsFetcher):
   def __init__(self, path):
     BaseTable.__init__(self, path=path)
     ResultsFetcher.__init__(self, path=path)
-    self.is_clf = self.has_clf_data()
+    # The run's task, not whether the truth happens to be there: a classification predict on
+    # unlabelled molecules has no ``bin`` column and still writes classification columns.
+    self.is_clf = not self.is_regression()
 
   def __smiles_to_inchikey(self, smiles):
     mol = Chem.MolFromSmiles(smiles)
@@ -163,8 +172,10 @@ class OutputTable(BaseTable, ResultsFetcher):
       return None
 
   def _get_ensemble_predictions_columns(self):
-    task = (self.get_clf_tasks() if self.is_clf else self.get_reg_tasks())[0]
-    df = self._read_individual_estimator_results(task)
+    tasks = self.get_clf_tasks() if self.is_clf else self.get_reg_tasks()
+    if not tasks:  # nothing pooled: the table keeps its own columns rather than failing the run
+      return
+    df = self._read_individual_estimator_results(tasks[0])
     columns = list(df.columns)
     for col in columns:
       v = list(df[col])
