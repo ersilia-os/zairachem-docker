@@ -159,7 +159,11 @@ def _reliability_summary(output_dir):
 
 
 def _pooled_metrics(output_dir):
-  """The pooled model's performance-table row at the run's call cutoff (screening, else default)."""
+  """The pooled model's performance-table row at the run's call cutoff (screening, else default).
+
+  A regression table has one row per model and no ``cutoff`` column at all, so the lookup falls
+  back to the row's own name and matches on the model alone -- which is the whole selection there.
+  """
   try:
     from zairachem.base.vars import PERFORMANCE_TABLE_FILENAME, RESULTS_SUBFOLDER
     from zairachem.pool.cutoffs import call_cutoff
@@ -167,6 +171,7 @@ def _pooled_metrics(output_dir):
     name = call_cutoff(output_dir)[0]
     with open(os.path.join(output_dir, RESULTS_SUBFOLDER, PERFORMANCE_TABLE_FILENAME)) as f:
       for row in csv.DictReader(f):
+        # `.get("cutoff", name)` makes a cutoff-less (regression) row match unconditionally.
         if row.get("model") == "pooled" and row.get("cutoff", name) == name:
           return row
   except (OSError, csv.Error) as e:
