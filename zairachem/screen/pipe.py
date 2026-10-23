@@ -101,7 +101,7 @@ class ScreenPipeline(ZairaBase):
     )
     folds = build_fold_definitions(list(df[SMILES_COLUMN]), list(y), repeats=SCREEN_REPEATS)
     fold_pairs = [(f["train_idx"], f["test_idx"]) for f in folds.values()]
-    selected, scores = select_descriptors(
+    selected, scores, gains = select_descriptors(
       os.path.join(self.path, DESCRIPTORS_SUBFOLDER), pool, y, fold_pairs, k, task
     )
     meta_dir = os.path.join(self.path, METADATA_SUBFOLDER)
@@ -109,18 +109,30 @@ class ScreenPipeline(ZairaBase):
       json.dump(selected, f, indent=4)
     with open(os.path.join(meta_dir, PROXY_SCORES_FILENAME), "w") as f:
       json.dump(scores, f, indent=4)
-    self._print_table(scores, set(selected), PROXY_FLOOR[task], task)
+    self._print_table(scores, set(selected), PROXY_FLOOR[task], task, gains)
     logger.success(
       f"[screen] Selected {len(selected)} of {len(pool)} descriptors for full training."
     )
     step.update()
 
   @staticmethod
-  def _print_table(scores, selected, floor, task="classification"):
-    """Descriptors ranked by proxy skill, colored by score, with the selected ones marked."""
+  def _print_table(scores, selected, floor, task="classification", gains=None):
+    """Descriptors ranked by proxy skill, colored by score, with the selected ones marked.
+
+    The solo skill is not what decided anything: selection is greedy on the ensemble, so a strong
+    descriptor that repeats the seed is dropped and a weaker one that complements it is kept.
+    "Adds" is the gain that actually made the call, and a descriptor kept on a hair's breadth of it
+    is worth knowing about — training it can cost more than every other descriptor put together.
+    """
+    gains = gains or {}
     table = themed_table("Descriptor pre-screening")
     measure = "Held-out AUROC" if task == "classification" else "Held-out rho"
-    for col, just in (("Descriptor", "left"), (measure, "right"), ("Kept", "center")):
+    for col, just in (
+      ("Descriptor", "left"),
+      (measure, "right"),
+      ("Adds", "right"),
+      ("Kept", "center"),
+    ):
       table.add_column(col, justify=just, no_wrap=True)
     for eos_id in sorted(scores, key=lambda e: scores[e], reverse=True):
       auroc = scores[eos_id]
@@ -128,9 +140,16 @@ class ScreenPipeline(ZairaBase):
       span = 0.5 if task == "classification" else 1.0
       color = heat_hex(max(0.0, min(1.0, (1.0 - auroc) / span)))
       keep = eos_id in selected
+      if eos_id not in gains:
+        adds = "[dim]·[/]"
+      elif gains[eos_id] is None:
+        adds = "[dim]seed[/]"
+      else:
+        adds = f"[dim]+{gains[eos_id]:.3f}[/]"
       table.add_row(
         f"[{'bold' if keep else 'dim'}]{eos_id}[/]",
         f"[{color}]{auroc:.3f}[/]",
+        adds,
         "[#3fb950]✓[/]" if keep else "[dim]·[/]",
       )
     console.print(table)

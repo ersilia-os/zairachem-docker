@@ -87,7 +87,7 @@ class HoldoutValidationPipeline(ZairaBase):
       train = np.asarray(spec["train_idx"])
       inner = build_fold_definitions([smiles[i] for i in train], y[train], repeats=SCREEN_REPEATS)
       pairs = [(train[f["train_idx"]], train[f["test_idx"]]) for f in inner.values()]
-      selected, scores = select_descriptors(
+      selected, scores, _ = select_descriptors(
         os.path.join(self.path, DESCRIPTORS_SUBFOLDER),
         pool,
         y,

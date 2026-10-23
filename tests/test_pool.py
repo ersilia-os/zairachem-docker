@@ -429,11 +429,61 @@ def test_a_descriptor_no_fold_could_score_does_not_win_the_screen(monkeypatch):
   monkeypatch.setattr(proxy, "_load_treated", load)
   monkeypatch.setattr(proxy, "_fold_pred", fold_pred)
 
-  selected, scores = proxy.select_descriptors("d", ["dead", "anti"], y, folds, 1, task="regression")
+  selected, scores, _ = proxy.select_descriptors(
+    "d", ["dead", "anti"], y, folds, 1, task="regression"
+  )
   assert scores["dead"] == 0.0 and scores["anti"] < 0.0  # chance beats anti-correlated
   assert selected == ["anti"], selected
 
   # With nothing scorable at all, the screen keeps every descriptor rather than seeding on one
   # it never evaluated.
-  selected, _ = proxy.select_descriptors("d", ["dead"], y, folds, 1, task="regression")
+  selected, _, _ = proxy.select_descriptors("d", ["dead"], y, folds, 1, task="regression")
   assert selected == ["dead"]
+
+
+def test_the_screen_shows_what_each_descriptor_added(monkeypatch):
+  """Selection is greedy on the ensemble, so the solo score is not what decided anything: a
+  strong descriptor that repeats the seed is dropped and a weaker one that complements it is
+  kept. The table showed only the solo score, and a descriptor kept on a hair's breadth of gain
+  looked the same as one that carried the model -- while costing far more to train."""
+  import numpy as np
+
+  from zairachem.screen import proxy
+  from zairachem.screen.pipe import ScreenPipeline
+
+  rng = np.random.default_rng(0)
+  n = 200
+  y = np.linspace(4.0, 9.0, n)
+  idx = np.arange(n)
+  folds = [(list(np.setdiff1d(idx, idx[k::3])), list(idx[k::3])) for k in range(3)]
+  # "seed" and "adds" carry the target through independent noise, so averaging them beats either;
+  # "copy" repeats the seed exactly and can add nothing however good its own score looks.
+  seed = y + rng.normal(0, 1.5, n)
+  signal = {"seed": seed, "adds": y + rng.normal(0, 1.5, n), "copy": seed}
+
+  def load(_dir, eos_id):
+    load.current = eos_id
+    return np.zeros((n, 2), dtype="float32")
+
+  monkeypatch.setattr(proxy, "_load_treated", load)
+  monkeypatch.setattr(
+    proxy, "_fold_pred", lambda _X, _y, _tr, te, _s, _t: signal[load.current][np.asarray(te)]
+  )
+
+  selected, _scores, gains = proxy.select_descriptors(
+    "d", ["seed", "copy", "adds"], y, folds, 3, task="regression"
+  )
+  assert gains[selected[0]] is None  # the seed has nothing to be measured against
+  for eos_id in selected[1:]:
+    assert gains[eos_id] > 0  # everything after it had to earn its place
+  # A descriptor that was not kept has no gain to report, rather than a zero.
+  assert set(gains) <= set(selected)
+
+  rendered = []
+  monkeypatch.setattr("zairachem.screen.pipe.console.print", lambda t: rendered.append(t))
+  ScreenPipeline._print_table(
+    {"a": 0.65, "b": 0.63, "c": 0.60}, {"a", "b"}, 0.10, "regression", {"a": None, "b": 0.0031}
+  )
+  cells = [c._cells for c in rendered[0].columns]
+  assert "Adds" in [c.header for c in rendered[0].columns]
+  assert any("seed" in str(x) for x in cells[2]) and any("+0.003" in str(x) for x in cells[2])

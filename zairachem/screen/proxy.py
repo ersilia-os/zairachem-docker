@@ -131,10 +131,14 @@ def select_descriptors(
 
   Returns
   -------
-  tuple(list of str, dict)
-    ``(selected_ordered, scores)`` — selected ids in add order, and ``{eos_id: solo_held_out_skill}``
-    for every candidate. Never empty: the best descriptor is kept when nothing clears ``floor``, and
-    every candidate when none could be scored.
+  tuple(list of str, dict, dict)
+    ``(selected_ordered, scores, gains)`` — selected ids in add order, ``{eos_id:
+    solo_held_out_skill}`` for every candidate, and ``{eos_id: ensemble gain when it was added}``
+    for the selected ones (``None`` for the seed, which has nothing to add to). The gain is what
+    actually decided a descriptor's fate, and a solo score cannot be read for it: a strong
+    descriptor that merely repeats the seed is dropped, and a mediocre one that complements it is
+    kept. Never empty: the best descriptor is kept when nothing clears ``floor``, and every
+    candidate when none could be scored.
   """
   y = np.asarray(y)
   floor = PROXY_FLOOR[task] if floor is None else floor
@@ -161,12 +165,13 @@ def select_descriptors(
     # Nothing could be scored, so there is no basis for choosing: keep every descriptor and let the
     # estimate step train (or skip) each one.
     logger.warning("[screen] no descriptor could be scored; keeping all of them")
-    return list(eos_ids), scores
+    return list(eos_ids), scores, {}
   eligible = [e for e in usable if scores[e] >= floor]
   order = sorted(eligible or usable, key=lambda e: scores[e], reverse=True)
 
   selected = [order[0]]  # seed with the best solo descriptor
   ens_skill = scores[order[0]]
+  gains = {order[0]: None}  # the seed is what the others are measured against
   trace = [f"{order[0]}=seed({ens_skill:.3f})"]
   for cand in order[1:]:
     if len(selected) >= k:
@@ -174,6 +179,7 @@ def select_descriptors(
     cand_skill = _ensemble_skill(selected + [cand], preds, y, folds, task)
     if cand_skill >= ens_skill + margin:
       selected.append(cand)
+      gains[cand] = cand_skill - ens_skill
       trace.append(f"+{cand}(ens {ens_skill:.3f}→{cand_skill:.3f})")
       ens_skill = cand_skill
     else:
@@ -183,4 +189,4 @@ def select_descriptors(
     f"[screen] greedy kept {len(selected)}/{len(eos_ids)} descriptors "
     f"(k={k}, ensemble {measure} {ens_skill:.3f}): {' '.join(trace)}"
   )
-  return selected, scores
+  return selected, scores, gains
