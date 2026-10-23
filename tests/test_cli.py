@@ -194,3 +194,31 @@ def test_predict_says_so_when_the_featurizer_image_has_moved_on(monkeypatch):
   # And it is only reached because describe calls it, at predict only.
   src = inspect.getsource(RawDescriptors.run)
   assert "_warn_if_versions_moved" in src and "is_predict()" in src
+
+
+def test_disagreeing_duplicates_say_by_how_much(tmp_path):
+  """Setup already warned that N compounds had duplicate rows with differing activities, and
+  stopped there. A count leaves the only question it raises unanswered: repeats differing in the
+  third decimal are rounding, repeats differing by four log units are two experiments, and the
+  spread between them is the floor under any model's error."""
+  import inspect
+  import json
+
+  from zairachem.setup.prep.check import SetupChecker
+
+  checker = SetupChecker.__new__(SetupChecker)
+  checker.data_file = str(tmp_path / "data.csv")
+  record = tmp_path / "replicates.json"
+
+  record.write_text(json.dumps({"pooled_sd": 0.6176799618899832, "max_range": 4.59}))
+  phrase = checker._disagreement_phrase()
+  assert "differ by 0.618 on average" in phrase and "as much as 4.59" in phrase
+
+  # Classification has no spread in the target's units, so the count stands on its own.
+  record.write_text(json.dumps({"disagreeing": 17}))
+  assert checker._disagreement_phrase() == ""
+  # And a run without the record is not a run that crashes.
+  record.unlink()
+  assert checker._disagreement_phrase() == ""
+
+  assert "_disagreement_phrase" in inspect.getsource(SetupChecker.check_activity)

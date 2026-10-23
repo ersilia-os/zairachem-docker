@@ -173,13 +173,34 @@ class SetupChecker(object):
         progress.update(task, advance=1)
     logger.info(f"[check] Found {discrepancies:,} activity discrepancies")
     if conflicts:
-      # Just a count of compounds whose duplicate rows disagreed on activity. Informational.
       from zairachem.base.utils.console import echo, plural
 
       echo(
-        f"{plural(len(conflicts), 'compound')} had duplicate rows with differing activities.",
+        f"{plural(len(conflicts), 'compound')} had duplicate rows with differing activities"
+        f"{self._disagreement_phrase()}.",
         kind="warning",
       )
+
+  def _disagreement_phrase(self):
+    """How far the disagreeing repeats actually were apart, for the warning above, or ``""``.
+
+    A count on its own leaves the only question it raises unanswered. Two measurements that
+    differ in the third decimal are a rounding artefact; two that differ by four log units are
+    two different experiments, and the spread between them is the floor under any model's error
+    on this data -- so it is the number that decides whether the count matters.
+    """
+    try:
+      with open(self._replicates_path()) as f:
+        summary = json.load(f)
+    except (OSError, ValueError):
+      return ""
+    sd, widest = summary.get("pooled_sd"), summary.get("max_range")
+    if sd is None:
+      return ""
+    phrase = f"; those repeats differ by {sd:.3f} on average"
+    if widest is not None:
+      phrase += f" and by as much as {widest:.2f}"
+    return phrase + ", which is the smallest error a model on this data can have"
 
   def check_duplicate_structures(self):
     """Warn when two compounds became the same molecule once standardised.
@@ -210,9 +231,13 @@ class SetupChecker(object):
       "split can separate copies of one molecule, which flatters its scores."
     )
 
+  def _replicates_path(self):
+    """The run's replicate summary, which sits beside the deduplicated data it describes."""
+    return os.path.join(os.path.dirname(self.data_file), REPLICATES_FILENAME)
+
   def _record_collisions(self, n_extra):
     """Add the count to ``replicates.json`` when the run has one. Best-effort."""
-    path = os.path.join(os.path.dirname(self.data_file), REPLICATES_FILENAME)
+    path = self._replicates_path()
     from zairachem.base import _atomic_json
 
     try:
