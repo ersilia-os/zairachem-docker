@@ -55,7 +55,9 @@ Two things survive from the classification path:
 - **Pruning.** A descriptor whose held-out skill is below the floor, or more than a gap below the
   best one, is left out. The thresholds are the classification ones mapped onto Spearman's rho,
   as lazy-qsar scales them: `AUROC - 0.5` is about `rho / 2`, so the 0.55 AUROC floor becomes
-  0.10 on rho. The pre-screening proxy uses the same floor.
+  0.10 on rho. That floor is `base.vars.SKILL_FLOOR`, and the pre-screening proxy reads the same
+  one — as does the caution a fit prints when the *pooled* model fails to clear it, or when its R²
+  is at or below zero.
 - **The applicability-domain veto.** A descriptor that is out of its domain for a given compound
   gets zero weight *for that compound*, stacking weights or not. A compound vetoed on every
   descriptor falls back to the unvetoed weights rather than producing nothing.
@@ -116,6 +118,17 @@ Every panel answers a question, and they group by which question:
 - `cv-error-curve` — the fraction of compounds predicted within a given absolute error, per
   descriptor, against the error you would get by predicting the training mean
 - `descriptor-correlation`, `topk-overlap-curve` — how redundant the descriptors are
+
+## When the model is not worth shipping
+
+Two checks fire on the fit summary, both stated as facts rather than opinions:
+
+- The pooled model's held-out Spearman rho is below the pruning floor — it does not order
+  compounds better than chance.
+- Its R² is at or below zero — predicting the training mean for every compound would have done
+  as well, whatever the ordering.
+
+Neither stops the run. A metric that could not be computed says nothing: unknown is not zero.
 
 ## Validating a change
 
