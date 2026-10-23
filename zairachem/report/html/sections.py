@@ -460,11 +460,56 @@ def _dataset_html(output_dir, report_dir, present, assigned):
       f"<span class='perf-leg'><i style='background:{a_col}'></i>Active</span>"
       f"<span class='perf-leg'><i style='background:{i_col}'></i>Inactive</span></div>"
     )
+  replicates = _replicates_html(output_dir)
+  if replicates:
+    out.append(replicates)
   if fig_cards:
     assigned.update(fig_stems)
     grid = "<div class='grid grid2'>" + "".join(fig_cards) + "</div>"
     out.append(f"<h3 class='cfg-h'>Figures</h3>{grid}")
   return "".join(out)
+
+
+def _replicates_html(output_dir):
+  """What the input's duplicate rows were, and how far apart they were, or '' when there were none.
+
+  The spread between two measurements of one compound is the only reading of the assay's own
+  reproducibility the pipeline ever gets, and it is the scale the model's error has to be judged
+  on: an RMSE below it is as good as the data allows.
+  """
+  from zairachem.setup.prep.files import read_replicates
+
+  summary = read_replicates(output_dir)
+  if not summary or not summary.get("n_repeated"):
+    return ""
+  stats = [
+    ("Input rows", f"{summary['n_rows']:,}"),
+    ("Measured more than once", f"{summary['n_repeated']:,}"),
+    ("Most repeats of one", f"{summary['max_repeats']:,}"),
+  ]
+  sd = summary.get("pooled_sd")
+  if sd is not None:
+    stats.append(("Repeats differ by", f"{sd:.3f}"))
+  widest = summary.get("max_range")
+  if widest is not None:
+    stats.append(("Widest disagreement", f"{widest:.2f}"))
+  collisions = summary.get("standardised_collisions")
+  if collisions:
+    stats.append(("Same molecule, written twice", f"{collisions:,}"))
+  disagreeing = summary.get("disagreeing")
+  # Shown at zero, unlike the collisions above: that repeated compounds were all given the SAME
+  # label is the reassuring half of the same question, and worth saying on a run that has repeats.
+  if disagreeing is not None:
+    stats.append(("Given both labels", f"{disagreeing:,}"))
+  note = "Duplicate rows were averaged into one compound. " + (
+    f"Two measurements of the same compound differ by {sd:.3f} on average, which is the scale "
+    "an error of this model should be read against."
+    if sd is not None
+    else "Repeated compounds that were given both labels cannot be predicted correctly either way."
+  )
+  return (
+    "<h3 class='cfg-h'>Repeat measurements</h3>" + _cfg_grid(stats) + f"<p class='desc'>{note}</p>"
+  )
 
 
 def _chemical_space_html(output_dir, report_dir, present, assigned):

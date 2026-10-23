@@ -17,6 +17,7 @@ from zairachem.base.vars import (
   MAPPING_FILENAME,
   MAPPING_ORIGINAL_COLUMN,
   RAW_INPUT_FILENAME,
+  REPLICATES_FILENAME,
   SMILES_COLUMN,
   VALUES_COLUMN,
 )
@@ -180,8 +181,51 @@ class SetupChecker(object):
         kind="warning",
       )
 
+  def check_duplicate_structures(self):
+    """Warn when two compounds became the same molecule once standardised.
+
+    Deduplication runs on the SMILES as written, standardisation runs after it, and the two do not
+    always agree: ``C1=CC=CC=C1C(=O)O`` and ``c1ccccc1C(=O)O`` are two rows going in and one
+    molecule coming out. Those rows are then trained on twice, and a random held-out split can put
+    one of them in train and its twin in test, where the model will appear to predict a molecule it
+    has already seen.
+
+    Counted, not corrected: collapsing them would change the identity of every row downstream, and
+    which measurement to keep is the user's call. The count goes to ``replicates.json`` so the
+    report can show it.
+    """
+    dd = pd.read_csv(self.data_file)
+    if SMILES_COLUMN not in dd.columns or dd.empty:
+      return
+    counts = dd[SMILES_COLUMN].value_counts()
+    repeated = counts[counts > 1]
+    self._record_collisions(int(repeated.sum() - len(repeated)))
+    if repeated.empty:
+      return
+    examples = ", ".join(str(s)[:40] for s in repeated.index[:3])
+    logger.warning(
+      f"[check] {len(repeated):,} molecules appear more than once in the standardised set "
+      f"({int(repeated.sum()):,} rows in total): they were written differently in the input and "
+      f"became identical here, e.g. {examples}. They are trained on more than once, and a held-out "
+      "split can separate copies of one molecule, which flatters its scores."
+    )
+
+  def _record_collisions(self, n_extra):
+    """Add the count to ``replicates.json`` when the run has one. Best-effort."""
+    path = os.path.join(os.path.dirname(self.data_file), REPLICATES_FILENAME)
+    from zairachem.base import _atomic_json
+
+    try:
+      with open(path) as f:
+        record = json.load(f)
+      record["standardised_collisions"] = n_extra
+      _atomic_json(path, record)
+    except (OSError, ValueError) as e:
+      logger.debug(f"[check] could not record duplicate structures: {e}")
+
   def run(self):
-    """Remap ``mapping.csv``, then run the SMILES and activity consistency checks."""
+    """Remap ``mapping.csv``, then run the SMILES, duplicate and activity consistency checks."""
     self.remap()
     self.check_smiles()
+    self.check_duplicate_structures()
     self.check_activity()

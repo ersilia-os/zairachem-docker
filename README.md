@@ -94,6 +94,8 @@ RMSE, MAE and the Pearson and Spearman correlations.
 
 `docs/regression.md` covers what a regression run does and does not produce, and why.
 
+When the input measures a compound more than once, setup records how far those repeats disagreed (`inputs/replicates.json`). That spread is the assay's own reproducibility and the scale a regression model's RMSE has to be read against; the fit summary and the report both show it.
+
 `results/cutoffs.json` gives each named cutoff as a probability and as a rank, the scale of `score`:
 `screening` (the call: rank 0.65), `kappa` (Cohen's kappa on the training out-of-fold scores),
 `balanced` (each descriptor's balanced-accuracy cutoff) and `default` (0.5).

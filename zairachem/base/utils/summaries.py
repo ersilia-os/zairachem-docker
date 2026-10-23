@@ -552,6 +552,61 @@ def _distinct(value, other, places=2, limit=6):
   return f"{value:.{places}f}"
 
 
+def _replicate_sd(output_dir):
+  """How much repeat measurements of one compound disagreed, or None when none were repeated."""
+  from zairachem.setup.prep.files import read_replicates
+
+  return _finite_or_none(read_replicates(output_dir).get("pooled_sd"))
+
+
+#: An RMSE within this multiple of the assay's own spread counts as being at the limit of the data.
+#: An observed value is the truth plus measurement noise of standard deviation ``s``, so a model
+#: whose own error against the truth is ``m`` scores ``RMSE^2 = m^2 + s^2``: the RMSE can never go
+#: below ``s``, however good the model. At ``1.25 s`` the model's own error is ``0.75 s`` -- smaller
+#: than the noise in the thing it is being scored against, which is as far as the data can show.
+NOISE_FLOOR_FACTOR = 1.25
+
+
+def _note_if_at_the_noise_floor(rows, rmse, floor):
+  """Say when the error is as small as the data allows, which is praise, not a warning.
+
+  An RMSE is only meaningful against something, and the one thing the pipeline can measure is how
+  far apart two measurements of the same compound were. A model predicting within that spread has
+  extracted what the data holds; the way to improve it is more or better measurements, not more
+  modelling.
+  """
+  error, spread = _finite_or_none(rmse), _finite_or_none(floor)
+  if error is None or spread is None or spread <= 0:
+    return
+  if error > spread * NOISE_FLOOR_FACTOR:
+    return
+  rows.append((
+    "",
+    f"[green]At the limit of this data[/] [dim]— repeat measurements of the same compound "
+    f"differ by {spread:.3f}, so an error of {error:.3f} is as small as the data allows.[/]",
+  ))
+
+
+def _note_contradicted_labels(rows, output_dir):
+  """Say how many compounds the input called both active and inactive.
+
+  The regression counterpart of the noise floor: those compounds are wrong whichever way they are
+  predicted, so they set a ceiling on any model's accuracy that no amount of modelling can lift.
+  """
+  from zairachem.setup.prep.files import read_replicates
+
+  summary = read_replicates(output_dir)
+  contradicted = summary.get("disagreeing")
+  repeated = summary.get("n_repeated") or 0
+  if not contradicted:
+    return
+  rows.append((
+    "",
+    f"[yellow]{contradicted:,} of {repeated:,} repeated compounds[/] [dim]were given both labels "
+    "in the input; they cannot be predicted correctly either way, whatever the model.[/]",
+  ))
+
+
 def _warn_if_no_signal(rows, task, skill, r2=None):
   """Append at most one caution row when the pooled model is not worth shipping.
 
@@ -798,15 +853,21 @@ def final_summary_panel(output_dir=None):
         "Performance",
         f"AUROC [bold green]{fmt('auroc')}[/] · MCC [bold green]{fmt('mcc')}[/]  [dim]({where})[/]",
       ))
+      _note_contradicted_labels(rows, d)
       _warn_if_no_signal(rows, task, m.get("auroc"))
     else:
-      # RMSE alongside R2: the first is unitless, the second is in the target's own units, which is
-      # the one a chemist can judge against the assay.
+      # RMSE alongside R2: the first is unitless, the second is in the target's own units --
+      # and the assay's own spread, where the input measured anything twice, is what says whether
+      # that number is small.
       where = "out-of-fold" if not _is_predict(d) else "on this set"
+      floor = _replicate_sd(d)
+      against = f" · repeats differ by {floor:.3f}" if floor is not None else ""
       rows.append((
         "Performance",
-        f"R² [bold green]{fmt('r2')}[/] · RMSE [bold green]{fmt('rmse')}[/]  [dim]({where})[/]",
+        f"R² [bold green]{fmt('r2')}[/] · RMSE [bold green]{fmt('rmse')}[/]  "
+        f"[dim]({where}{against})[/]",
       ))
+      _note_if_at_the_noise_floor(rows, m.get("rmse"), floor)
       _warn_if_no_signal(rows, task, m.get("spearman"), r2=m.get("r2"))
 
   plots = _count_plots(d)

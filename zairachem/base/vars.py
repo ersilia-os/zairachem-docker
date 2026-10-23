@@ -42,6 +42,9 @@ PREDEFINED_COLUMN_FILE = "model/framework/columns/run_columns.csv"
 COMPOUNDS_FILENAME = "compounds.csv"
 STANDARD_COMPOUNDS_FILENAME = "compounds_std.csv"
 MAPPING_FILENAME = "mapping.csv"
+#: Duplicate structure of the input and, for regression, how much repeats of one compound
+#: disagreed -- the assay's own reproducibility, which is what an RMSE has to be read against.
+REPLICATES_FILENAME = "replicates.json"
 VALUES_FILENAME = "values.csv"
 TASKS_FILENAME = "tasks.csv"
 PARAMETERS_FILE = "parameters.json"

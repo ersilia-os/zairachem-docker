@@ -107,13 +107,34 @@ class RegressionPlotRaw(BasePlot):
       return
     ax = self.ax
     idx, alpha = _subsample(yt.size)
-    ax.scatter(yt[idx], yp[idx], color=named_colors.green, s=12, alpha=alpha, edgecolors="none")
     lo, hi = float(min(yt.min(), yp.min())), float(max(yt.max(), yp.max()))
+    # The spread between repeat measurements of one compound, where the input had any: a point
+    # inside this band is predicted as closely as the assay itself measures, which is the most a
+    # model can be asked for. Drawn under the points, so it reads as the background it is.
+    from zairachem.setup.prep.files import read_replicates
+
+    spread = read_replicates(path).get("pooled_sd")
+    inside = None
+    if spread:
+      ax.fill_between(
+        [lo, hi],
+        [lo - spread, hi - spread],
+        [lo + spread, hi + spread],
+        color=named_colors.gray,
+        alpha=0.18,
+        lw=0,
+        zorder=0,
+      )
+      inside = float(np.mean(np.abs(yp - yt) <= spread))
+    ax.scatter(yt[idx], yp[idx], color=named_colors.green, s=12, alpha=alpha, edgecolors="none")
     # The identity line is the reference a scatter like this is read against.
     ax.plot([lo, hi], [lo, hi], color=named_colors.gray, lw=1, ls="--", zorder=1)
     ax.set_xlabel("Observed")
     ax.set_ylabel("Predicted")
-    ax.set_title(f"R2 = {r2_score(yt, yp):.3f} | MAE = {mean_absolute_error(yt, yp):.3f}")
+    title = f"R2 = {r2_score(yt, yp):.3f} | MAE = {mean_absolute_error(yt, yp):.3f}"
+    if inside is not None:
+      title += f" | {inside:.0%} within the assay's own spread"
+    ax.set_title(title)
     self.is_available = True
 
 

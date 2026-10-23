@@ -303,3 +303,75 @@ def test_a_model_trained_before_regression_still_finds_its_pooling_weights(tmp_p
   # Both present (a model re-pooled by a newer ZairaChem): the current one wins.
   (tmp_path / pooler.ARTIFACT_NAME).write_bytes(b"")
   assert pooler.artifact_path(str(tmp_path)).endswith(pooler.ARTIFACT_NAME)
+
+
+def test_the_spread_between_repeat_measurements_is_measured():
+  """It is the assay's own reproducibility, and the scale the model's RMSE has to be read on."""
+  from zairachem.setup.prep.files import replicate_summary
+
+  # Three compounds, one measured three times around 5.0 and one twice around 7.0.
+  groups = {"a": [4.9, 5.0, 5.1], "b": [7.0, 7.2], "c": [6.0]}
+  s = replicate_summary(groups, "regression")
+  assert (s["n_rows"], s["n_compounds"], s["n_repeated"], s["max_repeats"]) == (6, 3, 2, 3)
+  # Pooled within-compound SD: sqrt(sum of squared deviations / sum of (n-1)).
+  expected = np.sqrt((0.02 + 0.02) / 3)
+  assert s["pooled_sd"] == pytest.approx(expected)
+  assert s["max_range"] == pytest.approx(0.2)
+
+  # Nothing repeated: there is no reading to give, and none is invented.
+  alone = replicate_summary({"a": [1.0], "b": [2.0]}, "regression")
+  assert alone["n_repeated"] == 0 and "pooled_sd" not in alone
+
+  # Classification counts the compounds the input gave both labels; they cap any model's accuracy.
+  clf = replicate_summary({"a": [1, 0], "b": [1, 1], "c": [0]}, "classification")
+  assert clf["disagreeing"] == 1 and "pooled_sd" not in clf
+
+
+def test_an_error_as_small_as_the_data_allows_is_said_to_be_so():
+  """An RMSE means nothing on its own; against the assay's spread it means the model is done."""
+  from zairachem.base.utils.summaries import _note_if_at_the_noise_floor
+
+  rows = []
+  _note_if_at_the_noise_floor(rows, rmse=0.63, floor=0.61)
+  assert rows and "limit of this data" in rows[0][1]
+
+  rows = []
+  _note_if_at_the_noise_floor(rows, rmse=1.4, floor=0.61)  # well above the spread: nothing to say
+  assert rows == []
+
+  # Nothing measurable, nothing claimed.
+  for rmse, floor in ((0.63, None), (None, 0.61), (0.63, 0.0), (float("nan"), 0.61)):
+    rows = []
+    _note_if_at_the_noise_floor(rows, rmse=rmse, floor=floor)
+    assert rows == [], (rmse, floor)
+
+
+def test_compounds_given_both_labels_are_called_out():
+  """Classification's noise floor: those compounds are wrong whichever way they are predicted."""
+  import inspect
+  import json
+  import os
+  import tempfile
+
+  from zairachem.base.utils import summaries
+  from zairachem.base.utils.summaries import _note_contradicted_labels
+
+  run = tempfile.mkdtemp()
+  os.makedirs(os.path.join(run, "inputs"))
+  record = os.path.join(run, "inputs", "replicates.json")
+
+  for payload in ({"n_repeated": 120, "disagreeing": 0}, {"n_repeated": 0}, {}):
+    with open(record, "w") as f:
+      json.dump(payload, f)
+    rows = []
+    _note_contradicted_labels(rows, run)
+    assert rows == [], payload
+
+  with open(record, "w") as f:
+    json.dump({"n_repeated": 120, "disagreeing": 17}, f)
+  rows = []
+  _note_contradicted_labels(rows, run)
+  assert "17 of 120" in rows[0][1] and "either way" in rows[0][1]
+
+  # And the fit summary has to call it, or none of the above is ever reached.
+  assert "_note_contradicted_labels" in inspect.getsource(summaries.final_summary_panel)

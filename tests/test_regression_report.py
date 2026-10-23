@@ -456,3 +456,39 @@ def test_the_colour_key_separates_the_families_that_share_a_colour():
     # The collision this grouping exists for: a colour that appears in both families.
     task_colors = {hexcol(k) for _, k in groups[0][1]}
     assert task_colors & {hexcol(k) for _, k in groups[1][1]}
+
+
+def test_the_dataset_section_says_what_the_duplicate_rows_were(tmp_path):
+  """Duplicates are averaged away at setup; the Dataset section is where that becomes visible."""
+  import json
+
+  import pandas as pd
+
+  from zairachem.report.html.sections import _dataset_html
+
+  root = tmp_path / "run"
+  (root / "inputs").mkdir(parents=True)
+  (root / "report").mkdir()
+  pd.DataFrame({
+    "compound_id": ["CID0", "CID1"],
+    "smiles": ["CCO", "CCN"],
+    "val": [5.0, 7.0],
+  }).to_csv(root / "inputs" / "data.csv", index=False)
+
+  # A run with no record of repeats says nothing about them.
+  blank = _dataset_html(str(root), str(root / "report"), set(), set())
+  assert "Repeat measurements" not in blank
+
+  (root / "inputs" / "replicates.json").write_text(
+    json.dumps({
+      "n_rows": 300,
+      "n_compounds": 240,
+      "n_repeated": 60,
+      "max_repeats": 3,
+      "pooled_sd": 0.614,
+    })
+  )
+  shown = _dataset_html(str(root), str(root / "report"), set(), set())
+  assert "Repeat measurements" in shown
+  assert "0.614" in shown and "read against" in shown
+  assert "60" in shown

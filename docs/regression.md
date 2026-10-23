@@ -91,6 +91,39 @@ the 90% interval covered 91.2% — the guarantee holds on chemistry the model ha
 `interval-coverage` panel checks it holds *within* each bin, which is what the Mondrian binning is
 for; a bin that misses its level is the interesting failure.
 
+## What the error should be compared against
+
+An RMSE is a number in the target's own units, and on its own it says nothing: 0.63 is excellent
+for one assay and poor for another. The pipeline can measure the one thing that settles it.
+
+Real bioactivity data measures the same compound more than once. Setup collapses those duplicate
+rows into one compound by their median, and before doing so it records how far apart they were:
+the **pooled within-compound standard deviation**, which is the assay's own reproducibility, in
+the same units as the model's error. It goes to `inputs/replicates.json`.
+
+On the *T. brucei* set used throughout this note, 5,636 IC50 rows cover 3,485 molecules, 1,375 of
+them measured more than once — up to 53 times, and the widest disagreement for a single molecule
+is 4.34 log units. The pooled spread is **0.614**. The model's held-out RMSE is **0.634**. The
+model is therefore predicting about as closely as the assay measures, and the way to improve it is
+more or better measurements, not more modelling.
+
+Where this shows up:
+
+- the fit summary prints the spread beside the RMSE, and says plainly when the error is at the
+  limit of the data;
+- the report's Dataset section carries the duplicate structure under **Repeat measurements**;
+- `regression-raw` shades a band of one spread either side of the identity line, and its title
+  gives the fraction of compounds predicted inside it.
+
+A run whose input has no repeated compound reports none of this, rather than inventing a figure.
+
+Two caveats the pipeline will tell you about but not fix. Deduplication matches the SMILES as
+written, while standardisation runs after it, so two spellings of one molecule (`C1=CC=CC=C1C(=O)O`
+and `c1ccccc1C(=O)O`) enter as two compounds and leave as one — they are then trained on twice, and
+a held-out split can separate them, which flatters the score. Setup counts these and says so. And a
+blank activity cell is not a measurement: it is dropped from its compound's group rather than
+turning an otherwise measured compound into a missing one.
+
 ## Held-out validation
 
 `--evaluate` works the same way as for classification, with two differences: the folds stratify on

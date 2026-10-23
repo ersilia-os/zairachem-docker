@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from rdkit import Chem
 
+from zairachem.base.utils.console import echo
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
@@ -18,6 +19,7 @@ from zairachem.base.vars import (
   MAPPING_DEDUPE_COLUMN,
   MAPPING_FILENAME,
   MAPPING_ORIGINAL_COLUMN,
+  REPLICATES_FILENAME,
   SMILES_COLUMN,
   VALUES_COLUMN,
   VALUES_FILENAME,
@@ -34,6 +36,71 @@ def _validate_smiles_batch(batch_data):
     mol = Chem.MolFromSmiles(smi) if smi else None
     results.append((idx, cid, smi, mol is not None))
   return results
+
+
+def replicate_summary(groups, task):
+  """How often the input measured the same molecule twice, and how much those repeats disagreed.
+
+  Parameters
+  ----------
+  groups : dict
+    ``{compound id: [each measurement the input gave it]}``, before they are collapsed to one.
+    Blank cells have already been dropped, so a compound here has only the values it really has.
+  task : str
+    ``"classification"`` or ``"regression"``.
+
+  Returns
+  -------
+  dict
+    ``task``, ``n_rows``, ``n_compounds``, ``n_repeated`` and ``max_repeats`` always. Regression
+    adds the
+    pooled within-compound standard deviation (``pooled_sd``), the widest single disagreement
+    (``max_range``) and the spread across compounds (``target_sd``); classification adds how many
+    repeated compounds were given both labels (``disagreeing``).
+
+  Notes
+  -----
+  The pooled within-compound standard deviation is the assay's own reproducibility, in the target's
+  units and so on the same scale as the model's RMSE. That is what makes it the number an RMSE has
+  to be read against: a model predicting within the spread of repeat measurements of one molecule
+  is at the limit of its data, and no amount of modelling will improve it.
+  """
+  sizes = [len(v) for v in groups.values()]
+  repeated = [np.asarray(v, dtype=float) for v in groups.values() if len(v) > 1]
+  summary = {
+    "task": task,
+    "n_rows": int(sum(sizes)),
+    "n_compounds": len(groups),
+    "n_repeated": len(repeated),
+    "max_repeats": int(max(sizes)) if sizes else 0,
+  }
+  if not repeated:
+    return summary
+  if task == "classification":
+    summary["disagreeing"] = int(sum(1 for v in repeated if len(set(v.tolist())) > 1))
+    return summary
+  dof = int(sum(len(v) - 1 for v in repeated))
+  if dof:
+    ss = float(sum(np.sum((v - v.mean()) ** 2) for v in repeated))
+    summary["pooled_sd"] = float(np.sqrt(ss / dof))
+  summary["max_range"] = float(max(np.ptp(v) for v in repeated))
+  # The spread across compounds is the signal the model has to find; the spread within one is the
+  # noise it has to find it through. Their ratio is what says whether the dataset is learnable.
+  across = np.asarray([np.median(v) for v in groups.values()], dtype=float)
+  across = across[np.isfinite(across)]
+  if across.size > 1:
+    summary["target_sd"] = float(across.std(ddof=1))
+  return summary
+
+
+def read_replicates(run_dir):
+  """The run's replicate summary, or ``{}`` when it has none (older runs, or no duplicates)."""
+  path = os.path.join(run_dir, DATA_SUBFOLDER, REPLICATES_FILENAME)
+  try:
+    with open(path) as f:
+      return json.load(f)
+  except (OSError, ValueError):
+    return {}
 
 
 class ModelIdsFile(object):
@@ -97,6 +164,9 @@ class ParametersFile(object):
 
 class SingleFile(InputSchema):
   """Fit-time reader that turns a single input CSV into compound, value and mapping tables."""
+
+  #: Repeat noise above this share of the spread across compounds leaves little to learn.
+  NOISY_DATA_RATIO = 0.8
 
   def __init__(self, input_file, params, path):
     InputSchema.__init__(self, input_file)
@@ -233,10 +303,57 @@ class SingleFile(InputSchema):
     dfc = self.dedupe(df, path)
     return dfc
 
+  def _write_replicates(self, path):
+    """Persist the replicate summary and say in one line what the duplicates were."""
+    summary = getattr(self, "replicates", None)
+    if not summary:
+      return
+    from zairachem.base import _atomic_json
+
+    _atomic_json(os.path.join(path, REPLICATES_FILENAME), summary)
+    if not summary["n_repeated"]:
+      return
+    message = (
+      f"[setup] {summary['n_rows']:,} rows cover {summary['n_compounds']:,} compounds; "
+      f"{summary['n_repeated']:,} were measured more than once "
+      f"(up to {summary['max_repeats']}) and their values were averaged"
+    )
+    sd = summary.get("pooled_sd")
+    if sd is not None:
+      message += f"; repeats of one compound differ by {sd:.3f} on average"
+    disagreeing = summary.get("disagreeing")
+    if disagreeing:
+      message += f"; {disagreeing:,} were given both labels"
+    logger.info(message + ".")
+    self._warn_if_noise_rivals_signal(summary)
+
+  def _warn_if_noise_rivals_signal(self, summary):
+    """Say so before a run spends an hour on descriptors it cannot use.
+
+    The spread across compounds is the signal a model has to find; the spread between repeats of
+    one compound is the noise it has to find it through. When the second approaches the first there
+    is very little left to learn, and that is worth knowing at setup rather than from a poor R2 an
+    hour later.
+    """
+    noise, signal = summary.get("pooled_sd"), summary.get("target_sd")
+    if not noise or not signal or signal <= 0:
+      return
+    ratio = noise / signal
+    if ratio < self.NOISY_DATA_RATIO:
+      return
+    echo(
+      f"Repeat measurements of the same compound differ by {noise:.3f}, almost as much as the "
+      f"target varies across compounds ({signal:.3f}). There is little signal here for any model "
+      "to find; check that the rows being merged are really the same measurement.",
+      kind="warning",
+    )
+
   def values_table(self, df):
     """Return one activity value per compound id: the median over duplicate rows.
 
-    For classification the median is rounded back to a 0/1 label (a 0.5 tie becomes 1).
+    For classification the median is rounded back to a 0/1 label (a 0.5 tie becomes 1). The spread
+    of those duplicate rows is kept (:attr:`replicates`) before they are collapsed, since it is the
+    only measurement of the assay's own reproducibility the pipeline ever sees.
     """
     dfv = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: df[COMPOUND_IDENTIFIER_COLUMN]})
     dfv[VALUES_COLUMN] = df[VALUES_COLUMN]
@@ -252,6 +369,12 @@ class SingleFile(InputSchema):
     # values are binary labels, so round the median back to a 0/1 label (a tie of 0.5 → 1); for
     # REGRESSION keep the continuous median as-is.
     task = (self.params or {}).get("task")
+    # A blank cell is not a measurement. Taking the median across it turns a compound that WAS
+    # measured into a missing value, which then fails the whole run on the next step; drop the
+    # blanks within each compound first and keep its real values. A compound with nothing but
+    # blanks stays missing, which is what it is.
+    dedupe = {k: [x for x in v if x == x] or [float("nan")] for k, v in dedupe.items()}
+    self.replicates = replicate_summary(dedupe, task)
     R = []
     for k, v in dedupe.items():
       m = float(np.median(list(v)))
@@ -287,6 +410,7 @@ class SingleFile(InputSchema):
     dfc.to_csv(os.path.join(path, COMPOUNDS_FILENAME), index=False)
     dfv = self.values_table(df)
     dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
+    self._write_replicates(path)
     schema = self.input_schema()
     with open(os.path.join(path, INPUT_SCHEMA_FILENAME), "w") as f:
       json.dump(schema, f, indent=4)
@@ -357,6 +481,7 @@ class SingleFileForPrediction(SingleFile):
       if len(labeled):
         dfv = self.values_table(labeled)
         dfv.to_csv(os.path.join(path, VALUES_FILENAME), index=False)
+        self._write_replicates(path)
       else:
         # A ground-truth column was matched but every value is blank → nothing to validate against.
         # Drop it from the persisted schema too, so ``values_column`` is None iff there are no tasks
