@@ -67,7 +67,8 @@ from zairachem.cli.steps import process_group
   default=None,
   help="Projection model ID(s) for the report's 2-D embedding (default: the model's own). Pass "
   "'none' — or a bare -p — to skip them and show only the built-in MW-vs-LogP map. The projection "
-  "model is usually the slowest part of a prediction and feeds only a report figure.",
+  "model is usually the slowest part of a prediction; skipping it also drops its coordinate "
+  "columns (pca_x, umap_x, …) from results/output_table.csv.",
 )
 @click.option(
   "--anonymize",

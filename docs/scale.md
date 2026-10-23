@@ -54,12 +54,16 @@ with the estimate, pooling and report steps together under ten seconds. So its c
 descriptors it was fitted with, and describe runs them side by side: the time is the slowest of
 them, not their sum.
 
-Which makes the projection model worth knowing about. It embeds the molecules for one report
-figure, and on every prediction measured it was the slowest model of the lot — 45.4s of a 47.5s
-describe on 500 molecules. `-p none` skips it and leaves the built-in MW-vs-LogP map, which on
-that run took the whole prediction from 58s to 42s with the predictions byte-identical. The
-saving is whatever the projection was adding over the slowest real descriptor, so it is largest
-when the descriptors are fast.
+Which makes the projection model worth knowing about. It embeds the molecules for the report's
+2-D map and for the coordinate columns of `results/output_table.csv`, and on every prediction
+measured it was the slowest model of the lot — 45.4s of a 47.5s describe on 500 molecules. `-p
+none` skips it and leaves the built-in MW-vs-LogP map, which on that run took the whole
+prediction from 58s to 42s with the predictions themselves byte-identical. What it costs is those
+coordinate columns; what it saves is whatever the projection was adding over the slowest real
+descriptor, so it is largest when the descriptors are fast.
+
+`--skip-report` does **not** imply this. The coordinates are a deliverable of their own, so
+skipping the report does not decide that you do not want them; pass both if that is what you mean.
 
 ## Where it stops
 
@@ -77,7 +81,7 @@ when the descriptors are fast.
 
 | flag | effect |
 | --- | --- |
-| `-p none` (predict) | skip the projection model, which feeds only a report figure |
+| `-p none` (predict) | skip the projection model; drops its output_table coordinate columns |
 | `--max-descriptors N` | train only the N descriptors that add most to the pool |
 | `--evaluate <schemas>` | which held-out schemas to run; each costs a full refit per fold |
 | `--repeats N` | folds per schema |

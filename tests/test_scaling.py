@@ -493,8 +493,8 @@ def test_a_refused_request_size_is_remembered_per_image(tmp_path, monkeypatch):
 
 
 def test_a_prediction_can_skip_the_projection_it_only_plots(tmp_path):
-  """The projection model feeds one report figure and is routinely the slowest thing in a
-  prediction: measured across every predict run, it was the longest model every time (45.4s of a
+  """The projection model feeds the report's 2-D map and the coordinate columns of
+  output_table.csv, and is routinely the slowest thing in a prediction: measured across every predict run, it was the longest model every time (45.4s of a
   47.5s describe on 500 molecules). Describe runs models side by side, so dropping it moves the
   critical path to the slowest real descriptor -- 47.5s to 30.2s on that run, with the
   predictions byte-identical. A fit could already say `-p none`; a prediction could not."""

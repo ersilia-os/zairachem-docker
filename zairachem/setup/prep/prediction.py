@@ -62,9 +62,10 @@ class PredictSetup(BaseSetup):
     # --store reuses the store the model was trained with). read_store/contribute_store keep the
     # internal describe/treat contract (both = the project, or both None).
     self.store = store
-    # Projections drive only the report's 2-D embedding, and the projection model is routinely the
-    # slowest part of a prediction -- measured, 45s of a 48s describe on 500 molecules, because it
-    # embeds every molecule while the descriptors it is plotted against are already done. A predict
+    # Projections feed the report's 2-D embedding and the coordinate columns of
+    # results/output_table.csv, and nothing else. The projection model is routinely the slowest
+    # part of a prediction -- measured, 45s of a 48s describe on 500 molecules, because it embeds
+    # every molecule while the descriptors it is plotted beside are already done. A predict
     # inherits the trained model's choice unless it says otherwise.
     self.projection_ids = projection_ids
     self.read_store = store
