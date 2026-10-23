@@ -203,3 +203,44 @@ def test_one_descriptor_reports_no_spread_rather_than_zero_spread():
   # A descriptor that failed on a compound is skipped, not counted as a zero.
   with_gap = descriptor_spread(np.array([[0.2, np.nan, 0.6], [0.1, 0.5, 0.9]]))
   np.testing.assert_allclose(with_gap, [0.2, np.std([0.1, 0.5, 0.9])])
+
+
+@pytest.mark.parametrize(
+  ("task", "suffix", "oof_key", "train_key"),
+  [
+    ("classification", "clf", "oof_auc", "train_auc"),
+    ("regression", "reg", "oof_rho", "train_rho"),
+  ],
+)
+def test_the_pooler_reads_the_skill_its_estimator_wrote(tmp_path, task, suffix, oof_key, train_key):
+  """Each task records its held-out skill under its own key, and the pooler must ask for that one.
+
+  Reading the classifier's key on a regression run gave every descriptor a skill of None, which
+  `active_mask` treats as unknown and keeps: pruning silently stopped happening, and the weighting
+  the model falls back to when descriptors drift at predict became uniform.
+  """
+  import json
+
+  import joblib
+
+  from zairachem.pool.base import BasePooler
+
+  root = tmp_path / task
+  (root / "metadata").mkdir(parents=True)
+  (root / "metadata" / "parameters.json").write_text(json.dumps({"task": task}))
+  (root / "descriptors").mkdir()
+  (root / "descriptors" / "done_eos.json").write_text(json.dumps(["eosA", "eosB"]))
+  (root / "session.json").write_text(
+    json.dumps({"mode": "fit", "output_dir": str(root), "model_dir": str(root)})
+  )
+  for eos, skill in (("eosA", 0.81), ("eosB", 0.42)):
+    d = root / "model" / "estimators" / "lq_estimators" / eos
+    d.mkdir(parents=True)
+    joblib.dump({oof_key: skill, "ad_hard_cutoff": 0.05}, d / "pool_signals.joblib")
+    (d / "cv_report.json").write_text(json.dumps({train_key: skill + 0.1}))
+
+  io = BasePooler(path=str(root))
+  columns = [f"lq_estimators-{eos}-{suffix}" for eos in ("eosA", "eosB")]
+  meta = io._get_descriptor_meta(columns, task)
+  assert meta["oof_aucs"] == [0.81, 0.42]
+  assert meta["train_aucs"] == [pytest.approx(0.91), pytest.approx(0.52)]

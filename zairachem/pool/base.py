@@ -14,6 +14,7 @@ from zairachem.base.utils.matrices import DEFAULT_CHUNK_SIZE
 from zairachem.base.utils.results import ResultsIterator
 from zairachem.base.vars import (
   COMPOUND_IDENTIFIER_COLUMN,
+  CV_SKILL,
   DATA_FILENAME,
   DATA_SUBFOLDER,
   ESTIMATORS_SUBFOLDER,
@@ -233,7 +234,12 @@ class BasePooler(ZairaBase):
     ``train_aucs`` and ``balanced`` (lazy-qsar's balanced-accuracy cutoff) from ``cv_report.json``;
     ``proxy_aucs`` from the screening's ``metadata/proxy_scores.json`` when the run was screened.
     Missing files or keys give None entries.
+
+    The skill keys are the task's own (:data:`zairachem.base.vars.CV_SKILL`): a classifier records
+    ``oof_auc``/``train_auc``, a regressor ``oof_rho``/``train_rho``. The ``oof_aucs`` name here
+    predates regression and means "the task's held-out skill" throughout the pooler.
     """
+    oof_key, train_key, _label, _chance = CV_SKILL[task]
     meta = {k: [] for k in ("oof_aucs", "curves", "ad_cutoffs", "train_aucs", "balanced")}
     for d in self._descriptor_dirs(pred_columns, task):
       sig, cv = {}, {}
@@ -243,10 +249,10 @@ class BasePooler(ZairaBase):
         with contextlib.suppress(OSError, ValueError):
           with open(os.path.join(d, "cv_report.json")) as f:
             cv = json.load(f)
-      meta["oof_aucs"].append(sig.get("oof_auc"))
+      meta["oof_aucs"].append(sig.get(oof_key))
       meta["curves"].append(sig.get("rank_error_curve"))
       meta["ad_cutoffs"].append(sig.get("ad_hard_cutoff"))
-      meta["train_aucs"].append(cv.get("train_auc"))
+      meta["train_aucs"].append(cv.get(train_key))
       meta["balanced"].append(cv.get("decision_cutoff_proba"))
     proxy = {}
     meta_dir = self.get_trained_dir() if self.is_predict() else self.path
