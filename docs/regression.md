@@ -111,6 +111,11 @@ of this; mean absolute error over that set fell from 0.598 in the least training
 
 Every panel answers a question, and they group by which question:
 
+**Dataset** (what is being modelled, before any model)
+- `value-distribution` — the observed values themselves, with the median marked. It stands where a
+  classification run shows its class balance: a target piled against an assay's detection limit,
+  or split into two clumps with nothing between them, is worth seeing before any error is read
+
 **Accuracy** (needs the observed values, so fit and labelled predict)
 - `regression-raw` — predicted against observed, with R² and MAE
 - `regression-residuals` — residual against predicted: where the model is biased
@@ -118,10 +123,6 @@ Every panel answers a question, and they group by which question:
 - `potency-enrichment` — the mean *observed* value of the top k% by prediction. The screening
   question, and the one a correlation coefficient does not answer
 - `interval-coverage` — does the interval keep its promise, and does it keep it in every bin
-
-- `value-distribution` — the observed values themselves, with the median marked. It sits in the
-  Dataset section, where a classification run shows its class balance: a target piled against an
-  assay's detection limit is worth seeing before any model is read
 
 **Confidence** (needs no observed values, so it carries a prediction run)
 - `regression-distribution` — the predicted values against the training distribution, on shared
