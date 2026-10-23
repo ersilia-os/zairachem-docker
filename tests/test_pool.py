@@ -193,3 +193,23 @@ def test_pruning_really_leaves_a_descriptor_out():
   assert params["pruned_columns"] == [NAMES[1]]
   assert NAMES[1] not in params["descriptor_columns"]
   assert result.weights.shape[1] == 2
+
+
+def test_one_descriptor_reports_no_spread_rather_than_zero_spread():
+  """``spread`` is disagreement between descriptors; with one there is none to measure.
+
+  ``np.nanstd`` of a single column is 0, which in the delivered column reads as "every descriptor
+  agreed" -- the strongest confidence signal there is -- when nothing was compared at all.
+  """
+  import numpy as np
+
+  from zairachem.pool.reliability_pooler.pool import descriptor_spread
+
+  assert np.isnan(descriptor_spread(np.array([[0.2], [0.8], [0.5]]))).all()
+
+  two = descriptor_spread(np.array([[0.2, 0.6], [0.8, 0.4], [0.5, 0.5]]))
+  np.testing.assert_allclose(two, [0.2, 0.2, 0.0])
+
+  # A descriptor that failed on a compound is skipped, not counted as a zero.
+  with_gap = descriptor_spread(np.array([[0.2, np.nan, 0.6], [0.1, 0.5, 0.9]]))
+  np.testing.assert_allclose(with_gap, [0.2, np.std([0.1, 0.5, 0.9])])

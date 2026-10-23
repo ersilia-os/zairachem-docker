@@ -512,12 +512,14 @@ class Fitter(BaseEstimatorIndividual):
 
   @staticmethod
   def _blank_signals(n_samples):
-    """Empty ``(preds, ranks, ads)`` arrays, scattered into by original row order."""
-    return (
-      np.empty(n_samples, dtype=np.float32),
-      np.full(n_samples, np.nan, dtype=np.float32),
-      np.full(n_samples, np.nan, dtype=np.float32),
-    )
+    """``(preds, ranks, ads)`` arrays of NaN, scattered into by original row order.
+
+    Every row is written -- the training rows from the fit, the rest in the chunked re-read -- so
+    the fill is never read. It is NaN rather than ``np.empty`` so that if a row ever is missed, it
+    arrives downstream as a missing prediction instead of as whatever was in that memory, which
+    would be a plausible number nothing could catch.
+    """
+    return tuple(np.full(n_samples, np.nan, dtype=np.float32) for _ in range(3))
 
   @staticmethod
   def _patch_cv_report(descriptor_dir, **fields):

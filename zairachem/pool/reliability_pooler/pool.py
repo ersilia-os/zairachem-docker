@@ -142,6 +142,28 @@ def _ranks_by_id(ranks):
   return out
 
 
+def descriptor_spread(P):
+  """Per-compound disagreement between the descriptor models, as the spread of what they predicted.
+
+  Probabilities for a classification run, values in the target's own units for a regression one.
+  A single descriptor has nothing to disagree with: ``np.nanstd`` of one column is 0, which in the
+  delivered ``spread`` column reads as the descriptors agreeing perfectly -- the strongest
+  confidence signal there is -- when in fact nothing was compared. That case is NaN instead.
+
+  Parameters
+  ----------
+  P : ndarray of shape (n_compounds, n_descriptors)
+    The per-descriptor predictions the pooled model was built from.
+
+  Returns
+  -------
+  ndarray of shape (n_compounds,)
+  """
+  if P.shape[1] < 2:
+    return np.full(P.shape[0], np.nan)
+  return np.nanstd(P, axis=1)
+
+
 class Fitter(BasePooler):
   """Fit-time pooler: lazy-qsar's ensemble over the per-descriptor out-of-fold signals."""
 
@@ -301,9 +323,7 @@ class Predictor(BasePooler):
     results = _results(cids, result, self.task)
     # Per-compound signals for the predict report, after the pooled columns.
     results["train_similarity"] = self._train_similarity()
-    # Disagreement between the descriptor models: the spread of what they predicted (probabilities,
-    # or values in the target's own units).
-    results["descriptor_std"] = np.nanstd(P, axis=1)
+    results["descriptor_std"] = descriptor_spread(P)
     self.update_elapsed_time()
     return results
 
