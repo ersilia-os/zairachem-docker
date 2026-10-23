@@ -416,9 +416,10 @@ def test_the_run_records_its_own_memory_not_just_the_machine_s(tmp_path):
 def test_request_size_follows_the_worker_grant():
   """The server cuts a request of SERVER_CHUNKING_MOLECULES or more into chunks and runs them on
   its workers. With several that is what makes a large request fast; with one it only serialises
-  the chunks and pays their overhead. Measured on a live eos3l5f server: 9,999 molecules on one
-  worker ran at 435 mol/s and 10,000 at 391, while 10,000 on four ran at 661 -- and four workers
-  below the line bought nothing (8,192 on four: 436). So the two are one decision."""
+  the chunks and pays their overhead. Measured on a live eos3l5f server in the binary format it
+  uses: 9,999 molecules on one worker ran at 635 mol/s and 10,000 at 601, while 10,000 on four
+  ran at 1,101 -- and four workers below the line bought nothing (8,192 on four: 436). So the two
+  are one decision."""
   import inspect
 
   from zairachem.base.vars import DESCRIBE_BATCH_SIZE, SERVER_CHUNKING_MOLECULES

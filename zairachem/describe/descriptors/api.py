@@ -376,10 +376,11 @@ class BinaryStreamClient(ZairaBase):
 
     The server cuts a request of SERVER_CHUNKING_MOLECULES or more into chunks and runs them on
     its workers. With several workers that is what makes a large request fast; with one it only
-    serialises the chunks and costs their overhead for nothing. Measured on eos3l5f: 9,999
-    molecules on one worker ran at 435 mol/s and 10,000 at 391 -- a tenth of the throughput given
-    away for crossing a line the request gets nothing from -- while 10,000 on four workers ran at
-    661. Workers below the line buy nothing at all (8,192 on four workers: 436).
+    serialises the chunks and costs their overhead for nothing. Measured on eos3l5f in the binary
+    format it actually uses: 9,999 molecules on one worker ran at 635 mol/s and 10,000 at 601 --
+    throughput given away for crossing a line the request gets nothing from -- while 10,000 on
+    four workers ran at 1,101. The same shape in JSON, where the gap is wider (435 against 391),
+    and workers below the line buy nothing at all (8,192 on four workers: 436).
 
     So the request size and the worker grant are one decision. A model granted one worker stays
     just under the line; one granted more sits on it.
