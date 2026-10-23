@@ -10,17 +10,13 @@ from sklearn.metrics import (
   roc_curve,
 )
 
-from zairachem.base.vars import CV_SKILL
 from zairachem.report import BasePlot
 from zairachem.report.colors import (
   descriptor_colors_rgb,
   named_colors,
 )
-from zairachem.report.cv import CHANCE, skill_keys
+from zairachem.report.cv import CHANCE, skill_keys, task_of
 from zairachem.report.fetcher import ResultsFetcher
-
-#: Which task each out-of-fold skill key belongs to (the inverse of ``cv._SKILL``).
-_SKILL_TASK = {"oof_auc": "classification", "oof_rho": "regression"}
 
 
 def _descriptor_color_map(stats):
@@ -48,9 +44,9 @@ class _CvSkillBarPlot(BasePlot):
     self.name = self.stem
     self.is_available = False
     all_stats = ResultsFetcher(path=path).get_cv_stats()
-    oof_key, train_key, _label = skill_keys(all_stats)
-    if _SKILL_TASK[oof_key] != self.task:
+    if task_of(all_stats) != self.task:
       return  # the other task's reports; its own bar plot will draw them
+    oof_key, train_key, _label = skill_keys(all_stats)
     stats_bf = [s for s in all_stats if s.get(oof_key) is not None]
     if not stats_bf:
       return
@@ -353,7 +349,7 @@ class CvErrorCurvePlot(BasePlot):
     self.is_available = False
     rf = ResultsFetcher(path=path)
     stats = rf.get_cv_stats()
-    if skill_keys(stats)[0] != CV_SKILL["regression"][0]:
+    if task_of(stats) != "regression":
       return  # a classification run: its ROC and PR curves say this instead
     color_of = _descriptor_color_map(stats)
     curves, baseline = [], None

@@ -12,14 +12,19 @@ from zairachem.base.vars import CV_SKILL
 CHANCE = {oof: chance for oof, _train, _label, chance in CV_SKILL.values()}
 
 
-def skill_keys(stats):
-  """Return ``(oof_key, train_key, label)`` for a list of ``cv_report.json`` dicts.
+def task_of(stats):
+  """Which task wrote this list of ``cv_report.json`` dicts.
 
-  A single report carrying ``oof_rho`` settles it: only a regression run writes that key.
+  A single report carrying ``oof_rho`` settles it: only a regression run writes that key. An empty
+  or unrecognised list reads as classification, which is what the report defaults to throughout.
   """
   reg_oof = CV_SKILL["regression"][0]
-  task = "regression" if any(s.get(reg_oof) is not None for s in stats) else "classification"
-  oof, train, label, _chance = CV_SKILL[task]
+  return "regression" if any(s.get(reg_oof) is not None for s in stats) else "classification"
+
+
+def skill_keys(stats):
+  """Return ``(oof_key, train_key, label)`` for a list of ``cv_report.json`` dicts."""
+  oof, train, label, _chance = CV_SKILL[task_of(stats)]
   return oof, train, label
 
 

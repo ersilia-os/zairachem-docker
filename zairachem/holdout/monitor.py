@@ -67,15 +67,15 @@ class EvaluateMonitor(LiveTableMonitor):
     """
     from zairachem.base.utils.console import echo
 
-    e = s["extra"] if s else {}
+    extra = s["extra"] if s else {}
     scored = "  ".join(
-      f"{_METRIC_LABEL[name]} {_fmt_metric(e.get(name))}"
+      f"{_METRIC_LABEL[name]} {_fmt_metric(extra.get(name))}"
       for name in self.metrics
-      if e.get(name) is not None
+      if extra.get(name) is not None
     )
-    el = f"{s['elapsed']:.1f}s" if s and s["elapsed"] is not None else "—"
+    elapsed = f"{s['elapsed']:.1f}s" if s and s["elapsed"] is not None else "—"
     status = s["status"] if s else "done"
-    echo(f"{status} {item_id}  {scored}  [dim]{el}[/]", kind="info")
+    echo(f"{status} {item_id}  {scored}  [dim]{elapsed}[/]", kind="info")
 
   def _row_cells(self, item_id, s):
     e = s["extra"]

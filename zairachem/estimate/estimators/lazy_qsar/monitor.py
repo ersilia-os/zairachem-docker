@@ -1,8 +1,7 @@
 """Live, digested progress for the per-descriptor lazy-qsar training (Estimate step).
 
 Each descriptor trains one ``LazyClassifier``/``LazyRegressor`` fit, otherwise a black box on
-screen. This
-module renders a live, in-place table (themed, no emojis) showing every descriptor go
+screen. This module renders a live, in-place table (themed, no emojis) showing every descriptor go
 ``queued → training: <inner step> → done`` with its algorithms, out-of-fold skill and wall-clock,
 and a live "current inner step" captured from lazy-qsar's own loguru messages (``Fitting head
 2/2: rf``, ``Batch 1/3``, ``calibrate: …``) — without ever surfacing lazy-qsar's raw tables.

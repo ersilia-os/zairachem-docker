@@ -8,7 +8,7 @@ import os
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import DEFAULT_CUTOFF, GITHUB_ORG, OUTPUT_TABLE_FILENAME
 from zairachem.report import colors as _colors
-from zairachem.report.cv import skill_keys
+from zairachem.report.cv import CHANCE, skill_keys, task_of
 from zairachem.report.html.catalog import _BADGE_DISCARDED, _BADGE_KEPT, _VALIDATION_SCHEMAS
 
 
@@ -259,24 +259,17 @@ def _cv_table_html(cv_stats):
   """
   if not cv_stats:
     return ""
-  key, _train_key, label = skill_keys(cv_stats)
-  if key == "oof_auc":
-    cols = [
-      ("descriptor", "Descriptor"),
-      ("oof_auc", "Inner CV AUROC"),
-      ("aupr", "Inner CV AUPRC"),
-      ("train_auc", "Train AUROC"),
-      ("overfit_gap", "Overfit gap"),
-      ("decision_cutoff_proba", "Balanced cutoff"),
-    ]
-  else:
-    # Regression has no second ranking metric and no cutoff; the overfit gap means the same thing.
-    cols = [
-      ("descriptor", "Descriptor"),
-      ("oof_rho", f"Inner CV {label}"),
-      ("train_rho", f"Train {label}"),
-      ("overfit_gap", "Overfit gap"),
-    ]
+  key, train_key, label = skill_keys(cv_stats)
+  # The skill columns are the task's own, named from its label. Regression has no second ranking
+  # metric and no cutoff, so it carries neither of the columns that bracket them.
+  is_clf = task_of(cv_stats) == "classification"
+  cols = [("descriptor", "Descriptor"), (key, f"Inner CV {label}")]
+  if is_clf:
+    cols.append(("aupr", "Inner CV AUPRC"))
+  cols.append((train_key, f"Train {label}"))
+  cols.append(("overfit_gap", "Overfit gap"))
+  if is_clf:
+    cols.append(("decision_cutoff_proba", "Balanced cutoff"))
   if any(r.get("fit_seconds") is not None for r in cv_stats):
     # One descriptor can cost most of a run; this is the only place that says which.
     cols.append(("fit_seconds", "Train time"))
@@ -331,13 +324,14 @@ def _cv_bars_html(stats):
   palette = _colors.descriptor_colors_hex(len(stats))
   rows = []
   for i, s in enumerate(stats):
-    auc = s.get(key)
-    if auc is None:
+    skill = s.get(key)
+    if skill is None:
       continue
     gap = s.get("overfit_gap")
-    # AUROC fills the track from 0.5 (chance); rho fills it from 0, which is its own chance level.
-    span = (auc - 0.5) / 0.5 if key == "oof_auc" else auc
-    pct = max(2.0, min(100.0, span * 100))
+    # The track fills from the task's chance level, so a descriptor at chance shows empty either
+    # way: 0.5 for AUROC, 0 for rho.
+    chance = CHANCE[key]
+    pct = max(2.0, min(100.0, (skill - chance) / (1.0 - chance) * 100))
     did = html.escape(str(s.get("descriptor")))
     href = f"https://github.com/{GITHUB_ORG}/{did}"
     gap_pill = (
@@ -346,6 +340,6 @@ def _cv_bars_html(stats):
     rows.append(
       f"<div class='perf-row'><a class='model' href='{href}' target='_blank'>{did} ↗</a>"
       f"<span class='perf-bar'><i class='diag-fill' style='width:{pct:.1f}%;background:{palette[i]}'></i></span>"
-      f"<span class='perf-val'>{auc:.3f}</span><span class='perf-pills'>{gap_pill}</span></div>"
+      f"<span class='perf-val'>{skill:.3f}</span><span class='perf-pills'>{gap_pill}</span></div>"
     )
   return f"<div class='perf-steps'>{''.join(rows)}</div>" if rows else ""
