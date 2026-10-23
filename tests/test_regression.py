@@ -140,6 +140,20 @@ def test_metrics_are_the_regression_ones():
   assert np.isnan(degenerate["r2"]) and degenerate["num_compounds"] == 2
 
 
+def test_one_unscoreable_compound_does_not_void_the_whole_metrics_row():
+  """A NaN prediction used to propagate into every metric instead of being left out."""
+  from zairachem.report.fetcher import ResultsFetcher
+
+  fetcher = ResultsFetcher.__new__(ResultsFetcher)
+  clean = fetcher.regression_performance_report([1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 2.9, 3.9])
+  gappy = fetcher.regression_performance_report(
+    [1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 2.1, 2.9, 3.9, float("nan")]
+  )
+  assert gappy["num_compounds"] == 4  # the unscoreable compound is counted out, not in
+  assert gappy["r2"] == pytest.approx(clean["r2"])
+  assert not np.isnan(gappy["rmse"])
+
+
 def test_the_output_contract_is_value_not_score():
   from zairachem.base.vars import OUTPUT_COLUMNS, OUTPUT_DESCRIPTOR_PREFIX, TARGET_COLUMN
 
@@ -555,23 +569,6 @@ def test_a_degenerate_run_still_produces_readable_panels(tmp_path):
     assert "nan" not in title.lower(), f"{name} shows a nan in its title: {title!r}"
 
 
-def test_a_regression_fit_does_not_prepare_the_rank_reference(monkeypatch):
-  """lazy-qsar's regression ensemble has no reference library; downloading one costs ~1.6 GB."""
-  import inspect
-
-  from zairachem.setup.prep import training
-
-  source = inspect.getsource(training.TrainSetup.setup)
-  call = "prepare_rank_references(self.featurizer_ids)"
-  assert call in source
-  # The call must sit under a classification guard, not at the top level of setup().
-  line = next(ln for ln in source.splitlines() if call in ln)
-  guard = next(
-    ln for ln in reversed(source[: source.index(line)].splitlines()) if ln.strip().startswith("if ")
-  )
-  assert 'self.task == "classification"' in guard, f"rank reference prepared under: {guard.strip()}"
-
-
 def test_the_report_survives_a_model_that_lost_its_intervals(tmp_path):
   """Descriptor drift at predict drops the stacking weights and the interval model (``restrict``)."""
   import pandas as pd
@@ -634,6 +631,47 @@ def test_the_coverage_panel_falls_back_when_the_widths_are_not_bins(tmp_path):
   assert [t.get_text() for t in plot.ax.get_xticklabels()] == ["All"]
 
 
+def test_one_missing_value_does_not_change_what_the_error_panel_plots(tmp_path):
+  """Pre-filtering shortened the array, and the length check then fell through to interval width."""
+  import pandas as pd
+
+  from zairachem.report.plots import ErrorVsSimilarityPlot
+
+  path = _synthetic_run(tmp_path / "gappy", predict=True)
+  data_path = os.path.join(path, "inputs", "data.csv")
+  data = pd.read_csv(data_path)
+  data.loc[0, "val"] = None  # one compound was never measured
+  data.to_csv(data_path, index=False)
+
+  plot = ErrorVsSimilarityPlot(ax=None, path=path)
+  assert plot.is_available
+  assert "Absolute error" in plot.ax.get_title(), plot.ax.get_title()
+
+
+# --- Contracts with the rest of the system ------------------------------------------------------
+#
+# Each of these fails somewhere far from its cause: a rank reference downloaded for a task that
+# cannot use it, a lazy-qsar upgrade that moves a private name, a figure with no section to land
+# in. They are cheap to assert and expensive to notice.
+
+
+def test_a_regression_fit_does_not_prepare_the_rank_reference(monkeypatch):
+  """lazy-qsar's regression ensemble has no reference library; downloading one costs ~1.6 GB."""
+  import inspect
+
+  from zairachem.setup.prep import training
+
+  source = inspect.getsource(training.TrainSetup.setup)
+  call = "prepare_rank_references(self.featurizer_ids)"
+  assert call in source
+  # The call must sit under a classification guard, not at the top level of setup().
+  line = next(ln for ln in source.splitlines() if call in ln)
+  guard = next(
+    ln for ln in reversed(source[: source.index(line)].splitlines()) if ln.strip().startswith("if ")
+  )
+  assert 'self.task == "classification"' in guard, f"rank reference prepared under: {guard.strip()}"
+
+
 def test_the_lazyqsar_surface_regression_leans_on_is_still_there():
   """ZairaChem reaches past lazy-qsar's public API in a few places; an upgrade must not silently
   remove the footholds. Each name here is used by estimate.py or pooler.py."""
@@ -656,37 +694,6 @@ def test_the_lazyqsar_surface_regression_leans_on_is_still_there():
   # clip(2 * oof - train, -1, 1): the regression quality term the spec's skill weights are built on.
   assert _quality_rho(0.8, 0.9) == pytest.approx(0.7)
   assert 0.0 < DEFAULT_LEVEL < 1.0
-
-
-def test_one_missing_value_does_not_change_what_the_error_panel_plots(tmp_path):
-  """Pre-filtering shortened the array, and the length check then fell through to interval width."""
-  import pandas as pd
-
-  from zairachem.report.plots import ErrorVsSimilarityPlot
-
-  path = _synthetic_run(tmp_path / "gappy", predict=True)
-  data_path = os.path.join(path, "inputs", "data.csv")
-  data = pd.read_csv(data_path)
-  data.loc[0, "val"] = None  # one compound was never measured
-  data.to_csv(data_path, index=False)
-
-  plot = ErrorVsSimilarityPlot(ax=None, path=path)
-  assert plot.is_available
-  assert "Absolute error" in plot.ax.get_title(), plot.ax.get_title()
-
-
-def test_one_unscoreable_compound_does_not_void_the_whole_metrics_row():
-  """A NaN prediction used to propagate into every metric instead of being left out."""
-  from zairachem.report.fetcher import ResultsFetcher
-
-  fetcher = ResultsFetcher.__new__(ResultsFetcher)
-  clean = fetcher.regression_performance_report([1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 2.9, 3.9])
-  gappy = fetcher.regression_performance_report(
-    [1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 2.1, 2.9, 3.9, float("nan")]
-  )
-  assert gappy["num_compounds"] == 4  # the unscoreable compound is counted out, not in
-  assert gappy["r2"] == pytest.approx(clean["r2"])
-  assert not np.isnan(gappy["rmse"])
 
 
 def test_the_plot_registry_and_the_html_catalog_agree():
