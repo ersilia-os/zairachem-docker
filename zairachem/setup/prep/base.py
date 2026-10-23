@@ -34,10 +34,16 @@ class BaseSetup(object):
   `self.output_dir` in its own ``__init__``)."""
 
   def _copy_input_file(self):
-    extension = self.input_file.split(".")[-1]
+    """Keep the run's own copy of the input, always as ``raw_input.csv``.
+
+    The input is read with ``pandas.read_csv`` whatever it is called, so a comma-separated file
+    named ``.txt`` or ``.dat`` gets through setup; copying it under its own extension then left
+    the report and the finish step — both of which look for ``raw_input.csv`` — to fail at the end
+    of a run that had already done all its work.
+    """
     shutil.copy(
       self.input_file,
-      os.path.join(self.output_dir, DATA_SUBFOLDER, RAW_INPUT_FILENAME + "." + extension),
+      os.path.join(self.output_dir, DATA_SUBFOLDER, RAW_INPUT_FILENAME + ".csv"),
     )
 
   def _make_subfolder(self, name):

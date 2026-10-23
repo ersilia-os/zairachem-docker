@@ -285,3 +285,27 @@ def test_descriptors_that_disagree_on_their_compounds_are_refused(tmp_path):
   write("eosB", cids[:4])
   with pytest.raises(RuntimeError, match="result rows"):
     XGetter(path=str(root)).get()
+
+
+def test_a_finished_run_does_not_need_the_user_s_input_file_any_more(tmp_path):
+  """Setup copies the input into the run, so nothing later should reach back to where it was.
+
+  Reading the schema's path meant a finished model could not be re-pooled, or moved to another
+  machine, once the input was renamed or tidied away.
+  """
+  import json
+
+  import pandas as pd
+
+  from zairachem.pool.base import BaseOutcomeAssembler
+
+  root = tmp_path / "run"
+  (root / "inputs").mkdir(parents=True)
+  pd.DataFrame({"smiles": ["CCO"] * 7}).to_csv(root / "inputs" / "raw_input.csv", index=False)
+  (root / "inputs" / "input_schema.json").write_text(
+    json.dumps({"input_file": str(tmp_path / "moved-away.csv"), "smiles_column": "smiles"})
+  )
+
+  assembler = BaseOutcomeAssembler.__new__(BaseOutcomeAssembler)
+  assembler.path = str(root)
+  assert assembler._get_original_input_size() == 7

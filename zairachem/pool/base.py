@@ -25,6 +25,7 @@ from zairachem.base.vars import (
   POOL_SUBFOLDER,
   PROXY_SCORES_FILENAME,
   RANK_REFERENCE_SIGNALS_FILENAME,
+  RAW_INPUT_FILENAME,
   RESULTS_UNMAPPED_FILENAME,
   SMILES_COLUMN,
   TARGET_COLUMN,
@@ -323,10 +324,19 @@ class BaseOutcomeAssembler(ZairaBase):
     ]
 
   def _get_original_input_size(self):
+    """How many rows the user's input had, read from the run's own copy of it.
+
+    Setup copies the input into the run, so nothing here needs the file to still be where the user
+    had it. Reaching back to that path meant a finished model could not be re-pooled — or moved to
+    another machine — once the input was renamed or tidied away. The schema's path is still the
+    fallback, for runs made before the copy was always a CSV.
+    """
+    own = os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME + ".csv")
+    if os.path.exists(own):
+      return pd.read_csv(own).shape[0]
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
-    file_name = schema["input_file"]
-    return pd.read_csv(file_name).shape[0]
+    return pd.read_csv(schema["input_file"]).shape[0]
 
   def _remap(self, df, mappings):
     n = self._get_original_input_size()
