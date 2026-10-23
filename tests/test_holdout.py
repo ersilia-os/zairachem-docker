@@ -247,3 +247,18 @@ def test_the_panel_shows_the_held_out_skill_beside_the_out_of_fold_one(tmp_path)
 
   # And the panel is where it has to appear.
   assert "_note_held_out_skill" in inspect.getsource(summaries.final_summary_panel)
+
+
+def test_a_fold_missing_a_class_on_either_side_is_rejected():
+  """A fold whose test slice is all one class has no AUROC, and one whose train slice is cannot
+  learn the other. Both are dropped before they are scored, so the guard has to look at each side
+  separately -- checking only that the dataset has both classes would pass either."""
+  from zairachem.holdout.splits import _both_classes
+
+  y = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+  assert _both_classes(y, np.array([0, 1, 4, 5]), np.array([2, 3, 6, 7]))
+  assert not _both_classes(y, np.array([0, 1, 4, 5]), np.array([2, 3]))  # test side all inactive
+  assert not _both_classes(y, np.array([0, 1, 2, 3]), np.array([4, 5, 6, 7]))  # train all inactive
+  assert not _both_classes(y, np.array([0, 1]), np.array([2, 4]))  # train one class, test both
+  assert not _both_classes(np.zeros(8), np.arange(4), np.arange(4, 8))  # nothing to separate
+  assert not _both_classes(y, np.array([], dtype=int), np.arange(8))  # an empty side

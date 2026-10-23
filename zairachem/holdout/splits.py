@@ -418,12 +418,16 @@ def _both_classes(labels, train_idx, test_idx):
   labels = np.asarray(labels)
   if len(train_idx) == 0 or len(test_idx) == 0:
     return False
+  # np.unique rather than a set of every label: this is asked once per candidate seed, of each
+  # strategy, of each menu built -- a few hundred times a run -- and boxing a million labels into
+  # Python objects each time costs 16s where asking numpy costs 3s. The labels are already known
+  # to be a subset of {0, 1} here, so "at least two distinct" is exactly "both classes present".
   if is_binary(labels):
-    return set(labels.tolist()) >= {0, 1} and (
-      set(labels[train_idx].tolist()) >= {0, 1} and set(labels[test_idx].tolist()) >= {0, 1}
-    )
+    # Only the two sides: if each has both classes then so does the whole set, so asking about
+    # the whole set as well was a third pass over every label for an answer already implied.
+    return np.unique(labels[train_idx]).size >= 2 and np.unique(labels[test_idx]).size >= 2
   st = strata(labels)
-  return len(set(st[train_idx].tolist())) >= 2 and len(set(st[test_idx].tolist())) >= 2
+  return np.unique(st[train_idx]).size >= 2 and np.unique(st[test_idx]).size >= 2
 
 
 def _jaccard(a, b):
