@@ -7,6 +7,27 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.vars import SESSION_FILE
 
 
+def _peak_rss_gb():
+  """The most resident memory THIS process has held, in GB, or None where it cannot be read.
+
+  The host RAM beside it is the whole machine, most of which is the model servers in their own
+  containers; it says a run was tight but not which part of ZairaChem was holding anything. This
+  is the pipeline's own high-water mark, which is what a step has to be judged on when a large
+  run runs out of memory. It only rises, so the jump between two steps is what that step cost.
+  """
+  import resource
+  import sys
+
+  try:
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+  except (OSError, ValueError) as e:
+    logger.debug(f"[pipeline] peak RSS unavailable: {e}")
+    return None
+  # ru_maxrss is bytes on macOS and kilobytes on Linux.
+  scale = 1 if sys.platform == "darwin" else 1024
+  return round(peak * scale / 1e9, 3)
+
+
 class SessionFile(ZairaBase):
   """Reader and writer of a run's ``session.json``."""
 
@@ -90,6 +111,7 @@ class PipelineStep(ZairaBase):
       rec["ram_pct"] = vm.percent
     except Exception as e:  # psutil raises its own exception types
       logger.debug(f"[pipeline] {self.name} telemetry unavailable: {e}")
+    rec["rss_peak_gb"] = _peak_rss_gb()
     return rec
 
   def update(self):

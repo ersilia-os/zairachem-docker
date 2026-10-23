@@ -80,6 +80,9 @@ def step_telemetry(output_dir):
       "peak_ram_gb": None,
       "ram_total_gb": None,
       "peak_cpu": None,
+      "peak_rss_gb": None,
+      "rss_step": None,
+      "rss_step_gb": None,
     }
   total = data.get("elapsed_time")
   log = data.get("step_log") or []
@@ -98,6 +101,8 @@ def step_telemetry(output_dir):
   peak_ram = None
   peak_cpu = None
   ram_total = None
+  peak_rss = None
+  prev_rss = None
   for rec in ordered:
     name = rec.get("name")
     t = rec.get("t")
@@ -114,6 +119,13 @@ def step_telemetry(output_dir):
       peak_cpu = cpu if peak_cpu is None else max(peak_cpu, cpu)
     if rec.get("ram_total_gb") is not None:
       ram_total = rec.get("ram_total_gb")
+    # ZairaChem's own high-water mark only rises, so the jump since the previous step is what this
+    # step added to it -- which is the step to look at when a large run runs out of memory.
+    rss = rec.get("rss_peak_gb")
+    rss_added = None if rss is None or prev_rss is None else max(0.0, rss - prev_rss)
+    if rss is not None:
+      prev_rss = rss
+      peak_rss = rss if peak_rss is None else max(peak_rss, rss)
     steps.append({
       "name": name,
       "label": label,
@@ -122,13 +134,22 @@ def step_telemetry(output_dir):
       "cpu": cpu,
       "ram_used_gb": ram_used,
       "ram_pct": rec.get("ram_pct"),
+      "rss_peak_gb": rss,
+      "rss_added_gb": rss_added,
     })
+  collapsed = _collapse_setup(steps)
+  hungriest = max(
+    (s for s in collapsed if s.get("rss_added_gb")), key=lambda s: s["rss_added_gb"], default=None
+  )
   return {
-    "steps": _collapse_setup(steps),
+    "steps": collapsed,
     "total_seconds": total,
     "peak_ram_gb": peak_ram,
     "ram_total_gb": ram_total,
     "peak_cpu": peak_cpu,
+    "peak_rss_gb": peak_rss,
+    "rss_step": hungriest["label"] if hungriest else None,
+    "rss_step_gb": hungriest["rss_added_gb"] if hungriest else None,
   }
 
 

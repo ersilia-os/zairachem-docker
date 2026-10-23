@@ -284,6 +284,11 @@ def _perf_steps_html(steps):
     if s["ram_used_gb"] is not None:
       lvl = _load_level(s["ram_pct"])
       pills.append(f"<span class='pill ram {lvl}'>RAM {s['ram_used_gb']:.1f} GB</span>")
+    # The RAM pill is the whole machine, most of which is the model servers in their own
+    # containers. This is what ZairaChem itself added to its high-water mark here, which is the
+    # number that says which step to look at when a large run runs out of memory.
+    if s.get("rss_added_gb"):
+      pills.append(f"<span class='pill ram'>+{s['rss_added_gb']:.1f} GB held</span>")
     rows.append(
       f"<div class='perf-row'><span class='perf-lbl'>{html.escape(s['label'])}</span>"
       f"<span class='perf-bar'><i class='ph-{html.escape(s['phase'])}' style='width:{pct:.1f}%'></i></span>"

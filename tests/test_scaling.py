@@ -357,3 +357,57 @@ def test_a_rerun_store_discards_the_previous_attempt(tmp_path):
 
   store.save_chunk(np.zeros((10, 4), dtype=np.float32), [f"s{i}" for i in range(10)])
   assert store.n_rows() == 10 and store.values().shape == (10, 4)
+
+
+def test_the_run_records_its_own_memory_not_just_the_machine_s(tmp_path):
+  """The host RAM already recorded is the whole machine, most of which is the model servers in
+  their own containers: it says a run was tight, not which part of ZairaChem was holding
+  anything. The pipeline's own high-water mark only rises, so the jump at a step is what that
+  step added -- which is the step to look at when a large run runs out of memory."""
+  import json
+
+  from zairachem.base.utils.pipeline import _peak_rss_gb
+  from zairachem.report.perf import step_telemetry
+
+  # A plausible figure, not just a positive one: ru_maxrss is bytes on macOS and kilobytes on
+  # Linux, and reading it with the wrong scale gives a number a thousand times out.
+  mine = _peak_rss_gb()
+  assert mine is None or 0.01 < mine < 100, mine
+
+  # A run with no session at all still answers, rather than missing the new keys.
+  assert step_telemetry(str(tmp_path / "nothing-here"))["peak_rss_gb"] is None
+
+  def telemetry(log):
+    (tmp_path / "session.json").write_text(
+      json.dumps({"steps": [r["name"] for r in log], "step_log": log, "time_stamp": -10})
+    )
+    return step_telemetry(str(tmp_path))
+
+  base = {"cpu": 10, "ram_used_gb": 9.0, "ram_total_gb": 17.0, "ram_pct": 53}
+  log = [
+    {"name": "setup", "t": 0, "rss_peak_gb": 0.4, **base},
+    {"name": "raw_descriptions", "t": 60, "rss_peak_gb": 0.6, **base},
+    {"name": "estimate", "t": 300, "rss_peak_gb": 5.9, **base},
+    {"name": "report", "t": 310, "rss_peak_gb": 5.9, **base},
+  ]
+  t = telemetry(log)
+  assert t["peak_rss_gb"] == 5.9
+  assert t["rss_step"] == "Estimate" and abs(t["rss_step_gb"] - 5.3) < 1e-6
+  held = {s["label"]: s["rss_added_gb"] for s in t["steps"]}
+  assert abs(held["Descriptors"] - 0.2) < 1e-6  # a step that held little is not accused
+
+  # The step records it, and the report shows it beside the host RAM.
+  import inspect
+
+  from zairachem.base.utils.pipeline import PipelineStep
+  from zairachem.report.html.sections import _perf_steps_html
+
+  assert "rss_peak_gb" in inspect.getsource(PipelineStep._telemetry)
+  html = _perf_steps_html(t["steps"])
+  assert "5.3 GB held" in html, html
+
+  # A run recorded before this existed has no such figures, and still summarises.
+  older = [{k: v for k, v in r.items() if k != "rss_peak_gb"} for r in log]
+  t = telemetry(older)
+  assert t["peak_rss_gb"] is None and t["rss_step"] is None
+  assert all(s["rss_added_gb"] is None for s in t["steps"])
