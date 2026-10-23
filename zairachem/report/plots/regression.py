@@ -104,7 +104,8 @@ class RegressionPlotRaw(BasePlot):
     if yt is None or len(yt) < 2:
       return
     ax = self.ax
-    ax.scatter(yt, yp, color=named_colors.green, s=15, alpha=0.7)
+    idx, alpha = _subsample(yt.size)
+    ax.scatter(yt[idx], yp[idx], color=named_colors.green, s=12, alpha=alpha, edgecolors="none")
     lo, hi = float(min(yt.min(), yp.min())), float(max(yt.max(), yp.max()))
     # The identity line is the reference a scatter like this is read against.
     ax.plot([lo, hi], [lo, hi], color=named_colors.gray, lw=1, ls="--", zorder=1)
@@ -129,7 +130,10 @@ class ResidualsPlot(BasePlot):
       return
     residual = yp - yt
     ax = self.ax
-    ax.scatter(yp, residual, color=named_colors.blue, s=15, alpha=0.7)
+    idx, alpha = _subsample(yp.size)
+    ax.scatter(
+      yp[idx], residual[idx], color=named_colors.blue, s=12, alpha=alpha, edgecolors="none"
+    )
     ax.axhline(0.0, color=named_colors.gray, lw=1, ls="--", zorder=1)
     ax.set_xlabel("Predicted")
     ax.set_ylabel("Predicted − observed")
@@ -355,7 +359,10 @@ class ErrorVsSimilarityPlot(BasePlot):
     if sim is None or len(sim) < 2:
       return
     ax = self.ax
-    ax.scatter(sim, quantity, color=named_colors.blue, s=15, alpha=0.7)
+    idx, alpha = _subsample(sim.size)
+    ax.scatter(
+      sim[idx], quantity[idx], color=named_colors.blue, s=12, alpha=alpha, edgecolors="none"
+    )
     ax.set_xlabel("Similarity to the training set")
     ax.set_ylabel(label)
     ax.set_title(f"{label} vs training similarity")
