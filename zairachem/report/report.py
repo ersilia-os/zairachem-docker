@@ -418,6 +418,7 @@ def _render_one(cls, path, kwargs):
   try:
     plot = cls(ax=None, path=path, **kwargs)
     if not getattr(plot, "is_available", True):
+      plot.discard()  # it built a figure before it could decline; don't leave it open
       return "na", None, None
     plot.save()
     return "ok", plot.name, list(getattr(plot, "cells", (2, 2)))

@@ -596,3 +596,21 @@ def test_the_report_survives_a_model_that_lost_its_intervals(tmp_path):
   )
   out = _hitlist_table_html(str(report_dir))
   assert "by predicted value" in out and "Interval" not in out
+
+
+def test_a_declined_plot_does_not_leave_its_figure_open(tmp_path):
+  """Each plot belongs to one task, so most decline on any run -- after building a figure."""
+  import matplotlib
+
+  matplotlib.use("Agg")
+  import matplotlib.pyplot as plt
+
+  from zairachem.report.plots import RocCurvePlot
+  from zairachem.report.report import _render_one
+
+  path = _synthetic_run(tmp_path / "run")  # a regression run: the ROC plot has nothing to draw
+  plt.close("all")
+  for _ in range(25):  # matplotlib starts warning past twenty
+    status, _name, _cells = _render_one(RocCurvePlot, path, {})
+    assert status == "na"
+  assert plt.get_fignums() == []

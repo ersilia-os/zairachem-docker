@@ -121,12 +121,26 @@ class BasePlot(BaseResults):
     self.ax.set_xlabel("")
     self.ax.set_ylabel("")
 
+  def discard(self):
+    """Close this plot's figure without writing it.
+
+    A plot that declines to render -- most of them do, on any given run, because each belongs to
+    one task -- still built a figure in ``__init__`` before it could decide. Left open they
+    accumulate for the life of the worker process, and matplotlib starts warning past twenty.
+    """
+    import matplotlib.pyplot as plt
+
+    figure = getattr(self.ax, "figure", None)
+    plt.close(figure) if figure is not None else plt.close("all")
+
   def save(self):
     """Write the figure to ``report/png/<name>.png`` and ``report/pdf/<name>.pdf``.
 
-    Does nothing when the plot is not available. The PNG uses ``REPORT_DPI``; the PDF is vector.
+    Closes the figure either way: nothing is written when the plot is not available, but the
+    figure it built still has to go. The PNG uses ``REPORT_DPI``; the PDF is vector.
     """
     if not self.is_available:
+      self.discard()
       return
     import matplotlib.pyplot as plt
 
