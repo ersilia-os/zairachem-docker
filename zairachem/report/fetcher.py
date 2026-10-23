@@ -152,35 +152,29 @@ class ResultsFetcher(ZairaBase):
         continue
     return sort_best_first(stats)
 
-  def get_cv_oof(self, descriptor):
-    """``(oof_proba, y)`` lists for a descriptor's out-of-fold predictions, or None.
+  def _cv_oof(self, descriptor, column):
+    """``(column, y)`` lists from a descriptor's ``oof.csv``, or None when it holds neither.
 
-    A regression run writes ``oof_value`` instead, so there is no probability to return and the
-    classification cross-validation plots skip themselves.
+    Each run writes one of the two: ``oof_proba`` for a classifier, ``oof_value`` for a regressor.
+    Asking for the one this run did not write returns None, which is how each task's
+    cross-validation plots skip the other's.
     """
     d = self._cv_dirs().get(descriptor)
-    if d is not None:
-      f = os.path.join(d, "oof.csv")
-      if os.path.exists(f):
-        df = self._read_csv_cached(f)
-        if "oof_proba" in df.columns:
-          return list(df["oof_proba"]), list(df["y"])
-    return None
+    if d is None:
+      return None
+    f = os.path.join(d, "oof.csv")
+    if not os.path.exists(f):
+      return None
+    df = self._read_csv_cached(f)
+    return (list(df[column]), list(df["y"])) if column in df.columns else None
+
+  def get_cv_oof(self, descriptor):
+    """``(oof_proba, y)`` lists for a classification descriptor's out-of-fold predictions, or None."""
+    return self._cv_oof(descriptor, "oof_proba")
 
   def get_cv_oof_values(self, descriptor):
-    """``(oof_value, y)`` lists for a regression descriptor's out-of-fold predictions, or None.
-
-    The sibling of :meth:`get_cv_oof`: a regression run records a predicted value where a
-    classification one records a probability.
-    """
-    d = self._cv_dirs().get(descriptor)
-    if d is not None:
-      f = os.path.join(d, "oof.csv")
-      if os.path.exists(f):
-        df = self._read_csv_cached(f)
-        if "oof_value" in df.columns:
-          return list(df["oof_value"]), list(df["y"])
-    return None
+    """``(oof_value, y)`` lists for a regression descriptor's out-of-fold predictions, or None."""
+    return self._cv_oof(descriptor, "oof_value")
 
   def get_tasks(self):
     """Return the ``clf``/``reg`` task column names of the run's ``data.csv``."""

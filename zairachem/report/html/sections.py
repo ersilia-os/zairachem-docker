@@ -118,6 +118,24 @@ def _model_titles(output_dir, params, ids):
   return resolved
 
 
+def _group_cards(report_dir, groups, present):
+  """Render one slider per group that has any figure; return ``(cards, stems)``.
+
+  A group with a single present figure gets a plain card instead of a carousel. ``stems`` are the
+  figures used, which the caller marks as assigned so they do not resurface in the catch-all.
+  """
+  cards, stems = [], []
+  for g in groups:
+    members = [m for m in g["members"] if m in present]
+    if not members:
+      continue
+    stems.extend(members)
+    cards.append(
+      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
+    )
+  return cards, stems
+
+
 def _cfg_grid(pairs):
   """A row of labelled stats: one ``cfg-cell`` per ``(label, value)``, wrapped in a ``cfg-grid``.
 
@@ -322,18 +340,7 @@ def _computational_performance_html(output_dir, report_dir, present, assigned, p
   if store:
     stats.append(("Store size", perf.fmt_size(store["total_bytes"])))
 
-  # Build the figure sliders: one carousel per group (or a plain card when a group has a single
-  # present figure). ``fig_cards`` is the rendered HTML; ``fig_stems`` the stems to mark assigned.
-  fig_cards = []
-  fig_stems = []
-  for g in _COMPUTE_GROUPS:
-    members = [m for m in g["members"] if m in present]
-    if not members:
-      continue
-    fig_stems.extend(members)
-    fig_cards.append(
-      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
-    )
+  fig_cards, fig_stems = _group_cards(report_dir, _COMPUTE_GROUPS, present)
   if not stats and not tel["steps"] and not prov and not fig_cards:
     return ""
 
@@ -420,15 +427,7 @@ def _dataset_html(output_dir, report_dir, present, assigned):
   """
   counts = _class_counts(output_dir)
   values = None if counts else _value_summary(output_dir)
-  fig_cards, fig_stems = [], []
-  for g in _DATASET_GROUPS:
-    members = [m for m in g["members"] if m in present]
-    if not members:
-      continue
-    fig_stems.extend(members)
-    fig_cards.append(
-      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
-    )
+  fig_cards, fig_stems = _group_cards(report_dir, _DATASET_GROUPS, present)
   if not counts and not values and not fig_cards:
     return ""
 
@@ -589,15 +588,7 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
   stats = _cv_stats(output_dir)
   summary = _cv_summary(stats) if stats else {}
 
-  fig_cards, fig_stems = [], []
-  for g in _DIAG_GROUPS:
-    members = [m for m in g["members"] if m in present]
-    if not members:
-      continue
-    fig_stems.extend(members)
-    fig_cards.append(
-      _card(report_dir, members[0]) if len(members) == 1 else _carousel(report_dir, g, members)
-    )
+  fig_cards, fig_stems = _group_cards(report_dir, _DIAG_GROUPS, present)
   if not summary and not fig_cards:
     return ""
 
