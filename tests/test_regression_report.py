@@ -506,3 +506,34 @@ def test_the_coverage_panel_counts_the_compounds_inside_their_interval(tmp_path)
   # none of them, the untouched bin covers all of its own, and the pooled bar is 90 of 100.
   assert labels[-1] == "All" and heights[-1] == pytest.approx(0.90)
   assert sorted(heights[:-1]) == [pytest.approx(0.0), pytest.approx(1.0)]
+
+
+def test_the_error_curve_is_the_cumulative_distribution_of_the_errors(tmp_path):
+  """One line per descriptor, plus the error of predicting the training mean."""
+  import json
+
+  import pandas as pd
+
+  from zairachem.report.plots import CvErrorCurvePlot
+
+  path = _synthetic_run(tmp_path / "errors", n=100, descriptors=("eosA",))
+  truth = np.linspace(1.0, 100.0, 100)
+  # Errors 1.0, 2.0, ... 100.0 by construction, alternating sign so the mean stays put.
+  errors = np.arange(1.0, 101.0) * np.where(np.arange(100) % 2 == 0, 1.0, -1.0)
+  d = os.path.join(path, "model", "estimators", "lq_estimators", "eosA")
+  pd.DataFrame({"oof_value": truth + errors, "y": truth}).to_csv(
+    os.path.join(d, "oof.csv"), index=False
+  )
+  json.dump({"oof_rho": 0.9, "train_rho": 0.95}, open(os.path.join(d, "cv_report.json"), "w"))
+
+  plot = CvErrorCurvePlot(ax=None, path=path)
+  assert plot.is_available
+  descriptor_line = plot.ax.get_lines()[0]
+  x, y = descriptor_line.get_xdata(), descriptor_line.get_ydata()
+  assert x[0] == pytest.approx(1.0) and y[0] == pytest.approx(0.01)  # one of a hundred within 1.0
+  assert x[49] == pytest.approx(50.0) and y[49] == pytest.approx(0.50)  # half within 50
+  assert np.all(np.diff(y) > 0)  # a cumulative fraction only rises
+  # The dashed baseline is the error of predicting the training mean for everything.
+  baseline = plot.ax.get_lines()[-1]
+  assert baseline.get_linestyle() == "--"
+  assert max(baseline.get_xdata()) == pytest.approx(np.abs(truth - truth.mean()).max())
