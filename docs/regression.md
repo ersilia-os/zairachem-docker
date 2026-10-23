@@ -25,6 +25,14 @@ about, so there is nothing to calibrate it against and no threshold that is anyo
 The practical consequence: **no rank reference is downloaded or scored for a regression fit**,
 which is a large time saving, and `results/cutoffs.json` is not written.
 
+The report follows from the same place. A classification run carries a rank histogram, a ranked-
+score operating-point curve, a threshold sweep, a calibration curve and six confusion panels; a
+regression run carries none of them, because each answers "where does the cutoff fall?" and there
+is no cutoff. What replaces them is not a translation of each panel but the two questions that are
+left: how far off is a prediction (`regression-raw`, `regression-residuals`, `r2-individual`), and
+how far can it be trusted (`interval-coverage`, `regression-error-similarity`, `value-consensus`).
+The absence is the design, not a gap to fill later.
+
 ## Outputs
 
 `results/output.csv` — one row per molecule:
