@@ -160,3 +160,36 @@ def test_every_cutoff_is_also_a_rank():
   # Without a rank (drift), the pooled ranks go and the per-descriptor ones stay.
   sub = pooler.without_rank(params)
   assert "screening" not in sub["cutoff_ranks"] and sub["cutoff_ranks"]["balanced"]
+
+
+def test_every_pooler_attribute_the_pool_step_names_exists():
+  """The pruning warning referenced two constants that had been renamed away, and nothing ran it.
+
+  A warning path that fires only when a descriptor is pruned is exactly the kind that no run
+  exercises until it matters, so the reference is checked statically instead.
+  """
+  import ast
+  import inspect
+
+  from zairachem.pool.reliability_pooler import pool as pool_module
+
+  tree = ast.parse(inspect.getsource(pool_module))
+  named = {
+    node.attr
+    for node in ast.walk(tree)
+    if isinstance(node, ast.Attribute)
+    and isinstance(node.value, ast.Name)
+    and node.value.id == "pooler"
+  }
+  missing = sorted(n for n in named if not hasattr(pooler, n))
+  assert not missing, f"pool.py names pooler.{{{', '.join(missing)}}}, which do not exist"
+
+
+def test_pruning_really_leaves_a_descriptor_out():
+  """The pooled model must actually drop the weak descriptor, not merely down-weight it."""
+  P, R, S, A, y, meta = _signals()
+  meta["oof_aucs"] = [0.80, 0.52, 0.78]  # the middle one is below the 0.55 floor
+  params, result = pooler.fit(P, R, S, A, y, NAMES, meta)
+  assert params["pruned_columns"] == [NAMES[1]]
+  assert NAMES[1] not in params["descriptor_columns"]
+  assert result.weights.shape[1] == 2

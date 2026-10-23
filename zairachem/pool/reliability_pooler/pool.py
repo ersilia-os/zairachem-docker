@@ -190,20 +190,21 @@ class Fitter(BasePooler):
       task=self.task,
     )
     if params["pruned_columns"]:
+      floor, gap = pooler.PRUNE[self.task]
       logger.warning(
-        f"[reliability_pool:fit] left out of the pooled model (out-of-fold AUROC below "
-        f"{pooler.PRUNE_FLOOR} or {pooler.PRUNE_GAP} below the best): "
+        f"[reliability_pool:fit] left out of the pooled model (out-of-fold skill below "
+        f"{floor} or {gap} below the best): "
         f"{', '.join(_prettify(c) for c in params['pruned_columns'])}"
       )
-    if not clf:
-      pass
-    elif params["spec"].pooled_rank_knots is None:
-      logger.warning("[reliability_pool:fit] no usable rank reference; `clf_rank` is unavailable")
-    else:
-      logger.info(
-        f"[reliability_pool:fit] rank reference: {params['n_reference']:,} molecules · "
-        f"screening cutoff = probability {params['cutoffs'][CUTOFF_SCREENING]:.4f}"
-      )
+    # The rank reference is a classification notion; a regression pool has nothing to say here.
+    if clf:
+      if params["spec"].pooled_rank_knots is None:
+        logger.warning("[reliability_pool:fit] no usable rank reference; `clf_rank` is unavailable")
+      else:
+        logger.info(
+          f"[reliability_pool:fit] rank reference: {params['n_reference']:,} molecules · "
+          f"screening cutoff = probability {params['cutoffs'][CUTOFF_SCREENING]:.4f}"
+        )
     os.makedirs(self.trained_path, exist_ok=True)
     joblib.dump(pooler.to_artifact(params), os.path.join(self.trained_path, pooler.ARTIFACT_NAME))
     with open(os.path.join(self.trained_path, POOLED_DESCRIPTORS_FILENAME), "w") as f:
