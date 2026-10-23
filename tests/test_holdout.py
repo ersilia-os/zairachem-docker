@@ -166,3 +166,16 @@ def test_a_piped_fold_line_carries_its_metrics(capsys):
   blank = {"status": "failed", "elapsed": None, "extra": {}}
   EvaluateMonitor(["x"], task="regression")._plain_finish("x", blank)
   assert "failed" in capsys.readouterr().out
+
+
+def test_a_target_with_no_range_builds_no_folds_and_says_so():
+  """A fold covering one slice of the value range scores nothing, so it is dropped, not scored."""
+  from zairachem.holdout.splits import _both_classes, build_fold_definitions, strata
+
+  flat = np.array([5.0] * 29 + [9.0])  # one outlier; every compound lands in one quantile bin
+  assert len(set(strata(flat).tolist())) == 1
+  assert not _both_classes(flat, np.arange(24), np.arange(24, 30))
+  assert build_fold_definitions(["CCO"] * 30, flat, repeats=1, schemas=["random"]) == {}
+  # A target with a real range still produces folds.
+  spread = np.linspace(4.0, 9.0, 30)
+  assert build_fold_definitions(SMILES, spread, repeats=1, schemas=["random"])
