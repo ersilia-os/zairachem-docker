@@ -35,7 +35,9 @@ from zairachem.base.vars import (
 from zairachem.report.cv import sort_best_first
 from zairachem.report.utils import ResultsIterator
 
-RAW_INPUT_FILENAME += ".csv"
+#: The raw input as setup wrote it. ``base.vars`` holds the stem because setup appends whatever
+#: extension the user's file had; by the time the report reads it, it is always a CSV.
+RAW_INPUT_CSV = RAW_INPUT_FILENAME + ".csv"
 
 #: Process-level CSV read cache shared by every ResultsFetcher, keyed by (abspath, mtime) so a
 #: rewritten file is re-read. Lets the report's per-plot fetchers avoid re-reading the same artifacts.
@@ -367,7 +369,7 @@ class ResultsFetcher(ZairaBase):
 
   def get_original_smiles(self):
     """Return the SMILES as given in the raw input file (the schema's SMILES column)."""
-    raw_data = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME))
+    raw_data = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_CSV))
     with open(os.path.join(self.path, DATA_SUBFOLDER, INPUT_SCHEMA_FILENAME), "r") as f:
       schema = json.load(f)
     return list(raw_data[schema["smiles_column"]])
@@ -491,9 +493,7 @@ class ResultsFetcher(ZairaBase):
     the raw-input + mapping files don't change within a run."""
     cached = self._map_cache.get("index")
     if cached is None:
-      n = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_FILENAME)).shape[
-        0
-      ]
+      n = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, RAW_INPUT_CSV)).shape[0]
       dm = self._read_csv_cached(os.path.join(self.path, DATA_SUBFOLDER, MAPPING_FILENAME))
       dm = dm[dm[MAPPING_DEDUPE_COLUMN].notnull()]
       u2o = collections.defaultdict(list)
