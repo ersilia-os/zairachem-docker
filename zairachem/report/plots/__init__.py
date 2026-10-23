@@ -89,6 +89,7 @@ from zairachem.report.plots.regression import (
   PropertyValueMwPlot,
   RegressionPlotRaw,
   ResidualsPlot,
+  TargetValueDistributionPlot,
   ValueConsensusPlot,
 )
 
@@ -159,6 +160,7 @@ __all__ = [
   "RegressionPlotRaw",
   "ResidualsPlot",
   "PredictedValueDistributionPlot",
+  "TargetValueDistributionPlot",
   "ErrorVsSimilarityPlot",
   "ResourceTimelinePlot",
   "RocCurvePlot",

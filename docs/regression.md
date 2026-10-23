@@ -100,6 +100,10 @@ Every panel answers a question, and they group by which question:
   question, and the one a correlation coefficient does not answer
 - `interval-coverage` — does the interval keep its promise, and does it keep it in every bin
 
+- `value-distribution` — the observed values themselves, with the median marked. It sits in the
+  Dataset section, where a classification run shows its class balance: a target piled against an
+  assay's detection limit is worth seeing before any model is read
+
 **Confidence** (needs no observed values, so it carries a prediction run)
 - `regression-distribution` — the predicted values against the training distribution, on shared
   bins so the two are comparable bar by bar

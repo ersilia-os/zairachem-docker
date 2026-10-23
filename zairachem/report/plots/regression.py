@@ -253,6 +253,41 @@ class IntervalCoveragePlot(BasePlot):
 # --- Confidence: how far the predictions are from what the model has seen (no truth needed) ----
 
 
+class TargetValueDistributionPlot(BasePlot):
+  """Distribution of the observed target value (regression only).
+
+  The Dataset section's answer to the class-balance panel a classification run gets: before any
+  model, what does the set being modelled look like? A target piled against an assay's detection
+  limit, or split into two clumps with nothing between them, is worth seeing here rather than
+  inferring later from a residual plot.
+  """
+
+  def __init__(self, ax, path):
+    BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
+    self.name = "value-distribution"
+    self.is_available = False
+    if not self.has_reg_data():
+      return
+    yt = ResultsFetcher(path=path).get_true_reg()
+    if yt is None:
+      return
+    yt = np.asarray(yt, dtype=float)
+    yt = yt[np.isfinite(yt)]
+    if yt.size < 2:
+      return
+    ax = self.ax
+    n_bins = min(30, max(8, yt.size // 5))
+    ax.hist(yt, bins=n_bins, color=named_colors.gray, alpha=0.7, edgecolor="white", lw=0.4)
+    # The median is the reference a skewed target is read against, and the line a model that has
+    # learned nothing would predict for every compound.
+    median = float(np.median(yt))
+    ax.axvline(median, color=named_colors.red, lw=1, ls="--", zorder=3)
+    ax.set_xlabel("Observed value")
+    ax.set_ylabel("Compounds")
+    ax.set_title(f"Observed values · median {median:.2f}")
+    self.is_available = True
+
+
 class PredictedValueDistributionPlot(BasePlot):
   """Predicted values against the distribution the model was trained on (regression only).
 

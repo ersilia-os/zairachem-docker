@@ -285,6 +285,7 @@ REGRESSION_PANELS = [
   "PotencyEnrichmentPlot",
   "IntervalCoveragePlot",
   "PredictedValueDistributionPlot",
+  "TargetValueDistributionPlot",
   "ErrorVsSimilarityPlot",
   "ValueConsensusPlot",
   "PropertyValueMwPlot",
@@ -310,10 +311,13 @@ def test_every_regression_panel_renders_or_declines(tmp_path, truth):
   if truth:
     # With observed values in hand, the accuracy panels are the point of the report.
     assert {"RegressionPlotRaw", "ResidualsPlot", "PotencyEnrichmentPlot"} <= set(drawn)
+    # The Dataset section's answer to the class-balance panel: it needs the observed values.
+    assert "TargetValueDistributionPlot" in drawn
     assert "ValueConsensusPlot" not in drawn  # truth present: the error panels say more
   else:
     assert "ValueConsensusPlot" in drawn
     assert "RegressionPlotRaw" not in drawn  # nothing to compare the predictions against
+    assert "TargetValueDistributionPlot" not in drawn
 
 
 def test_the_value_projection_renders_from_a_synthetic_run(tmp_path):

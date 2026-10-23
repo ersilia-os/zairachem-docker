@@ -608,7 +608,10 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
       ("Descriptors", str(summary["n_descriptors"])),
       ("Best descriptor", summary.get("best_descriptor") or "—"),
     ]
-    skill = summary.get("skill_label", "AUROC")
+    # These cells are set in small caps by the stylesheet, and CSS uppercases "ρ" to the capital
+    # rho "Ρ", which on screen is a Latin P: "SPEARMAN P". Spell the letter out for them only --
+    # the table headings below are not uppercased and keep the symbol.
+    skill = summary.get("skill_label", "AUROC").replace("ρ", "rho")
     if summary.get("best_skill") is not None:
       cells_data.append((f"Best inner CV {skill}", f"{summary['best_skill']:.3f}"))
     if summary.get("mean_skill") is not None:

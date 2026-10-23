@@ -107,6 +107,7 @@ _TITLES = {
   "r2-individual": "R² by estimator",
   "regression-raw": "Predicted vs observed",
   "regression-residuals": "Residuals",
+  "value-distribution": "Observed value distribution",
   "regression-distribution": "Predicted values",
   "regression-error-similarity": "Error vs training similarity",
   "interval-coverage": "Interval coverage",
@@ -360,6 +361,11 @@ _DATASET_GROUPS = [
     "key": "properties",
     "title": "Property distributions",
     "members": ["property-mw", "property-logp"],
+  },
+  {
+    "key": "value-distribution",
+    "title": "Target value",
+    "members": ["value-distribution"],
   },
   {
     "key": "properties-value",
