@@ -1,6 +1,6 @@
 # ZairaChem — Developer Guide
 
-ZairaChem is an automated QSAR modelling pipeline built on the Ersilia Model Hub. It ships as a flat Python package (`zairachem/`) with a rich-click CLI (`zairachem/cli.py`, entry point `zairachem = zairachem.cli:main`) and requires Docker at runtime.
+ZairaChem is an automated QSAR modelling pipeline built on the Ersilia Model Hub. It ships as a flat Python package (`zairachem/`) with a rich-click CLI (`zairachem/cli/`, one module per command under `commands/`; entry point `zairachem = zairachem.cli:main`) and requires Docker at runtime.
 
 ## Working with the user
 
