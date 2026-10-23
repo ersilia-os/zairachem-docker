@@ -46,6 +46,7 @@ class BaseResults(ZairaBase):
     ZairaBase.__init__(self)
     self.path = path
     self._data_columns = None  # cached column names of data.csv (read once; see _columns())
+    self._task = None  # cached task from parameters.json (read once; see is_regression())
 
   def _columns(self):
     """Column names of the run's ``data.csv``, read once and cached. Every plot's availability guard
@@ -65,12 +66,14 @@ class BaseResults(ZairaBase):
     return any("val" in c and "_skip" not in c and "_aux" not in c for c in self._columns())
 
   def is_regression(self):
-    """Return True when the run's task is regression.
+    """Return True when the run's task is regression. Read once and cached, as :meth:`_columns` is.
 
     Unlike :meth:`has_reg_data` this does not depend on the truth being present, so the plots that
     need only the predictions still render at predict time.
     """
-    return self._load_params().get("task", "classification") == "regression"
+    if self._task is None:
+      self._task = self._load_params().get("task", "classification")
+    return self._task == "regression"
 
 
 class BaseTable(BaseResults):
