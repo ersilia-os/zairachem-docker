@@ -30,7 +30,7 @@ ZairaChem is an automated QSAR modelling pipeline built on the Ersilia Model Hub
 ## Data
 
 - Rank-reference matrices are cached per user in `~/zairachem/rank_reference/` and downloaded over HTTPS from the public bucket. `data/` (gitignored) is only the eosvc publishing area: to publish a newly computed matrix, copy it (with its `.json`) from the cache into `data/rank_reference/<library>/` and run `eosvc upload --path data/rank_reference`. Never commit datasets, model artefacts or large binaries.
-- Do not run several `predict` commands concurrently; they share a session symlink.
+- Do not run several zairachem commands at once (fit or predict). Each admits model servers against the whole Docker VM's memory, with no knowledge of the other, so two runs together can overcommit it and get containers OOM-killed mid-descriptor. Nothing else is shared unsafely: the compose project, its ports and the model profiles are all behind file locks, and a predict only reads the trained model directory.
 
 ## README and releases
 
