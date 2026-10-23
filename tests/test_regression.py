@@ -632,3 +632,27 @@ def test_the_coverage_panel_falls_back_when_the_widths_are_not_bins(tmp_path):
   plot = IntervalCoveragePlot(ax=None, path=path)
   assert plot.is_available
   assert [t.get_text() for t in plot.ax.get_xticklabels()] == ["All"]
+
+
+def test_the_lazyqsar_surface_regression_leans_on_is_still_there():
+  """ZairaChem reaches past lazy-qsar's public API in a few places; an upgrade must not silently
+  remove the footholds. Each name here is used by estimate.py or pooler.py."""
+  from lazyqsar.agnostic import LazyRegressor
+  from lazyqsar.ensemble.combine import EnsembleSpec
+  from lazyqsar.ensemble.intervals import DEFAULT_LEVEL, ad_summary, fit_intervals
+  from lazyqsar.poolers.regression.inner_pooler import stacking_weights
+  from lazyqsar.qsar_regressor import _quality_rho
+
+  # Per-descriptor fitting: the out-of-fold channels and the percentile of a predicted value.
+  assert hasattr(LazyRegressor, "oof_channels")
+  assert hasattr(LazyRegressor, "_oof_percentile_from_value")
+  for name in ("fit", "predict", "save"):
+    assert callable(getattr(LazyRegressor, name))
+
+  # Pooling: the spec fields a regression model fills, and the three functions that fill them.
+  for field in ("task", "descriptor_weights", "intervals"):
+    assert field in EnsembleSpec.__dataclass_fields__, field
+  assert callable(stacking_weights) and callable(fit_intervals) and callable(ad_summary)
+  # clip(2 * oof - train, -1, 1): the regression quality term the spec's skill weights are built on.
+  assert _quality_rho(0.8, 0.9) == pytest.approx(0.7)
+  assert 0.0 < DEFAULT_LEVEL < 1.0
