@@ -179,9 +179,15 @@ def _score_reg_rows(model, ad_model, rows, idx, preds, ranks, ads):
 
 def _score_rows(model, ad_model, rows, idx, preds, ranks, ads):
   """Write the probability, percentile and AD score of ``rows`` at positions ``idx`` in place."""
-  preds[idx] = model.predict_proba(X=rows)[:, 1]
+  proba = model.predict_proba(X=rows)[:, 1]
+  preds[idx] = proba
   with contextlib.suppress(Exception):
-    ranks[idx] = _percentile(model, rows)
+    # The percentile is the out-of-fold ECDF of this same calibrated probability, so it reads the
+    # values just computed rather than pushing ``rows`` through every head a second time. A model
+    # trained before the knots were stored falls back to the second pass inside the helper. This
+    # runs on every held-out fold and on every row a fold did not train on, so the saving is the
+    # whole scoring pass, not a corner of one.
+    ranks[idx] = _percentile_from_proba(model, proba, rows)
   if ad_model is not None:
     with contextlib.suppress(Exception):
       ads[idx] = ad_model.score(rows)
