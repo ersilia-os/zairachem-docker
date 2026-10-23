@@ -93,7 +93,7 @@ def test_intervals_cover_the_training_residuals():
   assert 0.85 <= covered <= 0.97
 
 
-def test_an_uncalibratable_interval_costs_the_interval_not_the_model(caplog):
+def test_an_uncalibratable_interval_costs_the_interval_not_the_model():
   """A degenerate applicability domain must not take the whole fit down with the interval.
 
   lazy-qsar bins the residuals by applicability-domain score, and a constant score -- a tiny

@@ -117,6 +117,32 @@ def scaffold_deterministic(smiles, labels, test_fraction=_DEFAULT_TEST_FRACTION)
   return np.array(sorted(train_idx)), np.array(sorted(test_idx))
 
 
+#: How far a fold's held-out share may drift from the requested one before it is called out.
+_SIZE_DRIFT = 0.10
+
+
+def _warn_if_lopsided(strategy, chosen, n, test_fraction):
+  """Say so when the chosen folds hold out far more or far less than asked.
+
+  A group-based schema can only move whole scaffolds or clusters, so on a set dominated by one
+  scaffold -- a congeneric series is exactly that -- the smallest possible held-out set is most of
+  the data, and the fold then scores a model trained on the remainder. The number is still honest,
+  but it is not the model the user is shipping, and nothing else on screen says so.
+  """
+  if not n or not chosen:
+    return
+  worst = max(chosen, key=lambda c: abs(len(c["test_idx"]) / n - test_fraction))
+  share = len(worst["test_idx"]) / n
+  if abs(share - test_fraction) <= _SIZE_DRIFT:
+    return
+  whole = "scaffolds" if "scaffold" in strategy else "clusters"
+  logger.warning(
+    f"[evaluate] strategy '{strategy}': {share:.0%} of the compounds were held out, not "
+    f"{test_fraction:.0%} — whole {whole} have to move together. Its scores are of a model "
+    f"trained on {1 - share:.0%} of the data."
+  )
+
+
 def select_folds(
   smiles, labels, strategy, k, pool=_CANDIDATE_POOL, test_fraction=_DEFAULT_TEST_FRACTION
 ):
@@ -178,6 +204,7 @@ def select_folds(
     logger.warning(
       f"[evaluate] strategy '{strategy}': only {len(chosen)} of {k} requested folds are class-valid."
     )
+  _warn_if_lopsided(strategy, chosen, len(labels), test_fraction)
   folds = []
   for c in chosen:
     others = [s for s in chosen if s["seed"] != c["seed"]]

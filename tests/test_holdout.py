@@ -179,3 +179,41 @@ def test_a_target_with_no_range_builds_no_folds_and_says_so():
   # A target with a real range still produces folds.
   spread = np.linspace(4.0, 9.0, 30)
   assert build_fold_definitions(SMILES, spread, repeats=1, schemas=["random"])
+
+
+# --- A fold that cannot be 80:20 has to say so ---------------------------------------------------
+
+
+def test_a_fold_that_holds_out_most_of_the_set_says_so(monkeypatch):
+  """A group schema moves whole scaffolds, so some sets cannot be split 80:20 at all.
+
+  On a congeneric series one scaffold can be most of the data, and the smallest held-out set the
+  schema can build is most of the data with it. The score is still honest, but it is the score of
+  a model trained on what is left — which is not the model being shipped, and nothing else on
+  screen says so.
+  """
+  from zairachem.holdout import splits as splits_module
+  from zairachem.holdout.splits import select_folds
+
+  said = []
+  # ZairaChem logs through loguru, which pytest's caplog does not see.
+  monkeypatch.setattr(splits_module.logger, "warning", lambda msg, *a, **k: said.append(str(msg)))
+
+  rng = np.random.default_rng(0)
+  dominant = ["c1ccc2c(c1)ncnc2N"] * 170
+  rest = [f"C{'C' * i}N1CCOCC1" for i in range(30)]
+  smiles = dominant + rest
+  y = rng.normal(6.0, 1.2, len(smiles))
+
+  folds = select_folds(smiles, y, "scaffold", k=1)
+  assert folds, "the fold is still produced; it is only called out"
+  assert len(folds[0]["test_idx"]) / len(smiles) > 0.5
+  assert any("were held out" in m for m in said), said
+
+  # A set with enough distinct scaffolds splits as asked, and says nothing.
+  cores = ["c1ccccc1", "c1ccncc1", "c1ccoc1", "c1ccsc1", "C1CCCCC1", "C1CCNCC1", "c1cnc2ccccc2c1"]
+  diverse = [f"{'C' * (i % 5 + 1)}{cores[i % len(cores)]}" for i in range(200)]
+  said.clear()
+  folds = select_folds(diverse, rng.normal(6.0, 1.2, 200), "scaffold", k=1)
+  assert 0.1 <= len(folds[0]["test_idx"]) / 200 <= 0.3
+  assert not any("were held out" in m for m in said), said
