@@ -471,6 +471,9 @@ def test_the_plot_registry_and_the_html_catalog_agree():
   assert not [n for n in _FIT_ONLY if n not in names], "fit-only name is not a registered plot"
 
 
+# --- What the panels actually compute, checked against the arithmetic ---------------------------
+
+
 def test_the_enrichment_curve_reports_the_mean_of_the_top_slice(tmp_path):
   """Checked against a case whose answer is known by construction."""
   import pandas as pd
@@ -570,6 +573,9 @@ def test_rendering_one_plot_does_not_delete_the_others(tmp_path, monkeypatch):
   assert {"regression-raw", "cv-spearman"} <= survivors, survivors
 
 
+# --- The result tables, and the run shapes they have to survive ---------------------------------
+
+
 def test_the_tables_are_written_even_with_no_report_folder(tmp_path):
   """``--skip-report`` renders no figures, and nothing else creates the folder they would live in."""
   import shutil
@@ -651,6 +657,9 @@ def test_the_diagnostics_table_says_what_each_descriptor_cost():
   assert _cv_cell("fit_seconds", None) == "—"
   # A run whose reports predate the timing simply has no column.
   assert "Train time" not in _cv_table_html([{"descriptor": "eosA", "oof_rho": 0.8}])
+
+
+# --- Legibility and the task-vs-truth distinction, at the edges ---------------------------------
 
 
 def test_the_panels_hold_up_with_many_descriptors(tmp_path):
