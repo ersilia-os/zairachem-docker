@@ -393,5 +393,6 @@ class CvErrorCurvePlot(BasePlot):
     ax.set_xlabel("Absolute out-of-fold error")
     ax.set_ylabel("Fraction of compounds within")
     ax.set_title("Cross-validation error curve")
-    ax.legend(loc="lower right", fontsize=6)
+    # A default run keeps up to ten descriptors; one column of eleven entries covers the curves.
+    ax.legend(loc="lower right", fontsize=6, ncol=2 if len(curves) > 4 else 1)
     self.is_available = True
