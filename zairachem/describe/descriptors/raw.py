@@ -194,7 +194,7 @@ class RawDescriptors(ZairaBase):
         json.dump(self.params, f, indent=2)
 
   def _warn_if_versions_moved(self, eos_ids):
-    """At predict, warn when a featurizer's image is past the version the model was fitted with.
+    """At predict, warn when a featurizer's image is not the version the model was fitted with.
 
     A predict run copies the trained run's ``parameters.json``, so the recorded version — and with
     it the transformer the raw matrix is scaled by — is the fit's. The descriptors themselves come
@@ -202,8 +202,10 @@ class RawDescriptors(ZairaBase):
     new columns are scaled by a transformer built for the old ones and nothing downstream can
     tell: the matrix has the right shape, the run finishes, and the predictions are quietly wrong.
 
-    Only an advance is reported. A version that cannot be resolved is skipped rather than guessed,
-    because the guess is itself ``v1`` and would read as a downgrade from every later version.
+    A difference in either direction is reported: an older image is as wrong as a newer one, since
+    the transformer belongs to neither. A version that cannot be resolved is skipped rather than
+    guessed, which is what :func:`resolved_model_version` is for — ``ersilia_model_version`` falls
+    back to ``v1``, and that fallback would read as a downgrade from every later version.
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -223,10 +225,10 @@ class RawDescriptors(ZairaBase):
         moved.append(f"{eos_id} {was}\u2192{now}")
     if moved:
       self.logger.warning(
-        f"[raw] the local image has moved on since this model was fitted ({', '.join(moved)}); "
-        "these molecules are featurized with the new image but scaled with the transformer of the "
-        "old one, so the predictions may not mean what they say. Re-fit the model, or pull back "
-        "the image the fit used."
+        f"[raw] the local image is not the one this model was fitted with ({', '.join(moved)}); "
+        "these molecules are featurized with it but scaled with the transformer of the fitted "
+        "version, so the predictions may not mean what they say. Re-fit the model, or pull the "
+        "image the fit used."
       )
 
   def run(self):

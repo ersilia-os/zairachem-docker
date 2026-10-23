@@ -185,6 +185,12 @@ def test_predict_says_so_when_the_featurizer_image_has_moved_on(monkeypatch):
   # The two that did not move, and the one that could not be checked, are not accused.
   assert "eosB" not in said[0] and "eosC" not in said[0]
 
+  # An older image is reported too: the transformer belongs to neither version.
+  said.clear()
+  now = {"eosA": "v1", "eosB": "v1", "eosC": "v1"}
+  RawDescriptors._warn_if_versions_moved(run, ["eosB"])
+  assert len(said) == 1 and "eosB v2\u2192v1" in said[0]
+
   # Nothing to say when nothing moved.
   said.clear()
   monkeypatch.setattr(model_version, "resolved_model_version", lambda e: "v1")
