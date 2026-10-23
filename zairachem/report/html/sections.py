@@ -608,14 +608,15 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
       ("Descriptors", str(summary["n_descriptors"])),
       ("Best descriptor", summary.get("best_descriptor") or "—"),
     ]
-    # These cells are set in small caps by the stylesheet, and CSS uppercases "ρ" to the capital
-    # rho "Ρ", which on screen is a Latin P: "SPEARMAN P". Spell the letter out for them only --
-    # the table headings below are not uppercased and keep the symbol.
-    skill = summary.get("skill_label", "AUROC").replace("ρ", "rho")
+    skill = summary.get("skill_label", "AUROC")
+    # The stat cells are set in caps by the stylesheet, and CSS uppercases "ρ" to the capital
+    # rho "Ρ", which on screen is a Latin P: "SPEARMAN P". Spell the letter out for those cells
+    # only; every heading below is left as written and keeps the symbol.
+    capped = skill.replace("ρ", "rho")
     if summary.get("best_skill") is not None:
-      cells_data.append((f"Best inner CV {skill}", f"{summary['best_skill']:.3f}"))
+      cells_data.append((f"Best inner CV {capped}", f"{summary['best_skill']:.3f}"))
     if summary.get("mean_skill") is not None:
-      cells_data.append((f"Mean inner CV {skill}", f"{summary['mean_skill']:.3f}"))
+      cells_data.append((f"Mean inner CV {capped}", f"{summary['mean_skill']:.3f}"))
     if summary.get("mean_overfit_gap") is not None:
       cells_data.append(("Mean overfit gap", f"{summary['mean_overfit_gap']:.3f}"))
     cells = "".join(
