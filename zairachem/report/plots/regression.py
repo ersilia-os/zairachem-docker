@@ -334,19 +334,23 @@ class ErrorVsSimilarityPlot(BasePlot):
       similarity = None
     if similarity is None:
       return
+    # Error where the truth is known, interval width where it is not. Both are left unfiltered
+    # here and aligned against the similarity in one step below: filtering first would shorten the
+    # array, and a single missing value would then silently switch the panel to the other quantity.
     try:
-      yt, yp = _finite_pair(fetcher.get_true_reg(), fetcher.get_pred_value_reg())
+      truth = np.asarray(fetcher.get_true_reg(), dtype=float)
     except Exception:  # no truth column at predict
-      yt, yp = None, None
-    if yt is not None and len(yt) == len(similarity):
-      quantity, label = np.abs(yp - yt), "Absolute error"
+      truth = None
+    predicted = fetcher.get_pred_value_reg()
+    if truth is not None and predicted is not None and truth.size == len(similarity):
+      quantity = np.abs(np.asarray(predicted, dtype=float) - truth)
+      label = "Absolute error"
     else:
       lower, upper = fetcher.get_pred_interval_reg()
       if lower is None:
         return
-      upper = np.asarray(upper, dtype=float)
-      lower = np.asarray(lower, dtype=float)
-      quantity, label = upper - lower, "Interval width"
+      quantity = np.asarray(upper, dtype=float) - np.asarray(lower, dtype=float)
+      label = "Interval width"
     sim, quantity = _finite_pair(similarity, quantity)
     if sim is None or len(sim) < 2:
       return

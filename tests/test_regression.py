@@ -656,3 +656,20 @@ def test_the_lazyqsar_surface_regression_leans_on_is_still_there():
   # clip(2 * oof - train, -1, 1): the regression quality term the spec's skill weights are built on.
   assert _quality_rho(0.8, 0.9) == pytest.approx(0.7)
   assert 0.0 < DEFAULT_LEVEL < 1.0
+
+
+def test_one_missing_value_does_not_change_what_the_error_panel_plots(tmp_path):
+  """Pre-filtering shortened the array, and the length check then fell through to interval width."""
+  import pandas as pd
+
+  from zairachem.report.plots import ErrorVsSimilarityPlot
+
+  path = _synthetic_run(tmp_path / "gappy", predict=True)
+  data_path = os.path.join(path, "inputs", "data.csv")
+  data = pd.read_csv(data_path)
+  data.loc[0, "val"] = None  # one compound was never measured
+  data.to_csv(data_path, index=False)
+
+  plot = ErrorVsSimilarityPlot(ax=None, path=path)
+  assert plot.is_available
+  assert "Absolute error" in plot.ax.get_title(), plot.ax.get_title()
