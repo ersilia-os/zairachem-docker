@@ -647,3 +647,23 @@ def test_the_diagnostics_table_says_what_each_descriptor_cost():
   assert _cv_cell("fit_seconds", None) == "—"
   # A run whose reports predate the timing simply has no column.
   assert "Train time" not in _cv_table_html([{"descriptor": "eosA", "oof_rho": 0.8}])
+
+
+def test_the_panels_hold_up_with_many_descriptors(tmp_path):
+  """The default run keeps up to ten; the per-descriptor panels had only seen one to three."""
+  from zairachem.report import plots as plots_module
+
+  descriptors = tuple(f"eos{i:04d}" for i in range(10))
+  path = _synthetic_run(tmp_path / "wide", n=80, descriptors=descriptors)
+
+  for name in ("IndividualEstimatorsR2Plot", "CvSpearmanPlot", "CvErrorCurvePlot"):
+    plot = getattr(plots_module, name)(ax=None, path=path)
+    assert plot.is_available, name
+    # Every descriptor gets a row (bars) or a line (curves), and a colour of its own.
+    marks = len(plot.ax.patches) or len(plot.ax.get_lines())
+    assert marks >= len(descriptors), (name, marks)
+
+  from zairachem.report.colors import descriptor_colors_rgb
+
+  colours = descriptor_colors_rgb(len(descriptors))
+  assert len(colours) == len(descriptors)
