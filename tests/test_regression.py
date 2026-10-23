@@ -570,3 +570,29 @@ def test_a_regression_fit_does_not_prepare_the_rank_reference(monkeypatch):
     ln for ln in reversed(source[: source.index(line)].splitlines()) if ln.strip().startswith("if ")
   )
   assert 'self.task == "classification"' in guard, f"rank reference prepared under: {guard.strip()}"
+
+
+def test_the_report_survives_a_model_that_lost_its_intervals(tmp_path):
+  """Descriptor drift at predict drops the stacking weights and the interval model (``restrict``)."""
+  import pandas as pd
+
+  from zairachem.report import plots as plots_module
+  from zairachem.report.html.tables import _hitlist_table_html
+
+  path = _synthetic_run(tmp_path / "drifted")
+  pooled = os.path.join(path, "model", "pool", "results_unmapped.csv")
+  df = pd.read_csv(pooled).drop(columns=["reg_lower", "reg_upper"])
+  df.to_csv(pooled, index=False)
+
+  for name in REGRESSION_PANELS:
+    plot = getattr(plots_module, name)(ax=None, path=path)  # must not raise
+    if name == "IntervalCoveragePlot":
+      assert not plot.is_available  # nothing to check coverage of
+  # The output table and hitlist simply omit the interval rather than failing.
+  report_dir = tmp_path / "drifted" / "report"
+  report_dir.mkdir(exist_ok=True)
+  pd.DataFrame({"input_smiles": ["CCO", "CCN"], "value": [5.0, 8.5]}).to_csv(
+    report_dir / "output_table.csv", index=False
+  )
+  out = _hitlist_table_html(str(report_dir))
+  assert "by predicted value" in out and "Interval" not in out
