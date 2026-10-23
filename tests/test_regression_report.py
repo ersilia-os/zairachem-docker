@@ -259,6 +259,17 @@ def _synthetic_run(root, n=60, descriptors=("eosA", "eosB"), truth=True, predict
     )
     pd.DataFrame({"oof_value": pred, "y": y}).to_csv(d / "oof.csv", index=False)
 
+  # The raw input and its dedupe mapping, so the output table can map results back to input rows.
+  pd.DataFrame({"smiles": smiles, "activity": y}).to_csv(
+    root / "inputs" / "raw_input.csv", index=False
+  )
+  (root / "inputs" / "input_schema.json").write_text(
+    json.dumps({"input_file": "none", "smiles_column": "smiles", "values_column": "activity"})
+  )
+  pd.DataFrame({"orig_idx": range(n), "uniq_idx": range(n), "compound_id": cid}).to_csv(
+    root / "inputs" / "mapping.csv", index=False
+  )
+
   proj = [{"name": "umap", "title": "UMAP projection", "x": "umap_x", "y": "umap_y"}]
   (root / "inputs" / "projections.json").write_text(json.dumps(proj))
   pd.DataFrame({"umap_x": rng.normal(size=n), "umap_y": rng.normal(size=n)}).to_csv(
@@ -603,3 +614,20 @@ def test_a_target_that_goes_negative_renders_like_any_other(tmp_path):
       drawn.append(name)
       assert "nan" not in plot.ax.get_title().lower(), name
   assert {"RegressionPlotRaw", "PotencyEnrichmentPlot", "IntervalCoveragePlot"} <= set(drawn)
+
+
+def test_the_output_table_carries_the_regression_columns(tmp_path):
+  """The deliverable: a value, its interval, and one column per descriptor -- and no call or rank."""
+  import pandas as pd
+
+  from zairachem.report.table import OutputTable
+
+  path = _synthetic_run(tmp_path / "deliverable", n=40)
+  OutputTable(path=path).run()
+  table = pd.read_csv(os.path.join(path, "report", "output_table.csv"))
+  assert len(table) == 40
+  for column in ("input_smiles", "smiles", "label", "value", "lower", "upper"):
+    assert column in table.columns, column
+  assert {"value_eosA", "value_eosB"} <= set(table.columns)
+  assert not {"proba", "call", "rank", "score"} & set(table.columns)
+  assert (table["lower"] < table["value"]).all() and (table["value"] < table["upper"]).all()
