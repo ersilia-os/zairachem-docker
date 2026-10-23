@@ -152,7 +152,11 @@ def select_descriptors(
       logger.warning(f"[screen] {eos_id}: not scored ({e}); left out of the selection")
       preds[eos_id], scores[eos_id] = None, chance
 
-  usable = [e for e in eos_ids if preds[e] is not None]
+  # A descriptor is unusable when it could not be read at all (None) and equally when every
+  # fold declined to score it (a list of Nones) — a single-class or constant slice each time.
+  # Only the first was being excluded, so the second could be picked as the greedy seed on its
+  # chance score and keep descriptors that had real held-out predictions out of the run.
+  usable = [e for e in eos_ids if preds[e] is not None and any(p is not None for p in preds[e])]
   if not usable:
     # Nothing could be scored, so there is no basis for choosing: keep every descriptor and let the
     # estimate step train (or skip) each one.

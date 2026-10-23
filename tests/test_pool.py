@@ -401,3 +401,39 @@ def test_a_descriptor_that_costs_the_fit_and_carries_nothing_is_named(tmp_path):
   # Only a fit has both halves of this; predict trains nothing.
   src = inspect.getsource(summaries.final_summary_panel)
   assert "_note_expensive_descriptors" in src and "if not _is_predict(d)" in src
+
+
+def test_a_descriptor_no_fold_could_score_does_not_win_the_screen(monkeypatch):
+  """`_fold_pred` returns None for a fold it cannot score, so a descriptor that fails on every
+  fold is a list of Nones, not None -- and only None was treated as unusable. When nothing clears
+  the floor the greedy seed falls back to the best raw score, and an unscorable descriptor scores
+  exactly chance, which beats any descriptor that is genuinely anti-correlated. The screen then
+  seeds on a descriptor it never managed to evaluate and the estimate step trains it."""
+  import numpy as np
+
+  from zairachem.screen import proxy
+
+  y = np.linspace(4.0, 9.0, 40)
+  folds = [(list(range(30)), list(range(30, 40)))]
+  current = {}
+
+  def load(_dir, eos_id):
+    current["eos"] = eos_id
+    return np.zeros((40, 2), dtype="float32")
+
+  def fold_pred(_X, yy, _tr, te, _seed, _task):
+    if current["eos"] == "dead":  # every fold declines to score it
+      return None
+    return -yy[np.asarray(te)]  # anti-correlated: a real, below-chance score
+
+  monkeypatch.setattr(proxy, "_load_treated", load)
+  monkeypatch.setattr(proxy, "_fold_pred", fold_pred)
+
+  selected, scores = proxy.select_descriptors("d", ["dead", "anti"], y, folds, 1, task="regression")
+  assert scores["dead"] == 0.0 and scores["anti"] < 0.0  # chance beats anti-correlated
+  assert selected == ["anti"], selected
+
+  # With nothing scorable at all, the screen keeps every descriptor rather than seeding on one
+  # it never evaluated.
+  selected, _ = proxy.select_descriptors("d", ["dead"], y, folds, 1, task="regression")
+  assert selected == ["dead"]
