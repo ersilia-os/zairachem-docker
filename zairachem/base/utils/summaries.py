@@ -512,12 +512,26 @@ def _as_float(value):
 
 
 def _warn_if_no_signal(rows, task, skill, r2=None):
-  """Append a caution row when the pooled model does not clear the task's skill floor.
+  """Append at most one caution row when the pooled model is not worth shipping.
 
-  The floor is the one the pooler prunes individual descriptors on. Both measures are rank-based
-  -- AUROC and Spearman's rho -- so below the floor the claim is precisely that the model does not
-  order compounds better than chance. Said plainly here because the number alone does not stop
-  anyone shipping the model.
+  Two ways to fail, and the first that applies is the one reported. Its held-out skill is below
+  the floor the pooler prunes individual descriptors on: both measures are rank-based (AUROC and
+  Spearman's rho), so the claim is precisely that the model does not order compounds better than
+  chance. Or -- regression only -- its R2 is at or below zero, which is not a threshold anyone
+  chose but the point where predicting the training mean for everything would have done as well.
+
+  Said plainly here because the number alone does not stop anyone shipping the model.
+
+  Parameters
+  ----------
+  rows : list
+      Summary-panel rows, appended to in place.
+  task : str
+      ``"classification"`` or ``"regression"``.
+  skill : float or None
+      The pooled model's held-out AUROC or Spearman rho.
+  r2 : float or None, optional
+      The pooled model's R2 (regression runs only).
   """
 
   def caution(text):
@@ -535,9 +549,7 @@ def _warn_if_no_signal(rows, task, skill, r2=None):
       f"this model does not {orders} better than chance."
     )
     return
-  # A regression model can order compounds acceptably and still predict useless values. R2 at or
-  # below zero is not a threshold anyone chose: it is the point where predicting the training mean
-  # for everything would have done as well.
+  # A model can order compounds acceptably and still predict useless values.
   explained = _as_float(r2)
   if explained is not None and explained <= 0:
     caution(
