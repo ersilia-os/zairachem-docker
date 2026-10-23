@@ -135,13 +135,18 @@ def _grid_svg():
 
 
 def _color_key_html(task="classification"):
-  """The single transversal color key shared by every plot (built from ``colors.legend``)."""
-  items = "".join(
-    f"<span class='item'><span class='swatch' style='background:{_colors.hexcol(key)}'></span>"
-    f"{html.escape(label)}</span>"
-    for label, key in _colors.legend(task)
-  )
-  return f"<div class='legend-key'>{items}</div>"
+  """The transversal color key shared by every plot, one row per family (``colors.legend_groups``)."""
+  rows = []
+  for family, entries in _colors.legend_groups(task):
+    items = "".join(
+      f"<span class='item'><span class='swatch' style='background:{_colors.hexcol(key)}'></span>"
+      f"{html.escape(label)}</span>"
+      for label, key in entries
+    )
+    rows.append(
+      f"<div class='legend-key'><span class='fam'>{html.escape(family)}</span>{items}</div>"
+    )
+  return "".join(rows)
 
 
 def _about_figures_html(task="classification"):
@@ -177,6 +182,8 @@ def _semantic_css():
     ".about .legend-key{display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:center;"
     "margin:8px auto 0;max-width:760px;font-size:13px;color:var(--fg);}"
     ".about .legend-key .item{display:inline-flex;align-items:center;gap:7px;}"
+    ".about .legend-key .fam{color:#6e7781;font-size:12px;letter-spacing:.04em;"
+    "text-transform:uppercase;}"
     ".about .swatch{width:13px;height:13px;border-radius:3px;display:inline-block;"
     "border:1px solid rgba(0,0,0,.08);}"
   )
@@ -268,6 +275,10 @@ table.metrics th:first-child, table.metrics td:first-child { text-align:left; }
 table.metrics thead th { background:var(--soft); font-weight:600; color:var(--fg); }
 table.metrics tbody tr:last-child td { border-bottom:none; }
 table.metrics tr.pooled td { font-weight:600; background:#fbfdff; }
+/* A SMILES has no width limit of its own, and a long one pushed the hitlist's value,
+   interval and similarity past the right edge of the card. Clipped with an ellipsis; the
+   full string is the cell's title. */
+table.metrics th.smiles, table.metrics td.smiles { text-align:left; max-width:32ch; overflow:hidden; text-overflow:ellipsis; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
 table.kv { border-collapse:collapse; width:100%; max-width:560px; font-size:13.5px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
 table.kv td { padding:9px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
 table.kv tr:last-child td { border-bottom:none; }

@@ -58,7 +58,7 @@ _CATEGORIES = [
   (
     "validation",
     "Held-out validation",
-    "Out-of-sample performance under random, scaffold, deterministic and Butina 80:20 splits.",
+    "Out-of-sample performance under the 80:20 split schemas this run was asked for.",
     [
       "heldout-roc",
       "heldout-pr",
@@ -109,7 +109,7 @@ _TITLES = {
   "regression-residuals": "Residuals",
   "value-distribution": "Observed value distribution",
   "regression-distribution": "Predicted values",
-  "regression-error-similarity": "Error vs training similarity",
+  "regression-error-similarity": "Reliability vs training similarity",
   "interval-coverage": "Interval coverage",
   "potency-enrichment": "Selection quality",
   "cv-auroc": "Inner CV AUROC by descriptor",

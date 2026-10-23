@@ -58,13 +58,21 @@ def _hitlist_table_html(report_dir, top_n=25):
     headers.append("Spread")
   if has_sim:
     headers.append("Similarity")
-  head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+  # The SMILES heading takes the cell class too, so it sits over its column rather than over the
+  # numbers to its right (every other column in this table is right-aligned).
+  head = "".join(
+    "<th class='smiles'>{}</th>".format(html.escape(h))
+    if h == "SMILES"
+    else f"<th>{html.escape(h)}</th>"
+    for h in headers
+  )
 
   body = []
   for i, (_, r) in enumerate(top.iterrows(), start=1):
     cells = [
       f"<td>{i}</td>",
-      f"<td class='smiles'>{html.escape(str(r.get('input_smiles', '')))}</td>",
+      f"<td class='smiles' title='{html.escape(str(r.get('input_smiles', '')))}'>"
+      f"{html.escape(str(r.get('input_smiles', '')))}</td>",
       f"<td>{_fmt_num(r[score_col])}</td>",
     ]
     if is_clf:
@@ -158,7 +166,12 @@ def _validation_table_html(report_dir):
       cells.append(f"{ratio_m:.2f}" if ratio_m is not None else "—")
     for key, _lbl in metrics:
       m, sd = _mean_std([_num(r, key) for r in srows])
-      cells.append(f"{m:.3f} ± {sd:.3f}" if m is not None else "—")
+      if m is None:
+        cells.append("—")
+      else:
+        # One fold has no spread; "± 0.000" reads as a measured zero rather than as nothing
+        # measured.
+        cells.append(f"{m:.3f} ± {sd:.3f}" if len(srows) > 1 else f"{m:.3f}")
     body.append(
       f"<tr><td>{html.escape(label)}</td><td>{len(srows)}</td>"
       + "".join(f"<td>{c}</td>" for c in cells)
@@ -167,7 +180,8 @@ def _validation_table_html(report_dir):
   head = "<th>Split schema</th><th>Folds</th>"
   if is_clf:
     head += "<th>Active:inactive (test)</th>"
-  head += "".join(f"<th>{lbl} (mean ± std)</th>" for _key, lbl in metrics)
+  spread = " (mean ± std)" if any(len(by_strategy[s]) > 1 for s, _ in ordered) else ""
+  head += "".join(f"<th>{lbl}{spread}</th>" for _key, lbl in metrics)
   note = ""
   try:
     with open(os.path.join(report_dir, "holdout_summary.json")) as f:

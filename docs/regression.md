@@ -74,7 +74,7 @@ are split into bins by applicability-domain score (a Mondrian conformal predicto
 unlike the training set is handed a wider interval than one inside it.
 
 The level is lazy-qsar's default, 0.9. On a 1,485-compound external set of *T. brucei* IC50 data
-the 90% interval covered 91.4% — the guarantee holds on chemistry the model has never seen. The
+the 90% interval covered 91.2% — the guarantee holds on chemistry the model has never seen. The
 `interval-coverage` panel checks it holds *within* each bin, which is what the Mondrian binning is
 for; a bin that misses its level is the interesting failure.
 
@@ -85,8 +85,14 @@ for; a bin that misses its level is the interesting failure.
 `spearman` per fold.
 
 The number worth reading is the gap between the random and scaffold splits. On the *T. brucei*
-set: random R² 0.804 ± 0.003, scaffold R² 0.669 ± 0.016 — the model generalises, but noticeably
-less well to chemistry it has not seen a relative of.
+set, over two folds of each: random R² 0.804 ± 0.003, scaffold R² 0.669 ± 0.016 — the model
+generalises, but noticeably less well to chemistry it has not seen a relative of.
+
+The external set says the same thing from outside: trained on 2,000 compounds and asked for the
+1,485 it had never seen, the model scored R² 0.787 and Spearman 0.871, against 0.780 and 0.856
+out-of-fold. Held-out numbers that survive contact with a real external set are the point of all
+of this; mean absolute error over that set fell from 0.598 in the least training-like quarter to
+0.367 in the most.
 
 ## The report
 

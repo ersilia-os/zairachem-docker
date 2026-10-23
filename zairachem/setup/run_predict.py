@@ -26,7 +26,6 @@ def run(
     model_dir,
     output_dir,
     override_dir,
-    time_budget=120,
     store=store,
   )
   # Predict never runs held-out validation; keep the holdout step out of the tracker order.

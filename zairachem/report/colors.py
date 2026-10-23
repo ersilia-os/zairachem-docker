@@ -118,3 +118,22 @@ _LEGEND_SHARED = [("From store", "store"), ("Computed", "computed")]
 def legend(task="classification"):
   """Ordered ``(label, semantic key)`` legend entries for the report's transversal colour key."""
   return _LEGEND.get(task, _LEGEND["classification"]) + _LEGEND_SHARED
+
+
+def legend_groups(task="classification"):
+  """The same entries as :func:`legend`, split into the families they belong to.
+
+  The provenance colours are drawn from the same small palette as the task colours, so some of
+  them collide: "Computed" is the silver of a regression ramp's low end, "From store" the cobalt
+  of an inactive. Printed as one row the reader has to guess that two identical swatches mean
+  different things; printed as two labelled rows there is nothing to guess.
+
+  Returns
+  -------
+  list of (str, list)
+    ``(family label, [(label, semantic key), ...])``, in display order.
+  """
+  return [
+    ("Predictions", _LEGEND.get(task, _LEGEND["classification"])),
+    ("Descriptors", _LEGEND_SHARED),
+  ]

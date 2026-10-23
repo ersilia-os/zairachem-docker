@@ -49,7 +49,6 @@ class PredictSetup(BaseSetup):
     model_dir,
     output_dir,
     override_dir,
-    time_budget=120,
     store=None,
   ):
     self.input_file = os.path.abspath(input_file)
@@ -65,7 +64,7 @@ class PredictSetup(BaseSetup):
     self.read_store = store
     self.contribute_store = store
 
-    if os.path.exists(self.output_dir) and not self.override_dir:  # TODO add if wanted
+    if os.path.exists(self.output_dir) and not self.override_dir:
       logger.warning(
         f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it."
       )
@@ -79,7 +78,6 @@ class PredictSetup(BaseSetup):
       self._report_not_ready(None, None)
     self.model_dir = os.path.abspath(model_dir)
     self._check_model_ready()
-    self.time_budget = time_budget  # TODO
 
   @property
   def has_tasks(self):
