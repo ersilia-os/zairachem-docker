@@ -4,7 +4,8 @@ The canonical version is the MAJOR of the released semver tag (``vX.Y.Z``) that 
 ``ersiliaos/<id>:latest`` image corresponds to, found chronologically: place the local image among
 the DockerHub tags by build time, then take the most recent ``vN`` at or before it (``v1.1.0`` ->
 ``v1``). Defaults to ``v1`` and never raises — any failure (no docker, DockerHub unreachable, parse
-error) falls back to ``v1``.
+error) falls back to ``v1``. :func:`resolved_model_version` returns None in those cases
+instead, for callers that have to tell a real ``v1`` from a fallback.
 """
 
 import re
@@ -90,6 +91,17 @@ def _dockerhub_tags(repo):
 
 def ersilia_model_version(model_id):
   """Return the model's major version as ``"v{N}"`` (default ``"v1"``); never raises."""
+  return resolved_model_version(model_id) or _DEFAULT_VERSION
+
+
+def resolved_model_version(model_id):
+  """The model's major version, or None when it could not be determined; never raises.
+
+  Apart from :func:`ersilia_model_version` only in what it does when the answer is unknown. That
+  function defaults to ``"v1"``, which is right for choosing a transformer — a run has to pick
+  something — but wrong for comparing two versions, where the default cannot be told from a
+  genuine ``v1`` and would report a drift that may not have happened.
+  """
   if model_id in _cache:
     return _cache[model_id]
   version = _resolve(model_id)
@@ -103,10 +115,8 @@ def _resolve(model_id):
   except Exception as e:
     # Broad on purpose: ersilia_model_version() must never raise. Log so a silent default isn't
     # mistaken for a real version when DockerHub is unreachable.
-    logger.debug(
-      f"Could not resolve version for {model_id} ({e}); defaulting to {_DEFAULT_VERSION}"
-    )
-    return _DEFAULT_VERSION
+    logger.debug(f"Could not resolve version for {model_id} ({e})")
+    return None
 
   # When was the locally-pulled image pushed? Use the tags sharing its digest; else the image's
   # created date; else (no docker) the most recent moment, i.e. consider all released tags.
@@ -127,7 +137,7 @@ def _resolve(model_id):
     if local_time is None or last_updated <= local_time:
       candidates.append((last_updated, int(m.group(1))))
   if not candidates:
-    return _DEFAULT_VERSION
+    return None
   return f"v{max(candidates)[1]}"
 
 

@@ -193,6 +193,42 @@ class RawDescriptors(ZairaBase):
       with open(params_path(self.path), "w") as f:
         json.dump(self.params, f, indent=2)
 
+  def _warn_if_versions_moved(self, eos_ids):
+    """At predict, warn when a featurizer's image is past the version the model was fitted with.
+
+    A predict run copies the trained run's ``parameters.json``, so the recorded version — and with
+    it the transformer the raw matrix is scaled by — is the fit's. The descriptors themselves come
+    from whichever image is on this machine now. If that image has crossed a major release since,
+    new columns are scaled by a transformer built for the old ones and nothing downstream can
+    tell: the matrix has the right shape, the run finishes, and the predictions are quietly wrong.
+
+    Only an advance is reported. A version that cannot be resolved is skipped rather than guessed,
+    because the guess is itself ``v1`` and would read as a downgrade from every later version.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from zairachem.base.utils.model_version import resolved_model_version
+
+    fitted = self.params.get("latest_featurizer_version") or {}
+    known = [e for e in eos_ids if fitted.get(e)]
+    if not known:
+      return
+    # One DockerHub lookup each and independent of one another, as _prewarm_versions resolves them.
+    with ThreadPoolExecutor(max_workers=min(8, len(known))) as ex:
+      current = dict(zip(known, ex.map(resolved_model_version, known)))
+    moved = []
+    for eos_id in known:
+      was, now = fitted[eos_id], current[eos_id]
+      if now and now != was:
+        moved.append(f"{eos_id} {was}\u2192{now}")
+    if moved:
+      self.logger.warning(
+        f"[raw] the local image has moved on since this model was fitted ({', '.join(moved)}); "
+        "these molecules are featurized with the new image but scaled with the transformer of the "
+        "old one, so the predictions may not mean what they say. Re-fit the model, or pull back "
+        "the image the fit used."
+      )
+
   def run(self):
     """Featurize the run's molecules with each featurizer into ``descriptors/<eos_id>/raw.h5``.
 
@@ -213,6 +249,8 @@ class RawDescriptors(ZairaBase):
     # projections step), so their time overlaps describe's instead of adding to it.
     projector_ids = [p for p in (self.params.get("projection_ids") or []) if p not in eos_ids]
     self._prewarm_versions(eos_ids + projector_ids)
+    if self.is_predict():
+      self._warn_if_versions_moved(eos_ids)
     workers = self._resolve_workers(len(eos_ids) + len(projector_ids))
     # One live table: each model is a row (queued → featurizing → done). The client reports its
     # sourcing/batch progress into the row via the apply_event callback. The table is the run's

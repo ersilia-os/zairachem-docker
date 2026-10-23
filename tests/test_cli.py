@@ -137,3 +137,60 @@ def test_two_spellings_of_one_molecule_are_counted(tmp_path, monkeypatch):
 
   # And the setup step has to actually call it, or none of the above is ever reached.
   assert "check_duplicate_structures" in inspect.getsource(SetupChecker.run)
+
+
+def test_predict_says_so_when_the_featurizer_image_has_moved_on(monkeypatch):
+  """A predict run copies the fit's `parameters.json`, so it scales with the fit's transformer
+  but featurizes with whatever image is on the machine now. A major release in between is silent
+  corruption: right shape, finished run, wrong numbers."""
+  import inspect
+  import types
+
+  from zairachem.base.utils import model_version
+  from zairachem.describe.descriptors.raw import RawDescriptors
+
+  # An unresolvable version is None, not the "v1" that choosing a transformer falls back to --
+  # otherwise every model fitted at v2 would look like it had been downgraded.
+  def unresolvable(raiser_or_tags):
+    monkeypatch.setattr(model_version, "_cache", {})
+    monkeypatch.setattr(model_version, "_digest_cache", {})
+    monkeypatch.setattr(model_version, "_tags_cache", {})
+    monkeypatch.setattr(model_version, "_dockerhub_tags", raiser_or_tags)
+    monkeypatch.setattr(model_version, "_local_image_digest", lambda _: None)
+    monkeypatch.setattr(model_version, "_local_image_created", lambda _: None)
+
+  def boom(_):
+    raise RuntimeError("DockerHub unreachable")
+
+  for tags in (boom, lambda _: [("latest", "2026-01-01T00:00:00Z", set())]):
+    unresolvable(tags)  # no network, then a repo with no released semver tag
+    assert model_version.resolved_model_version("eosX") is None
+    unresolvable(tags)
+    assert model_version.ersilia_model_version("eosX") == "v1"
+
+  # A repo that does resolve still answers with its major.
+  unresolvable(lambda _: [("v2.1.0", "2026-01-01T00:00:00Z", set())])
+  assert model_version.resolved_model_version("eosX") == "v2"
+
+  said = []
+  run = types.SimpleNamespace(
+    params={"latest_featurizer_version": {"eosA": "v1", "eosB": "v2", "eosC": "v1"}},
+    logger=types.SimpleNamespace(warning=lambda msg, *a, **k: said.append(str(msg))),
+  )
+  now = {"eosA": "v2", "eosB": "v2", "eosC": None}  # advanced / unchanged / unresolvable
+  monkeypatch.setattr(model_version, "resolved_model_version", lambda e: now[e])
+  RawDescriptors._warn_if_versions_moved(run, ["eosA", "eosB", "eosC"])
+  assert len(said) == 1
+  assert "eosA v1\u2192v2" in said[0]
+  # The two that did not move, and the one that could not be checked, are not accused.
+  assert "eosB" not in said[0] and "eosC" not in said[0]
+
+  # Nothing to say when nothing moved.
+  said.clear()
+  monkeypatch.setattr(model_version, "resolved_model_version", lambda e: "v1")
+  RawDescriptors._warn_if_versions_moved(run, ["eosA", "eosC"])
+  assert said == []
+
+  # And it is only reached because describe calls it, at predict only.
+  src = inspect.getsource(RawDescriptors.run)
+  assert "_warn_if_versions_moved" in src and "is_predict()" in src
