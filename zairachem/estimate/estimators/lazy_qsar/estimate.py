@@ -333,9 +333,10 @@ class Fitter(BaseEstimatorIndividual):
         f"[lazyqsar:fit] {self.model_id}: OOF unavailable, using resubstitution for pooler input"
       )
       preds[train_order_arr] = self._batched(lambda xb: model.predict(X=xb), X_train)
-      ranks[train_order_arr] = self._batched(
-        lambda xb: model._oof_percentile_from_value(model.predict(X=xb)), X_train, np.nan
-      )
+      # The percentile is a lookup on the value, so it reads the predictions just made rather
+      # than predicting the whole matrix a second time (as :func:`_score_reg_rows` does too).
+      with contextlib.suppress(Exception):
+        ranks[train_order_arr] = model._oof_percentile_from_value(preds[train_order_arr])
     self._record_oof_used(descriptor_dir, channels is not None)
     if ad_model is not None:
       ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
