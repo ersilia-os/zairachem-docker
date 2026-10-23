@@ -42,7 +42,13 @@ def _finite_pair(a, b):
 
 
 class IndividualEstimatorsR2Plot(BasePlot):
-  """Per-descriptor R² against the observed target (regression only)."""
+  """Per-descriptor R² against the observed target (regression only).
+
+  How much each descriptor achieves alone, so the pooled R² can be read against its best member:
+  pooling that does not beat the best descriptor is pooling that is not earning its keep. These
+  are the descriptors' own predictions on the run's rows, not their inner cross-validation, which
+  ``cv-spearman`` reports separately.
+  """
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 4))
@@ -242,7 +248,14 @@ class IntervalCoveragePlot(BasePlot):
 
 
 class PredictedValueDistributionPlot(BasePlot):
-  """Predicted values against the training distribution (regression only)."""
+  """Predicted values against the distribution the model was trained on (regression only).
+
+  Two things to read here. At predict, whether these molecules fall inside the range the model has
+  seen at all -- a prediction extrapolated past the training data is a guess however confident the
+  interval looks. And on either run, how much narrower the predictions are than the training
+  values: every regression shrinks toward the mean, and the size of that shrinkage is how much the
+  model is hedging. Both histograms share one set of bin edges, so they can be read bar by bar.
+  """
 
   def __init__(self, ax, path):
     BasePlot.__init__(self, ax=ax, path=path, cells=(2, 2))
