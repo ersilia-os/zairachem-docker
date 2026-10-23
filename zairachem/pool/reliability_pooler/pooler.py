@@ -19,6 +19,7 @@ no extra cost.
 """
 
 import dataclasses
+import os
 
 import numpy as np
 
@@ -41,10 +42,38 @@ from lazyqsar.utils.ranking import (
 
 from zairachem.base.vars import DEFAULT_CUTOFF, SKILL_FLOOR
 
-#: Saved weighting of a trained model (in its pool folder).
-ARTIFACT_NAME = "reliability_pool_clf.joblib"
+#: Saved weighting of a trained model (in its pool folder). One artefact serves both tasks.
+ARTIFACT_NAME = "reliability_pool.joblib"
+#: What that file was called before regression existed. Read, never written: a model trained by an
+#: earlier ZairaChem carries it, and the contents are the same.
+LEGACY_ARTIFACT_NAME = "reliability_pool_clf.joblib"
 #: Version of the saved weighting; models saved before it carry none (see :func:`load_params`).
 ARTIFACT_VERSION = 2
+
+
+def artifact_path(trained_path, write=False):
+  """Path of the saved weighting inside ``trained_path``.
+
+  Parameters
+  ----------
+  trained_path : str
+    The trained model's ``pool/`` folder.
+  write : bool
+    True when the caller is about to save: the current name is always the one written.
+
+  Returns
+  -------
+  str
+    :data:`ARTIFACT_NAME` under ``trained_path``, or the legacy ``_clf`` name when reading a model
+    trained before regression existed and only that file is present.
+  """
+  path = os.path.join(trained_path, ARTIFACT_NAME)
+  if write or os.path.exists(path):
+    return path
+  legacy = os.path.join(trained_path, LEGACY_ARTIFACT_NAME)
+  return legacy if os.path.exists(legacy) else path
+
+
 #: lazy-qsar's pruning: a descriptor is left out when its out-of-fold skill is below the floor
 #: (:data:`zairachem.base.vars.SKILL_FLOOR`) or more than this gap below the best one. The
 #: regression gap is the classification one mapped onto Spearman rho, since ``AUC - 0.5`` is about

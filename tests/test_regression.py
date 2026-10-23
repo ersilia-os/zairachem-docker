@@ -359,3 +359,22 @@ def test_the_cv_report_can_be_patched_after_it_is_written(tmp_path):
 
   # A missing report is not worth failing a fit over.
   Fitter._patch_cv_report(str(tmp_path / "nowhere"), fit_seconds=1.0)
+
+
+def test_a_model_trained_before_regression_still_finds_its_pooling_weights(tmp_path):
+  """The pool artefact was named ``_clf`` before regression; reading one must still work."""
+  from zairachem.pool.reliability_pooler import pooler
+
+  # A fit always writes the current name, whatever is already in the folder.
+  assert pooler.artifact_path(str(tmp_path), write=True).endswith(pooler.ARTIFACT_NAME)
+
+  # Nothing saved yet: a read resolves to the current name, so the error names the file we write.
+  assert pooler.artifact_path(str(tmp_path)).endswith(pooler.ARTIFACT_NAME)
+
+  legacy = tmp_path / pooler.LEGACY_ARTIFACT_NAME
+  legacy.write_bytes(b"")
+  assert pooler.artifact_path(str(tmp_path)) == str(legacy)
+
+  # Both present (a model re-pooled by a newer ZairaChem): the current one wins.
+  (tmp_path / pooler.ARTIFACT_NAME).write_bytes(b"")
+  assert pooler.artifact_path(str(tmp_path)).endswith(pooler.ARTIFACT_NAME)

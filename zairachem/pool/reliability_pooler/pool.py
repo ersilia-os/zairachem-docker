@@ -207,7 +207,7 @@ class Fitter(BasePooler):
           f"screening cutoff = probability {params['cutoffs'][CUTOFF_SCREENING]:.4f}"
         )
     os.makedirs(self.trained_path, exist_ok=True)
-    joblib.dump(pooler.to_artifact(params), os.path.join(self.trained_path, pooler.ARTIFACT_NAME))
+    joblib.dump(pooler.to_artifact(params), pooler.artifact_path(self.trained_path, write=True))
     with open(os.path.join(self.trained_path, POOLED_DESCRIPTORS_FILENAME), "w") as f:
       json.dump(
         {
@@ -252,7 +252,7 @@ class Predictor(BasePooler):
     cids = self._get_compound_ids()
 
     pred_cols = self._get_pred_columns(df, self.task)
-    params = pooler.load_params(joblib.load(os.path.join(self.trained_path, pooler.ARTIFACT_NAME)))
+    params = pooler.load_params(joblib.load(pooler.artifact_path(self.trained_path)))
     saved = params["descriptor_columns"]
     keep = [c for c in saved if c in pred_cols]
     if not keep:
