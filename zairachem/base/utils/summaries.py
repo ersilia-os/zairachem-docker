@@ -502,7 +502,16 @@ def _setup_rows(d, params):
   return rows
 
 
-def _warn_if_no_signal(rows, task, skill):
+def _as_float(value):
+  """``value`` as a float, or None when it is missing or could not be computed (NaN)."""
+  try:
+    number = float(value)
+  except (TypeError, ValueError):
+    return None
+  return None if number != number else number  # NaN is unknown, not zero
+
+
+def _warn_if_no_signal(rows, task, skill, r2=None):
   """Append a caution row when the pooled model does not clear the task's skill floor.
 
   The floor is the one the pooler prunes individual descriptors on. Both measures are rank-based
@@ -510,27 +519,31 @@ def _warn_if_no_signal(rows, task, skill):
   order compounds better than chance. Said plainly here because the number alone does not stop
   anyone shipping the model.
   """
-  try:
-    value = float(skill)
-  except (TypeError, ValueError):
+
+  def caution(text):
+    rows.append(("", f"[yellow]No usable signal[/] [dim]— {text}[/]"))
+
+  value, floor = _as_float(skill), SKILL_FLOOR.get(task)
+  if value is not None and floor is not None and value < floor:
+    measure, orders = (
+      ("AUROC", "separate the classes")
+      if task == "classification"
+      else ("Spearman rho", "order compounds")
+    )
+    caution(
+      f"held-out {measure} {value:.2f} is below {floor:.2f}: "
+      f"this model does not {orders} better than chance."
+    )
     return
-  # A metric that could not be computed is unknown, not zero: saying "no usable signal" of a model
-  # nobody managed to score would be a claim the run cannot support.
-  if value != value:  # NaN
-    return
-  floor = SKILL_FLOOR.get(task)
-  if floor is None or value >= floor:
-    return
-  measure, orders = (
-    ("AUROC", "separate the classes")
-    if task == "classification"
-    else ("Spearman rho", "order compounds")
-  )
-  rows.append((
-    "",
-    f"[yellow]No usable signal[/] [dim]— held-out {measure} {value:.2f} is below {floor:.2f}: "
-    f"this model does not {orders} better than chance.[/]",
-  ))
+  # A regression model can order compounds acceptably and still predict useless values. R2 at or
+  # below zero is not a threshold anyone chose: it is the point where predicting the training mean
+  # for everything would have done as well.
+  explained = _as_float(r2)
+  if explained is not None and explained <= 0:
+    caution(
+      f"R² {explained:.2f}: these predicted values are no better than the training average, "
+      "whatever their ordering."
+    )
 
 
 def _pooled_row(params, m):
@@ -739,7 +752,7 @@ def final_summary_panel(output_dir=None):
         "Performance",
         f"R² [bold green]{fmt('r2')}[/] · RMSE [bold green]{fmt('rmse')}[/]  [dim]({where})[/]",
       ))
-      _warn_if_no_signal(rows, task, m.get("spearman"))
+      _warn_if_no_signal(rows, task, m.get("spearman"), r2=m.get("r2"))
 
   plots = _count_plots(d)
   from zairachem.base.vars import OUTPUT_FILENAME, REPORT_SUBFOLDER

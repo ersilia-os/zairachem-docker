@@ -319,3 +319,23 @@ def test_one_floor_serves_the_pooler_and_the_screen():
   # And the pruning rule still reads the floor from it.
   below = SKILL_FLOOR["regression"] - 0.01
   assert active_mask([0.5, below], "regression") == [True, False]
+
+
+def test_a_model_whose_values_are_worse_than_the_mean_says_so_too():
+  """A regression model can order compounds acceptably and still predict useless values."""
+  from zairachem.base.utils.summaries import _warn_if_no_signal
+
+  rows = []
+  _warn_if_no_signal(rows, "regression", skill=0.6, r2=-0.2)  # ranks fine, values do not
+  assert rows and "no better than the training average" in rows[0][1]
+
+  # One caution at most: a model failing both is not told off twice.
+  rows = []
+  _warn_if_no_signal(rows, "regression", skill=0.01, r2=-0.2)
+  assert len(rows) == 1 and "order compounds" in rows[0][1]
+
+  # A usable model, and an R2 that could not be computed, both stay quiet.
+  for skill, r2 in ((0.6, 0.5), (0.6, None), (0.6, float("nan"))):
+    rows = []
+    _warn_if_no_signal(rows, "regression", skill=skill, r2=r2)
+    assert rows == [], (skill, r2)
