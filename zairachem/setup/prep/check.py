@@ -187,7 +187,7 @@ class SetupChecker(object):
     A count on its own leaves the only question it raises unanswered. Two measurements that
     differ in the third decimal are a rounding artefact; two that differ by four log units are
     two different experiments, and the spread between them is the floor under any model's error
-    on this data -- so it is the number that decides whether the count matters.
+    on this data — so it is the number that decides whether the count matters.
     """
     try:
       with open(self._replicates_path()) as f:

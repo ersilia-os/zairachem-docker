@@ -562,7 +562,7 @@ def _replicate_sd(output_dir):
 #: An RMSE within this multiple of the assay's own spread counts as being at the limit of the data.
 #: An observed value is the truth plus measurement noise of standard deviation ``s``, so a model
 #: whose own error against the truth is ``m`` scores ``RMSE^2 = m^2 + s^2``: the RMSE can never go
-#: below ``s``, however good the model. At ``1.25 s`` the model's own error is ``0.75 s`` -- smaller
+#: below ``s``, however good the model. At ``1.25 s`` the model's own error is ``0.75 s`` — smaller
 #: than the noise in the thing it is being scored against, which is as far as the data can show.
 NOISE_FLOOR_FACTOR = 1.25
 

@@ -43,7 +43,7 @@ COMPOUNDS_FILENAME = "compounds.csv"
 STANDARD_COMPOUNDS_FILENAME = "compounds_std.csv"
 MAPPING_FILENAME = "mapping.csv"
 #: Duplicate structure of the input and, for regression, how much repeats of one compound
-#: disagreed -- the assay's own reproducibility, which is what an RMSE has to be read against.
+#: disagreed — the assay's own reproducibility, which is what an RMSE has to be read against.
 REPLICATES_FILENAME = "replicates.json"
 #: Written by the pooler at predict, beside the input it describes: how many of the molecules
 #: being predicted were in the training set.

@@ -32,7 +32,7 @@ def write_training_overlap(folder, query_smiles, train_smiles):
 
   ``train_similarity`` cannot answer this. It averages a query's five nearest training molecules
   and leaves the query's own entry out, so a molecule that *was* in the training set scores like
-  its neighbourhood rather than like itself -- by design, because that is what makes the column an
+  its neighbourhood rather than like itself — by design, because that is what makes the column an
   applicability domain. The consequence is that nothing in a predict run compares the two sets,
   and predicting on a library that overlaps the training set is a common way to read a model as
   better than it is: for those rows the model is recalling a label, not predicting one.
@@ -59,8 +59,9 @@ def write_training_overlap(folder, query_smiles, train_smiles):
     "n_in_training": len(seen),
     "n_distinct_in_training": len(set(seen)),
   }
-  with open(os.path.join(folder, TRAIN_OVERLAP_FILENAME), "w") as f:
-    json.dump(summary, f, indent=2)
+  from zairachem.base import _atomic_json
+
+  _atomic_json(os.path.join(folder, TRAIN_OVERLAP_FILENAME), summary)
   if seen:
     logger.warning(
       f"[reliability_pool:predict] {len(seen)} of {len(query_smiles)} molecules were in the "
