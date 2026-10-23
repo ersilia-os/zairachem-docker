@@ -521,7 +521,8 @@ def _replicates_html(output_dir):
     f"Two measurements of the same compound differ by {sd:.3f} on average, which is the scale "
     "an error of this model should be read against."
     if sd is not None
-    else "Repeated compounds that were given both labels cannot be predicted correctly either way."
+    else "A compound given both labels keeps the rounded median, which is arbitrary: the model "
+    "is fitted on that coin flip and scored against it."
   )
   return (
     "<h3 class='cfg-h'>Repeat measurements</h3>" + _cfg_grid(stats) + f"<p class='desc'>{note}</p>"

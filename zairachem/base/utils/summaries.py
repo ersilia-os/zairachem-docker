@@ -614,8 +614,12 @@ def _note_training_overlap(rows, output_dir):
 def _note_contradicted_labels(rows, output_dir):
   """Say how many compounds the input called both active and inactive.
 
-  The regression counterpart of the noise floor: those compounds are wrong whichever way they are
-  predicted, so they set a ceiling on any model's accuracy that no amount of modelling can lift.
+  The classification counterpart of the regression noise floor, and it bites differently.
+  Deduplication keeps one label per compound — the rounded median — so a model that predicts that
+  label is scored as correct and the measured accuracy is not capped at all. What is wrong sits
+  underneath the score: the kept label is arbitrary, so for those compounds the model is fitted on
+  a coin flip and then graded against the same coin flip. Neither the training signal nor the
+  score on them carries information.
   """
   from zairachem.setup.prep.files import read_replicates
 
@@ -627,7 +631,8 @@ def _note_contradicted_labels(rows, output_dir):
   rows.append((
     "",
     f"[yellow]{contradicted:,} of {repeated:,} repeated compounds[/] [dim]were given both labels "
-    "in the input; they cannot be predicted correctly either way, whatever the model.[/]",
+    "in the input, so the one kept for each is arbitrary: there the model is fitted on a coin "
+    "flip and scored against it.[/]",
   ))
 
 

@@ -371,7 +371,7 @@ def test_compounds_given_both_labels_are_called_out():
     json.dump({"n_repeated": 120, "disagreeing": 17}, f)
   rows = []
   _note_contradicted_labels(rows, run)
-  assert "17 of 120" in rows[0][1] and "either way" in rows[0][1]
+  assert "17 of 120" in rows[0][1] and "coin flip" in rows[0][1]
 
   # And the fit summary has to call it, or none of the above is ever reached.
   assert "_note_contradicted_labels" in inspect.getsource(summaries.final_summary_panel)
