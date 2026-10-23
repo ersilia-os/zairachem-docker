@@ -9,8 +9,10 @@ renders *only* without truth, as its classification counterpart does: once the o
 in hand the accuracy panels say the same thing and more.) **Chemistry** puts both on the molecules
 themselves: the projections and the physico-chemical properties, coloured by value.
 
-Every panel here renders only for a regression run, and every classification panel only for a
-classification one, so the two reports are the same report with a different vocabulary.
+Every panel here renders only for a regression run. Most classification panels are the mirror of
+that, because they rest on a cutoff or a class; the few that rest on neither -- the descriptor
+correlation heatmap and the top-x% overlap curve -- serve both tasks from where they already live.
+The result is one report in two vocabularies rather than two reports.
 """
 
 import numpy as np
