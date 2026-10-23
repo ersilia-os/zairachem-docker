@@ -112,11 +112,14 @@ rows into one compound by their median, and before doing so it records how far a
 the **pooled within-compound standard deviation**, which is the assay's own reproducibility, in
 the same units as the model's error. It goes to `inputs/replicates.json`.
 
-On the *T. brucei* set used throughout this note, 5,636 IC50 rows cover 3,485 molecules, 1,375 of
+On the *T. brucei* set used throughout this note, 5,771 IC50 rows cover 3,562 molecules, 1,397 of
 them measured more than once — up to 53 times, and the widest disagreement for a single molecule
-is 4.34 log units. The pooled spread is **0.614**. The model's held-out RMSE is **0.634**. The
-model is therefore predicting about as closely as the assay measures, and the way to improve it is
-more or better measurements, not more modelling.
+is 4.59 log units. The pooled spread is **0.618**.
+
+A model fitted on 2,000 of those molecules predicts the 1,485 it never saw with an RMSE of
+**0.634** (R² 0.787). That is the assay's own spread to two decimals, so the model is predicting
+about as closely as the experiment measures, and the way to improve it is more or better
+measurements rather than more modelling.
 
 Where this shows up:
 
