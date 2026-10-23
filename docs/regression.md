@@ -121,6 +121,14 @@ A model fitted on 2,000 of those molecules predicts the 1,485 it never saw with 
 about as closely as the experiment measures, and the way to improve it is more or better
 measurements rather than more modelling.
 
+It is worth inverting the identity, because 0.634 against 0.618 reads as a model barely better
+than noise and that is the opposite of what it is. An observed value is the truth plus measurement
+noise of standard deviation `s`, so a model whose own error is `m` scores `RMSE² = m² + s²`; here
+`m` is about **0.14**, a fifth of the noise it is being graded through. The fit summary prints
+that number next to the spread. It assumes the measurement error is independent of the model's,
+which is the assumption that gives the identity in the first place, and it is only as good as `s`
+— a spread estimated from a handful of repeats is not worth decomposing.
+
 Where this shows up:
 
 - the fit summary prints the spread beside the RMSE, and says plainly when the error is at the
