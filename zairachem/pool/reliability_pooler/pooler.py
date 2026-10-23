@@ -51,6 +51,15 @@ LEGACY_ARTIFACT_NAME = "reliability_pool_clf.joblib"
 ARTIFACT_VERSION = 2
 
 
+#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold skill is below the floor
+#: (:data:`zairachem.base.vars.SKILL_FLOOR`) or more than this gap below the best one. The
+#: regression gap is the classification one mapped onto Spearman rho, since ``AUC - 0.5`` is about
+#: ``rho / 2``.
+PRUNE_GAP = {"classification": 0.10, "regression": 0.20}
+CLASSIFICATION = "classification"
+REGRESSION = "regression"
+
+
 def artifact_path(trained_path, write=False):
   """Path of the saved weighting inside ``trained_path``.
 
@@ -72,15 +81,6 @@ def artifact_path(trained_path, write=False):
     return path
   legacy = os.path.join(trained_path, LEGACY_ARTIFACT_NAME)
   return legacy if os.path.exists(legacy) else path
-
-
-#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold skill is below the floor
-#: (:data:`zairachem.base.vars.SKILL_FLOOR`) or more than this gap below the best one. The
-#: regression gap is the classification one mapped onto Spearman rho, since ``AUC - 0.5`` is about
-#: ``rho / 2``.
-PRUNE_GAP = {"classification": 0.10, "regression": 0.20}
-CLASSIFICATION = "classification"
-REGRESSION = "regression"
 
 
 def active_mask(skills, task=CLASSIFICATION):

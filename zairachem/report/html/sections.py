@@ -118,6 +118,20 @@ def _model_titles(output_dir, params, ids):
   return resolved
 
 
+def _cfg_grid(pairs):
+  """A row of labelled stats: one ``cfg-cell`` per ``(label, value)``, wrapped in a ``cfg-grid``.
+
+  Both the value and the label are escaped, so this is for plain text; the Configuration block
+  builds its own cells because two of its values are badges.
+  """
+  cells = "".join(
+    f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
+    f"<span class='v'>{html.escape(str(v))}</span></div>"
+    for k, v in pairs
+  )
+  return f"<div class='cfg-grid'>{cells}</div>"
+
+
 def _config_section_html(output_dir, params, n):
   """Render the run configuration: a scalar stat grid plus featurizer and projection model tables."""
   task = params.get("task") or ""
@@ -325,12 +339,7 @@ def _computational_performance_html(output_dir, report_dir, present, assigned, p
 
   out = []
   if stats:
-    cells = "".join(
-      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
-      f"<span class='v'>{html.escape(str(v))}</span></div>"
-      for k, v in stats
-    )
-    out.append(f"<div class='cfg-grid'>{cells}</div>")
+    out.append(_cfg_grid(stats))
   out.append(_machine_line(output_dir))
 
   steps_html = _perf_steps_html(tel["steps"])
@@ -433,12 +442,7 @@ def _dataset_html(output_dir, report_dir, present, assigned):
       ("Highest", f"{values['max']:.2f}"),
       ("Std. deviation", f"{values['sd']:.2f}"),
     ]
-    cells = "".join(
-      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
-      f"<span class='v'>{html.escape(v)}</span></div>"
-      for k, v in stats
-    )
-    out.append(f"<div class='cfg-grid'>{cells}</div>")
+    out.append(_cfg_grid(stats))
   if counts:
     stats = [
       ("Compounds", f"{counts['total']:,}"),
@@ -446,14 +450,9 @@ def _dataset_html(output_dir, report_dir, present, assigned):
       ("Inactives", f"{counts['inactives']:,}"),
       ("% active", f"{counts['pct_active']:.1f}%"),
     ]
-    cells = "".join(
-      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
-      f"<span class='v'>{html.escape(v)}</span></div>"
-      for k, v in stats
-    )
     a_col, i_col = colors.hexcol("active"), colors.hexcol("inactive")
     a = counts["pct_active"]
-    out.append(f"<div class='cfg-grid'>{cells}</div>")
+    out.append(_cfg_grid(stats))
     out.append(
       "<div class='balance-bar'>"
       f"<i style='width:{a:.1f}%;background:{a_col}'></i>"
@@ -619,12 +618,7 @@ def _diagnostics_html(output_dir, report_dir, present, assigned):
       cells_data.append((f"Mean inner CV {capped}", f"{summary['mean_skill']:.3f}"))
     if summary.get("mean_overfit_gap") is not None:
       cells_data.append(("Mean overfit gap", f"{summary['mean_overfit_gap']:.3f}"))
-    cells = "".join(
-      f"<div class='cfg-cell'><span class='k'>{html.escape(k)}</span>"
-      f"<span class='v'>{html.escape(v)}</span></div>"
-      for k, v in cells_data
-    )
-    out.append(f"<div class='cfg-grid'>{cells}</div>")
+    out.append(_cfg_grid(cells_data))
     out.append(
       "<p class='caution'>&#9888; These are <strong>inner</strong> cross-validation scores, "
       "computed inside lazy-qsar during descriptor and algorithm selection. Treat them with "

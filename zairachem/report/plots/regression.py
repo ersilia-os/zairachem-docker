@@ -270,7 +270,8 @@ class TargetValueDistributionPlot(BasePlot):
     self.is_available = False
     if not self.has_reg_data():
       return
-    yt = ResultsFetcher(path=path).get_true_reg()
+    fetcher = ResultsFetcher(path=path)
+    yt = fetcher.get_true_reg()
     if yt is None:
       return
     yt = np.asarray(yt, dtype=float)
