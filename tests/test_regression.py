@@ -339,3 +339,23 @@ def test_a_model_whose_values_are_worse_than_the_mean_says_so_too():
     rows = []
     _warn_if_no_signal(rows, "regression", skill=skill, r2=r2)
     assert rows == [], (skill, r2)
+
+
+def test_the_cv_report_can_be_patched_after_it_is_written(tmp_path):
+  """The fit's own wall-clock and the out-of-fold flag are both known only after the report exists."""
+  import json
+
+  from zairachem.estimate.estimators.lazy_qsar.estimate import Fitter
+
+  path = tmp_path / "eosA"
+  path.mkdir()
+  (path / "cv_report.json").write_text(json.dumps({"oof_rho": 0.8, "portfolio": ["lr"]}))
+
+  Fitter._patch_cv_report(str(path), fit_seconds=137.1)
+  Fitter._record_oof_used(str(path), True)
+  report = json.loads((path / "cv_report.json").read_text())
+  assert report["fit_seconds"] == 137.1 and report["oof_used"] is True
+  assert report["oof_rho"] == 0.8 and report["portfolio"] == ["lr"]  # nothing else disturbed
+
+  # A missing report is not worth failing a fit over.
+  Fitter._patch_cv_report(str(tmp_path / "nowhere"), fit_seconds=1.0)
