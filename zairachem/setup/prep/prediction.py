@@ -201,9 +201,9 @@ class PredictSetup(BaseSetup):
 
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)
-    # (Re)point the active-session symlink at this output dir on EVERY run, before any other step —
-    # including resumes, where the one-time initialize work below is skipped but the symlink must
-    # still be corrected so nothing writes into the (read-only) model dir.
+    # Write (or keep) this run's own session.json before any other step, including a resume: every
+    # step resolves the run root upward from its own path, so the file has to exist first. There is
+    # no global "active session" pointer any more — a run is described entirely by its own folder.
     self._open_session()
     if not step.is_done():
       self._make_output_dir()

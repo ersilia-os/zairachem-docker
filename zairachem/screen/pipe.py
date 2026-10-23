@@ -1,16 +1,18 @@
 """Descriptor pre-screening step: choose at most ``max_descriptors`` descriptors to fully train.
 
 Runs after ``treat`` (needs the treated matrices) and before ``estimate``. Each computed descriptor
-gets a quick held-out AUROC from a shallow proxy model on the chemistry-aware folds (random /
+gets a quick held-out score from a shallow proxy model on the chemistry-aware folds (random /
 scaffold / Butina at 3 repeats, built here whatever ``--evaluate`` says), and descriptors are added
 greedily while they improve the ensemble (:func:`~zairachem.screen.proxy.select_descriptors`). The
 choice goes to ``metadata/selected_eos.json``, which ``effective_descriptors`` applies to estimate,
 pool, report and predict, with the scores in ``metadata/proxy_scores.json``. Held-out folds
 (``--evaluate``) repeat the selection on their own training rows.
 
-Self-gated: a no-op at predict, for regression, or when there is nothing to prune
-(``max_descriptors ≥ #descriptors``). On by default (``--max-descriptors`` defaults to
-``DEFAULT_MAX_DESCRIPTORS``, 5).
+The score is AUROC for a classification run and Spearman's rho for a regression one; both tasks
+screen.
+
+Self-gated: a no-op at predict, or when there is nothing to prune (``max_descriptors ≥
+#descriptors``). On by default (``--max-descriptors`` defaults to ``DEFAULT_MAX_DESCRIPTORS``, 5).
 """
 
 import json
@@ -71,7 +73,8 @@ class ScreenPipeline(ZairaBase):
   def run(self):
     """Score each descriptor on held-out folds and write the selection.
 
-    A no-op at predict, for regression, or when ``max_descriptors`` is not set.
+    A no-op at predict, or when ``max_descriptors`` is not set or exceeds the descriptors there
+    are. Both tasks screen; the score is the task's own.
     """
     k = self.params.get("max_descriptors")
     if self.is_predict() or not k:

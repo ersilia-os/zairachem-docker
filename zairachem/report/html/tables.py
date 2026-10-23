@@ -113,7 +113,12 @@ def _mean_std(values):
 
 
 def _validation_table_html(report_dir):
-  """Per-schema mean±std held-out AUROC/AUPR table from ``report/validation_table.csv``, or ''."""
+  """Per-schema held-out metrics from ``report/validation_table.csv``, or '' when there are none.
+
+  The columns are the ones the folds reported: AUROC and AUPR for a classification run, plus its
+  test-set class balance; R2, RMSE and Spearman's rho for a regression one. A schema run once
+  shows its mean alone, since a single fold has no spread to report.
+  """
   try:
     with open(os.path.join(report_dir, "validation_table.csv")) as f:
       rows = list(csv.DictReader(f))
