@@ -196,3 +196,54 @@ def test_a_fold_that_holds_out_most_of_the_set_says_so(monkeypatch):
   folds = select_folds(diverse, rng.normal(6.0, 1.2, 200), "scaffold", k=1)
   assert 0.1 <= len(folds[0]["test_idx"]) / 200 <= 0.3
   assert not any("were held out" in m for m in said), said
+
+
+def test_the_panel_shows_the_held_out_skill_beside_the_out_of_fold_one(tmp_path):
+  """The Performance row is out-of-fold, on randomly drawn folds. On congeneric data that is the
+  score on more of the same chemistry. `--evaluate` already measured the harder question by
+  holding out whole scaffolds, and the answer was reaching a CSV and not the panel."""
+  import inspect
+  import json
+
+  from zairachem.base.utils import summaries
+  from zairachem.base.utils.summaries import _note_held_out_skill
+
+  report = tmp_path / "report"
+  report.mkdir()
+
+  def write(scaffold):
+    (report / "holdout_summary.json").write_text(json.dumps({"strategies": {"scaffold": scaffold}}))
+
+  # A held-out R2 far under the out-of-fold one is the case worth saying out loud (gap > 0.20).
+  write({"n_folds": 3, "r2": {"mean": 0.44}})
+  rows = []
+  _note_held_out_skill(rows, str(tmp_path), "regression", {"r2": 0.72})
+  assert rows[0][0] == "Held out" and "0.440" in rows[0][1] and "3 folds" in rows[0][1]
+  assert "falls to 0.44" in rows[1][1]
+
+  # A model that holds up is reported without the caution.
+  rows = []
+  _note_held_out_skill(rows, str(tmp_path), "regression", {"r2": 0.55})
+  assert len(rows) == 1 and rows[0][0] == "Held out"
+
+  # Classification is judged on AUROC, against its own (tighter) gap of 0.10.
+  write({"n_folds": 2, "auroc": {"mean": 0.61}})
+  rows = []
+  _note_held_out_skill(rows, str(tmp_path), "classification", {"auroc": 0.78})
+  assert "AUROC" in rows[0][1] and "falls to 0.61" in rows[1][1]
+
+  # No scaffold folds (all failed, or --evaluate never ran) means no row, not a blank one.
+  write({"n_folds": 0})
+  rows = []
+  _note_held_out_skill(rows, str(tmp_path), "regression", {"r2": 0.72})
+  assert rows == []
+  # Nor a "scaffold, None folds" row from a summary that carries a mean but no count.
+  write({"r2": {"mean": 0.44}})
+  _note_held_out_skill(rows, str(tmp_path), "regression", {"r2": 0.72})
+  assert rows == []
+  (report / "holdout_summary.json").unlink()
+  _note_held_out_skill(rows, str(tmp_path), "regression", {"r2": 0.72})
+  assert rows == []
+
+  # And the panel is where it has to appear.
+  assert "_note_held_out_skill" in inspect.getsource(summaries.final_summary_panel)

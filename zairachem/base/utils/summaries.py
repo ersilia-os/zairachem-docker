@@ -631,6 +631,55 @@ def _note_contradicted_labels(rows, output_dir):
   ))
 
 
+def _note_held_out_skill(rows, output_dir, task, pooled):
+  """Append the scaffold held-out skill, and a caution when the headline is well above it.
+
+  The Performance row above is out-of-fold: lazy-qsar's inner cross-validation, whose folds are
+  drawn at random. On a set built from congeneric series — which is most medicinal-chemistry data
+  — a random fold leaves close analogues of every test compound in training, so the number it
+  reports is what the model does on more of the same chemistry, not on new chemistry. A run given
+  ``--evaluate`` has already measured the second thing by holding out whole scaffolds, and the
+  answer sits in a CSV while the optimistic number is what the panel says.
+
+  Only the scaffold strategy is reported. A random held-out fold asks the same question as the
+  out-of-fold estimate, so repeating it would add a number without adding information.
+
+  The drop that earns a caution is ``PRUNE_GAP``, the pooler's. That constant was written for a
+  different pair of numbers — train against out-of-fold, where it decides a descriptor has stopped
+  being trustworthy — but it answers the same question in the same units: how much skill can fall
+  away between an optimistic estimate and an honest one before the optimistic one stops describing
+  the model. Keeping the two together means a run cannot call a gap acceptable in one place and
+  disqualifying in the other.
+  """
+  from zairachem.pool.reliability_pooler.pooler import PRUNE_GAP
+
+  summary_path = os.path.join(output_dir, "report", "holdout_summary.json")
+  try:
+    with open(summary_path) as f:
+      scaffold = (json.load(f).get("strategies") or {}).get("scaffold") or {}
+  except Exception:
+    return
+  key, label = ("auroc", "AUROC") if task == "classification" else ("r2", "R\u00b2")
+  held = _finite_or_none((scaffold.get(key) or {}).get("mean"))
+  n_folds = scaffold.get("n_folds")
+  if held is None or not n_folds:
+    return
+  rows.append((
+    "Held out",
+    f"{label} [bold green]{held:.3f}[/]  [dim](scaffold, {_plurals(n_folds, 'fold')})[/]",
+  ))
+  headline = _finite_or_none(pooled.get(key))
+  gap = PRUNE_GAP.get(task)
+  if headline is None or gap is None or headline - held <= gap:
+    return
+  rows.append((
+    "",
+    f"[yellow]Weaker on new chemistry[/] [dim]— {label} falls to {_distinct(held, headline)} "
+    "when whole scaffolds are held out, so on compounds unlike the training set this model is "
+    "worse than the headline above says.[/]",
+  ))
+
+
 def _warn_if_no_signal(rows, task, skill, r2=None):
   """Append at most one caution row when the pooled model is not worth shipping.
 
@@ -895,6 +944,7 @@ def final_summary_panel(output_dir=None):
       ))
       _note_if_at_the_noise_floor(rows, m.get("rmse"), floor)
       _warn_if_no_signal(rows, task, m.get("spearman"), r2=m.get("r2"))
+    _note_held_out_skill(rows, d, task, m)
 
   plots = _count_plots(d)
   from zairachem.base.vars import OUTPUT_FILENAME, REPORT_SUBFOLDER
