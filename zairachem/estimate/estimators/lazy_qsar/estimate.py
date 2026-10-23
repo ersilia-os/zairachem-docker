@@ -212,14 +212,15 @@ class Fitter(BaseEstimatorIndividual):
   def run(self):
     """Fit the descriptor's lazyqsar classifier and return its per-row classification report.
 
-    Trains on the training rows and saves the model, applicability domain, CV report, pool signals
-    and (when a rank reference exists) reference scores. Training rows get out-of-fold signals; the
-    other rows are predicted by the fitted model. Regression is not implemented and is skipped.
+    Trains on the training rows and saves the model, applicability domain, CV report and pool
+    signals -- plus, for classification, the reference scores a rank needs. Training rows get
+    out-of-fold signals; the other rows are predicted by the fitted model.
 
     Returns
     -------
     collections.OrderedDict
-      ``{"clf": report}`` from ``make_classification_report``; empty when skipped.
+      ``{"clf": report}`` from :func:`make_classification_report`, or ``{"reg": report}`` from
+      :func:`make_regression_report`; empty when there is no descriptor data to fit.
     """
     self.reset_time()
     tasks = collections.OrderedDict()
