@@ -382,14 +382,17 @@ class ResultsFetcher(ZairaBase):
 
   @staticmethod
   def _aligned_truth_pred(y_true, y_pred):
-    """As float arrays with positions where ``y_true`` is NaN dropped (keeps truth↔pred aligned).
+    """As float arrays with any position where either side is NaN dropped (keeps them aligned).
 
     At predict, ground truth may be partial (unlabelled compounds carry NaN after the left-merge);
-    this yields the labelled subset for any (truth, prediction) pair. A no-op when truth is complete.
+    this yields the labelled subset for any (truth, prediction) pair. A prediction can also be NaN
+    -- a compound every descriptor failed on -- and scoring it would turn the whole row of metrics
+    into NaN rather than reporting the compounds that did score. ``num_compounds`` then says how
+    many were used. A no-op when both sides are complete.
     """
     yt = np.asarray(y_true, dtype=float)
     yp = np.asarray(y_pred, dtype=float)
-    mask = ~np.isnan(yt)
+    mask = ~np.isnan(yt) & ~np.isnan(yp)
     return yt[mask], yp[mask]
 
   def clf_truth_proba(self):

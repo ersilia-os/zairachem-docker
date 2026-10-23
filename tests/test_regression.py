@@ -673,3 +673,17 @@ def test_one_missing_value_does_not_change_what_the_error_panel_plots(tmp_path):
   plot = ErrorVsSimilarityPlot(ax=None, path=path)
   assert plot.is_available
   assert "Absolute error" in plot.ax.get_title(), plot.ax.get_title()
+
+
+def test_one_unscoreable_compound_does_not_void_the_whole_metrics_row():
+  """A NaN prediction used to propagate into every metric instead of being left out."""
+  from zairachem.report.fetcher import ResultsFetcher
+
+  fetcher = ResultsFetcher.__new__(ResultsFetcher)
+  clean = fetcher.regression_performance_report([1.0, 2.0, 3.0, 4.0], [1.1, 2.1, 2.9, 3.9])
+  gappy = fetcher.regression_performance_report(
+    [1.0, 2.0, 3.0, 4.0, 5.0], [1.1, 2.1, 2.9, 3.9, float("nan")]
+  )
+  assert gappy["num_compounds"] == 4  # the unscoreable compound is counted out, not in
+  assert gappy["r2"] == pytest.approx(clean["r2"])
+  assert not np.isnan(gappy["rmse"])
