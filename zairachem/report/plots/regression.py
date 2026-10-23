@@ -175,7 +175,9 @@ class PotencyEnrichmentPlot(BasePlot):
     top10 = float(running[max(0, int(0.1 * n) - 1)])
     ax.set_xlabel("Top % by predicted value")
     ax.set_ylabel("Mean observed value")
-    ax.set_title(f"Selection quality · top 10% averages {top10:.2f}")
+    ax.set_title(
+      f"Selection quality · top 10% averages {top10:.2f} (set mean {float(yt.mean()):.2f})"
+    )
     self.is_available = True
 
 
@@ -246,7 +248,7 @@ class IntervalCoveragePlot(BasePlot):
     ax.set_ylim(0, 1.12)
     ax.set_xlabel("Interval width")
     ax.set_ylabel("Observed coverage")
-    ax.set_title(f"Interval coverage by width · nominal {DEFAULT_LEVEL:.0%} (--)")
+    ax.set_title(f"Interval coverage by width · nominal {DEFAULT_LEVEL:.0%} (dashed)")
     self.is_available = True
 
 
