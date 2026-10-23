@@ -239,6 +239,12 @@ def _cv_summary(cv_stats):
 
 
 def _cv_table_html(cv_stats):
+  """Per-descriptor inner cross-validation table, in the columns the task actually reports.
+
+  Classification carries a second ranking metric and a balanced cutoff; regression carries
+  neither, and the overfit gap means the same thing in both. The train-time column appears only
+  for runs whose reports recorded one.
+  """
   if not cv_stats:
     return ""
   key, _train_key, label = skill_keys(cv_stats)
@@ -262,7 +268,7 @@ def _cv_table_html(cv_stats):
   if any(r.get("fit_seconds") is not None for r in cv_stats):
     # One descriptor can cost most of a run; this is the only place that says which.
     cols.append(("fit_seconds", "Train time"))
-  head = "".join(f"<th>{html.escape(label)}</th>" for _, label in cols)
+  head = "".join(f"<th>{html.escape(heading)}</th>" for _key, heading in cols)
   body = []
   for i, r in enumerate(cv_stats):
     cells = [f"<td>{_cv_cell(k, r.get(k))}</td>" for k, _ in cols]
