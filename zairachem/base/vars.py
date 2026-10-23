@@ -193,6 +193,13 @@ CV_SKILL = {
   "classification": ("oof_auc", "train_auc", "AUROC", 0.5),
   "regression": ("oof_rho", "train_rho", "Spearman \u03c1", 0.0),
 }
+
+#: The held-out skill a descriptor must clear to be worth including, per task: AUROC for
+#: classification, Spearman's rho for regression. lazy-qsar's pruning rule and the screening proxy
+#: both use it, and a pooled model that does not clear it is reported as having no usable signal.
+#: The regression floor is the classification one mapped onto rho, as lazy-qsar scales it:
+#: ``AUROC - 0.5`` is about ``rho / 2``.
+SKILL_FLOOR = {"classification": 0.55, "regression": 0.10}
 MIN_CLASS = 30
 # Fewest compounds a regression target may have (lazy-qsar's own floor is 10; this leaves room
 # for the out-of-fold splits its heads are calibrated on).

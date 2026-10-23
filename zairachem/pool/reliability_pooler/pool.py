@@ -14,6 +14,7 @@ from zairachem.base.vars import (
   DATA_SUBFOLDER,
   POOL_SUBFOLDER,
   POOLED_DESCRIPTORS_FILENAME,
+  SKILL_FLOOR,
   SMILES_COLUMN,
 )
 
@@ -190,7 +191,7 @@ class Fitter(BasePooler):
       task=self.task,
     )
     if params["pruned_columns"]:
-      floor, gap = pooler.PRUNE[self.task]
+      floor, gap = SKILL_FLOOR[self.task], pooler.PRUNE_GAP[self.task]
       logger.warning(
         f"[reliability_pool:fit] left out of the pooled model (out-of-fold skill below "
         f"{floor} or {gap} below the best): "

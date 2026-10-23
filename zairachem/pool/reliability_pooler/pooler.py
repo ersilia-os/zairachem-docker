@@ -39,16 +39,17 @@ from lazyqsar.utils.ranking import (
   subsample_knots,
 )
 
-from zairachem.base.vars import DEFAULT_CUTOFF
+from zairachem.base.vars import DEFAULT_CUTOFF, SKILL_FLOOR
 
 #: Saved weighting of a trained model (in its pool folder).
 ARTIFACT_NAME = "reliability_pool_clf.joblib"
 #: Version of the saved weighting; models saved before it carry none (see :func:`load_params`).
 ARTIFACT_VERSION = 2
-#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold skill is below the floor or
-#: more than the gap below the best one. The regression thresholds are the classification ones
-#: mapped onto Spearman rho, since ``AUC - 0.5`` is about ``rho / 2``.
-PRUNE = {"classification": (0.55, 0.10), "regression": (0.10, 0.20)}
+#: lazy-qsar's pruning: a descriptor is left out when its out-of-fold skill is below the floor
+#: (:data:`zairachem.base.vars.SKILL_FLOOR`) or more than this gap below the best one. The
+#: regression gap is the classification one mapped onto Spearman rho, since ``AUC - 0.5`` is about
+#: ``rho / 2``.
+PRUNE_GAP = {"classification": 0.10, "regression": 0.20}
 CLASSIFICATION = "classification"
 REGRESSION = "regression"
 
@@ -60,7 +61,7 @@ def active_mask(skills, task=CLASSIFICATION):
   skill keeps its descriptor (the measurement failed, which says nothing about it); all are kept
   when none would survive.
   """
-  floor, gap = PRUNE[task]
+  floor, gap = SKILL_FLOOR[task], PRUNE_GAP[task]
   known = [a for a in skills if a is not None]
   best = max(known) if known else 0.0
   mask = [a is None or (a >= floor and a >= best - gap) for a in skills]

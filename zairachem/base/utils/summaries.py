@@ -15,7 +15,7 @@ import os
 
 from zairachem.base.utils.console import summary_panel
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import CV_SKILL
+from zairachem.base.vars import CV_SKILL, SKILL_FLOOR
 
 #: Steps that render a persistent live per-item table (see :class:`..live.LiveTableMonitor`). That
 #: table stays on screen as the step's record, so these steps intentionally print no separate detail
@@ -502,6 +502,37 @@ def _setup_rows(d, params):
   return rows
 
 
+def _warn_if_no_signal(rows, task, skill):
+  """Append a caution row when the pooled model does not clear the task's skill floor.
+
+  The floor is the one the pooler prunes individual descriptors on. Both measures are rank-based
+  -- AUROC and Spearman's rho -- so below the floor the claim is precisely that the model does not
+  order compounds better than chance. Said plainly here because the number alone does not stop
+  anyone shipping the model.
+  """
+  try:
+    value = float(skill)
+  except (TypeError, ValueError):
+    return
+  # A metric that could not be computed is unknown, not zero: saying "no usable signal" of a model
+  # nobody managed to score would be a claim the run cannot support.
+  if value != value:  # NaN
+    return
+  floor = SKILL_FLOOR.get(task)
+  if floor is None or value >= floor:
+    return
+  measure, orders = (
+    ("AUROC", "separate the classes")
+    if task == "classification"
+    else ("Spearman rho", "order compounds")
+  )
+  rows.append((
+    "",
+    f"[yellow]No usable signal[/] [dim]— held-out {measure} {value:.2f} is below {floor:.2f}: "
+    f"this model does not {orders} better than chance.[/]",
+  ))
+
+
 def _pooled_row(params, m):
   """The ``pooled`` metrics detail row from a performance-table row."""
 
@@ -699,6 +730,7 @@ def final_summary_panel(output_dir=None):
         "Performance",
         f"AUROC [bold green]{fmt('auroc')}[/] · MCC [bold green]{fmt('mcc')}[/]  [dim]({where})[/]",
       ))
+      _warn_if_no_signal(rows, task, m.get("auroc"))
     else:
       # RMSE alongside R2: the first is unitless, the second is in the target's own units, which is
       # the one a chemist can judge against the assay.
@@ -707,6 +739,7 @@ def final_summary_panel(output_dir=None):
         "Performance",
         f"R² [bold green]{fmt('r2')}[/] · RMSE [bold green]{fmt('rmse')}[/]  [dim]({where})[/]",
       ))
+      _warn_if_no_signal(rows, task, m.get("spearman"))
 
   plots = _count_plots(d)
   from zairachem.base.vars import OUTPUT_FILENAME, REPORT_SUBFOLDER

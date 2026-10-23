@@ -285,3 +285,37 @@ def test_the_lazyqsar_surface_regression_leans_on_is_still_there():
   # clip(2 * oof - train, -1, 1): the regression quality term the spec's skill weights are built on.
   assert _quality_rho(0.8, 0.9) == pytest.approx(0.7)
   assert 0.0 < DEFAULT_LEVEL < 1.0
+
+
+def test_a_model_with_no_signal_says_so():
+  """The floor the pooler prunes descriptors on, applied to the pooled model the user will ship."""
+  from zairachem.base.utils.summaries import _warn_if_no_signal
+  from zairachem.base.vars import SKILL_FLOOR
+
+  rows = []
+  _warn_if_no_signal(rows, "regression", SKILL_FLOOR["regression"] - 0.01)
+  assert rows and "No usable signal" in rows[0][1] and "order compounds" in rows[0][1]
+
+  # At or above the floor there is nothing to warn about, and a missing metric says nothing.
+  for skill in (SKILL_FLOOR["regression"], 0.8, None, float("nan"), "—"):
+    rows = []
+    _warn_if_no_signal(rows, "regression", skill)
+    assert rows == [], skill
+
+  # Classification uses its own floor and its own wording.
+  rows = []
+  _warn_if_no_signal(rows, "classification", SKILL_FLOOR["classification"] - 0.01)
+  assert "separate the classes" in rows[0][1]
+
+
+def test_one_floor_serves_the_pooler_and_the_screen():
+  """It was written out twice, with the screening copy free to drift from the pruning one."""
+  from zairachem.base.vars import SKILL_FLOOR
+  from zairachem.pool.reliability_pooler.pooler import PRUNE_GAP, active_mask
+  from zairachem.screen.proxy import PROXY_FLOOR
+
+  assert PROXY_FLOOR is SKILL_FLOOR
+  assert set(PRUNE_GAP) == set(SKILL_FLOOR) == {"classification", "regression"}
+  # And the pruning rule still reads the floor from it.
+  below = SKILL_FLOOR["regression"] - 0.01
+  assert active_mask([0.5, below], "regression") == [True, False]
