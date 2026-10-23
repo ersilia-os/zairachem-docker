@@ -1,7 +1,7 @@
 import json
 import os
 import shutil
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Iterator, List, Tuple
 
 import h5py
@@ -293,8 +293,19 @@ class ChunkedH5Store:
     return (meta["total_rows"], meta["n_features"])
 
   def create(self, n_features: int, features: List[str]):
-    """Create an empty store for ``n_features`` features."""
+    """Create an empty store for ``n_features`` features, discarding any chunks already there.
+
+    A step that re-runs -- after an interruption, say -- creates its store again. The metadata
+    starts at zero either way, so a previous attempt's chunks are never read; but they are only
+    overwritten as far as the new attempt happens to reach, and a descriptor interrupted nine
+    tenths of the way through a million rows would otherwise leave gigabytes of unreachable data
+    on the disk the rest of the run still needs.
+    """
     os.makedirs(self.dir, exist_ok=True)
+    for name in os.listdir(self.dir):
+      if name.startswith(_CHUNK_PREFIX) and name.endswith(".h5"):
+        with suppress(OSError):
+          os.remove(os.path.join(self.dir, name))
     meta = {"n_chunks": 0, "total_rows": 0, "n_features": n_features, "features": features}
     self._write_meta(meta)
     self._chunk_idx = 0

@@ -328,3 +328,32 @@ def test_a_caller_that_already_thinned_is_not_thinned_again(monkeypatch):
   )
   assert selected == ["eosA"]
   assert np.array_equal(seen["eosA"], rows)  # exactly the rows it was given, read once
+
+
+def test_a_rerun_store_discards_the_previous_attempt(tmp_path):
+  """A step that re-runs after an interruption creates its store again. The metadata starts at
+  zero either way, so the old chunks are never read -- but they are only overwritten as far as
+  the new attempt reaches, and a descriptor interrupted late in a million rows would leave
+  gigabytes of unreachable data on the disk the rest of the run still needs."""
+  import os
+
+  from zairachem.base.utils.matrices import ChunkedH5Store
+
+  store = ChunkedH5Store(str(tmp_path / "raw.h5"))
+  store.create(4, [f"f{i}" for i in range(4)])
+  for s in range(6):  # a first attempt that got six chunks in before it stopped
+    store.save_chunk(np.full((10, 4), s, dtype=np.float32), [f"s{s}_{i}" for i in range(10)])
+  assert store.n_rows() == 60
+  left_behind = sorted(n for n in os.listdir(store.dir) if n.endswith(".h5"))
+  assert len(left_behind) == 6
+
+  # Something else in the folder is not this method's to delete.
+  (tmp_path / "raw_chunks" / "notes.txt").write_text("keep me")
+
+  store.create(4, [f"f{i}" for i in range(4)])  # the step runs again
+  assert store.n_rows() == 0
+  assert [n for n in os.listdir(store.dir) if n.endswith(".h5")] == []
+  assert (tmp_path / "raw_chunks" / "notes.txt").read_text() == "keep me"
+
+  store.save_chunk(np.zeros((10, 4), dtype=np.float32), [f"s{i}" for i in range(10)])
+  assert store.n_rows() == 10 and store.values().shape == (10, 4)
