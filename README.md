@@ -79,7 +79,7 @@ non-commercial use only; pass `-f` without it to exclude it.
 | --- | --- |
 | `score` | Pooled rank against 50,000 drug-like molecules (lazyqsar): 0.50 top 10%, 0.65 top 1%, 0.75 top 0.1%. |
 | `similarity` | Mean Tanimoto similarity to the 5 nearest training molecules (predict only). |
-| `spread` | Standard deviation of the per-descriptor probabilities (predict only); high means the descriptors disagree. |
+| `spread` | Standard deviation of the per-descriptor predictions (predict only); high means the descriptors disagree. |
 | `label` | The true value, when the input has one. |
 
 `results/output_table.csv` follows the input rows and adds the input SMILES, InChIKey, the pooled
