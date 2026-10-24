@@ -527,3 +527,34 @@ def test_a_prediction_can_skip_the_projection_it_only_plots(tmp_path):
   src = inspect.getsource(predict_cmd)
   assert "--projection-ids" in src  # the flag exists
   assert "projection_ids=projection_ids" in src  # ...and is passed on, not accepted and dropped
+
+
+def test_a_training_matrix_too_large_for_the_memory_says_so(monkeypatch):
+  """The training matrix is the largest thing a run allocates and is knowable before it is read:
+  rows times features times four bytes. Finding out instead by being killed costs whatever the
+  descriptors took to compute, which on a large set is hours. Checked at the moment the width is
+  known, which is the moment before the matrix is allocated."""
+  import inspect
+
+  from zairachem.base.utils import disk
+  from zairachem.estimate.estimators.lazy_qsar.estimate import Fitter
+
+  said = []
+  monkeypatch.setattr(disk.logger, "warning", lambda m, *a, **k: said.append(str(m)))
+  monkeypatch.setattr(disk, "available_memory_bytes", lambda: 4 * 2**30)  # 4 GB free
+
+  assert disk.warn_if_matrix_will_not_fit(200_000, 1024, "training eosA") is False  # 0.8 GB
+  assert said == []
+  # Not merely "larger than free": the fit hands the matrix to a model that copies it, so a
+  # matrix that only just fits does not fit.
+  assert disk.warn_if_matrix_will_not_fit(1_000_000, 1024, "training eosB") is True  # 3.8 GB
+  assert "3.8 GB" in said[0] and "4.0 GB is free" in said[0]
+
+  said.clear()
+  monkeypatch.setattr(disk, "available_memory_bytes", lambda: None)
+  assert disk.warn_if_matrix_will_not_fit(10**9, 4096, "training eosC") is False
+  assert said == []  # an unreadable figure is not a reason to shout at a run that may be fine
+
+  # And it is asked where the matrix is about to be built -- the call, not just the import of it,
+  # which sits in the same function.
+  assert 'f"training {self.model_id}"' in inspect.getsource(Fitter._load_train_rows)

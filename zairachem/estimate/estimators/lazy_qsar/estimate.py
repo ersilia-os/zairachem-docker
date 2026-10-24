@@ -414,6 +414,13 @@ class Fitter(BaseEstimatorIndividual):
         # across chunks and the model trains on mismatched pairs.
         sel = idxs[np.sort(rank[lo:hi])]
         if X_train is None:
+          # The width is only known once a chunk has been read, and this is the moment before the
+          # matrix is allocated -- so it is also the last moment to say it will not fit.
+          from zairachem.base.utils.disk import warn_if_matrix_will_not_fit
+
+          warn_if_matrix_will_not_fit(
+            idxs.size, chunk.shape[1], f"training {self.model_id}", chunk.dtype.itemsize
+          )
           X_train = np.empty((idxs.size, chunk.shape[1]), dtype=chunk.dtype)
         X_train[at : at + sel.size] = chunk[sel - start]
         train_order[at : at + sel.size] = sel

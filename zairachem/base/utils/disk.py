@@ -48,6 +48,47 @@ def _human(n):
   return f"{n / 2**10:.0f} KB"
 
 
+def available_memory_bytes():
+  """Memory that could be allocated now, or None when it cannot be read."""
+  try:
+    import psutil
+
+    return psutil.virtual_memory().available
+  except Exception as e:  # psutil raises its own types
+    logger.debug(f"[memory] available memory unavailable: {e}")
+    return None
+
+
+#: A matrix larger than this share of free memory is called out. Not 1.0: the fit does not merely
+#: hold the matrix, it hands it to a model that will make at least one copy of its own, so a
+#: matrix that only just fits does not fit.
+MEMORY_HEADROOM = 0.5
+
+
+def warn_if_matrix_will_not_fit(rows, features, what, itemsize=4):
+  """Warn when a ``rows x features`` matrix is too large for the memory there is.
+
+  The training matrix is the largest thing a run allocates, and it is knowable before it is read:
+  rows times features times four bytes. Finding out instead by being killed costs whatever the
+  descriptors took to compute, which on a large set is hours.
+
+  Returns
+  -------
+  bool
+    True when the matrix looks too large (and a warning was issued).
+  """
+  needed = int(rows) * int(features) * itemsize
+  free = available_memory_bytes()
+  if free is None or needed <= free * MEMORY_HEADROOM:
+    return False
+  logger.warning(
+    f"[memory] {what} needs a {_human(needed)} matrix and {_human(free)} is free. Fitting it also "
+    "copies it at least once, so this run may be killed. Fewer rows, or a narrower descriptor, "
+    "would fit."
+  )
+  return True
+
+
 def warn_if_short(path, needed, what):
   """Warn when ``needed`` bytes will not fit where the run is being written.
 
