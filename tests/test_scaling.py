@@ -558,3 +558,50 @@ def test_a_training_matrix_too_large_for_the_memory_says_so(monkeypatch):
   # And it is asked where the matrix is about to be built -- the call, not just the import of it,
   # which sits in the same function.
   assert 'f"training {self.model_id}"' in inspect.getsource(Fitter._load_train_rows)
+
+
+def test_a_scored_fold_is_kept_rather_than_refitted(tmp_path):
+  """A held-out fold is a complete refit of the pipeline -- around half an hour each, measured --
+  and its result was already written to folds/<name>/metrics.json. Nothing ever read it back, so
+  a run interrupted at fold seven of ten discarded the six it had paid for."""
+  import inspect
+  import json
+
+  from zairachem.base.vars import FOLDS_SUBFOLDER
+  from zairachem.holdout import pipe
+  from zairachem.holdout.engine import HELD_OUT_FILENAME, _save_fold_record, load_fold_record
+
+  fold_path = tmp_path / FOLDS_SUBFOLDER / "scaffold_00"
+  fold_path.mkdir(parents=True)
+  record = {
+    "fold": "scaffold_00", "strategy": "scaffold", "seed": 3, "r2": 0.61, "num_compounds": 3,
+    "_y_true": [1.0, 2.0, 3.0], "_y_score": [1.1, 2.2, 2.9],
+  }  # fmt: skip
+  _save_fold_record(str(fold_path), record)
+  assert load_fold_record(str(tmp_path), "scaffold_00") == record
+
+  # The per-compound arrays are what the report's per-strategy curves are drawn from, so a fold
+  # without them is not reusable -- metrics.json alone would silently lose them.
+  (fold_path / HELD_OUT_FILENAME).unlink()
+  assert load_fold_record(str(tmp_path), "scaffold_00") is None
+  _save_fold_record(str(fold_path), record)
+
+  # metrics.json is written last, so a fold interrupted mid-write is not mistaken for a finished
+  # one; and a fold that never ran has nothing to read.
+  (fold_path / "metrics.json").unlink()
+  assert load_fold_record(str(tmp_path), "scaffold_00") is None
+  assert load_fold_record(str(tmp_path), "random_00") is None
+
+  # A record belonging to some other fold is not accepted for this one.
+  _save_fold_record(str(fold_path), {**record, "fold": "random_00"})
+  assert load_fold_record(str(tmp_path), "scaffold_00") is None
+
+  # Mismatched arrays mean a torn write, not a usable fold.
+  _save_fold_record(str(fold_path), record)
+  (fold_path / HELD_OUT_FILENAME).write_text(json.dumps({"_y_true": [1.0], "_y_score": [1.1, 2.2]}))
+  assert load_fold_record(str(tmp_path), "scaffold_00") is None
+
+  # And the loop has to ask, or none of this is reached.
+  # The call, not the lazy import of it, which sits in the same function.
+  src = inspect.getsource(pipe.HoldoutValidationPipeline._run_folds)
+  assert "load_fold_record(self.path, fold_name)" in src, src

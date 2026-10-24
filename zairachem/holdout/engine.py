@@ -19,6 +19,7 @@ from zairachem.base.vars import (
   CUTOFF_KAPPA,
   DEFAULT_CUTOFF,
   ESTIMATORS_SUBFOLDER,
+  FOLDS_SUBFOLDER,
   Y_HAT_FILE,
 )
 from zairachem.estimate.estimators.lazy_qsar import ESTIMATORS_FAMILY_SUBFOLDER
@@ -149,8 +150,55 @@ def run_one_fold(
   is_clf = "auroc" in metrics
   record["_y_true"] = [int(v) for v in truth] if is_clf else [float(v) for v in truth]
   record["_y_score"] = [float(v) for v in np.asarray(y_score).ravel()]
-  with open(os.path.join(fold_path, "metrics.json"), "w") as f:
-    json.dump(
-      {k: v for k, v in record.items() if not k.startswith("_")}, f, indent=2, default=float
-    )
+  _save_fold_record(fold_path, record)
+  return record
+
+
+#: The fold's per-compound held-out truth and score. Kept beside ``metrics.json`` rather than in
+#: it, because that file is the scalar, readable view of a fold and these are as long as the
+#: held-out slice -- but they are what the report's per-strategy curves are drawn from, so a fold
+#: without them is not a fold that can be reused.
+HELD_OUT_FILENAME = "held_out.json"
+
+
+def _save_fold_record(fold_path, record):
+  """Persist a finished fold: the per-compound arrays first, then the scalars.
+
+  In that order deliberately. ``metrics.json`` is written last and atomically, so its presence
+  means the arrays beside it are already complete -- which is what lets a re-run tell a finished
+  fold from one that was interrupted half way through writing itself.
+  """
+  from zairachem.base import _atomic_json
+
+  _atomic_json(
+    os.path.join(fold_path, HELD_OUT_FILENAME),
+    {"_y_true": record["_y_true"], "_y_score": record["_y_score"]},
+  )
+  _atomic_json(
+    os.path.join(fold_path, "metrics.json"),
+    {k: v for k, v in record.items() if not k.startswith("_")},
+  )
+
+
+def load_fold_record(model_dir, fold_name):
+  """A finished fold's full record, or None when it was never finished.
+
+  A held-out fold costs a complete refit of the pipeline -- measured, around half an hour each --
+  and its result is already on disk. A run interrupted at fold seven of ten used to discard the
+  six it had paid for, because nothing ever read this back.
+  """
+  fold_path = os.path.join(model_dir, FOLDS_SUBFOLDER, fold_name)
+  try:
+    with open(os.path.join(fold_path, "metrics.json")) as f:
+      record = json.load(f)
+    with open(os.path.join(fold_path, HELD_OUT_FILENAME)) as f:
+      held_out = json.load(f)
+  except (OSError, ValueError):
+    return None
+  y_true, y_score = held_out.get("_y_true"), held_out.get("_y_score")
+  if not isinstance(y_true, list) or len(y_true) != len(y_score or []):
+    return None
+  if record.get("fold") != fold_name:
+    return None
+  record["_y_true"], record["_y_score"] = y_true, y_score
   return record

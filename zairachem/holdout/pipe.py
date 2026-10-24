@@ -153,7 +153,14 @@ class HoldoutValidationPipeline(ZairaBase):
       monitor.finish(fold_name, ok=False)
 
   def _run_folds(self, run_one_fold, folds, model_ids, fetcher):
-    """Run every fold behind the live monitor table; return ``(records, failures)``."""
+    """Run every fold behind the live monitor table; return ``(records, failures)``.
+
+    A fold already scored by an earlier attempt is kept rather than refitted.
+    """
+    # Lazily, for the same reason run() imports the engine lazily: it pulls in the estimator and
+    # pool stacks, which a plain fit that never evaluates should not pay for.
+    from zairachem.holdout.engine import load_fold_record
+
     monitor = EvaluateMonitor(
       list(folds),
       color=STEP_COLORS.get("holdout", "bright_blue"),
@@ -166,6 +173,17 @@ class HoldoutValidationPipeline(ZairaBase):
     # file at debug level so it never corrupts the live region.
     with monitor.live():
       for fold_name, spec in folds.items():
+        done = load_fold_record(self.path, fold_name)
+        if done is not None:
+          # Already paid for by an earlier attempt at this run. A fold is a complete refit of the
+          # pipeline -- around half an hour each, measured -- and its result was sitting on disk
+          # being thrown away, because nothing read it back.
+          monitor.start(fold_name)
+          monitor.update_fields(fold_name, **{m: done.get(m) for m in monitor.metrics})
+          monitor.finish(fold_name, ok=True)
+          records.append(done)
+          logger.info(f"[evaluate] Fold {fold_name} was already scored; keeping it.")
+          continue
         self._run_fold(
           run_one_fold, monitor, fold_name, spec, model_ids, fetcher, records, failures
         )

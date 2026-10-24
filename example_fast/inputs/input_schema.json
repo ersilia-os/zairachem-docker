@@ -1,0 +1,5 @@
+{
+    "input_file": "/Users/mduranfrigola/Documents/GitHub/zairachem-docker/example/data_train.csv",
+    "smiles_column": "smiles",
+    "values_column": "dili"
+}

@@ -1,0 +1,8 @@
+{
+    "task": "classification",
+    "n_rows": 380,
+    "n_compounds": 380,
+    "n_repeated": 0,
+    "max_repeats": 1,
+    "standardised_collisions": 0
+}
