@@ -605,3 +605,38 @@ def test_a_scored_fold_is_kept_rather_than_refitted(tmp_path):
   # The call, not the lazy import of it, which sits in the same function.
   src = inspect.getsource(pipe.HoldoutValidationPipeline._run_folds)
   assert "load_fold_record(self.path, fold_name)" in src, src
+
+
+def test_pooling_records_that_it_happened(tmp_path, monkeypatch):
+  """Every other step marks itself done; this one never did, so its own guard could not fire. A
+  resumed run pooled a second time -- redoing finished work, and doing it from a different point
+  in the process's random stream than the first attempt had."""
+  import json
+
+  from zairachem.base.utils.pipeline import PipelineStep
+  from zairachem.pool import pipe
+
+  (tmp_path / "metadata").mkdir()
+  (tmp_path / "metadata" / "parameters.json").write_text(json.dumps({"task": "regression"}))
+  (tmp_path / "session.json").write_text(json.dumps({"steps": [], "output_dir": str(tmp_path)}))
+
+  ran = []
+  monkeypatch.setattr(
+    pipe,
+    "ReliabilityPoolerPipeline",
+    lambda *a, **k: type("P", (), {"run": lambda s: ran.append(1)})(),
+  )
+  pooler = pipe.PoolerPipeline.__new__(pipe.PoolerPipeline)
+  pooler.output_dir = str(tmp_path)
+  pooler.path = str(tmp_path)
+  pooler.params = {"pooler": "reliability"}
+  pooler.batch_size = 100
+  pooler.logger = pipe.logger
+
+  pooler._pool_pipeline()
+  assert ran == [1]
+  assert PipelineStep("pool", str(tmp_path)).is_done(), "pooling did not record that it happened"
+
+  # ...so a second pass over the same run does not pool again.
+  pooler._pool_pipeline()
+  assert ran == [1]

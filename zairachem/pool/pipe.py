@@ -46,6 +46,11 @@ class PoolerPipeline(ZairaBase):
         )
       logger.info(f"[pool] Running 'reliability' pipeline with batch_size={self.batch_size}")
       ReliabilityPoolerPipeline(self.path, batch_size=self.batch_size).run()
+      # Marked, like every other step. Without this the guard above could never fire: the step was
+      # never recorded as done, so a resumed run pooled again -- redoing finished work, and doing
+      # it from a different point in the process's random stream, which is not where the first
+      # attempt pooled from.
+      step.update()
     else:
       self.logger.info("Pooling already done — skipping.")
 
