@@ -77,6 +77,36 @@ skipping the report does not decide that you do not want them; pass both if that
 - **Descriptor inference** is the Ersilia model servers' own throughput and the Docker VM's
   memory. The describe step measures each model on this machine and schedules them to fit.
 
+## Does the order of the input rows matter?
+
+Not in any way that reaches a decision, but it is not bit-for-bit either, and it is worth knowing
+which of those two sentences applies where.
+
+Measured on a trained regression model asked to predict its own 700 training molecules, once in
+the file's order and once shuffled, then merged back on SMILES: every molecule kept its own label
+and its own prediction, and 698 of the 700 predictions were identical to the last digit written.
+Two moved, by at most 0.0015 — against that model's own RMSE of 0.075, and an assay noise floor
+an order of magnitude above that again. The same file predicted twice is byte-identical, so what
+little moves is the order and not the run.
+
+It enters in two places, neither of them ZairaChem's:
+
+- **The descriptor servers.** For 8 of those 700 molecules, `eos4u6p` returned an embedding that
+  differed by up to 4.5e-08 — one float32 ulp — depending on where the molecule sat in the request
+  batch. Those 8 are the rows whose per-descriptor prediction moved most, up to 0.0039.
+- **The batched predict underneath.** Hand lazy-qsar the *same* matrix twice, once permuted, and
+  245 of 700 predictions move by up to 6.9e-06; predict a row on its own and it differs from the
+  same row inside the batch. That is floating-point reassociation in the linear algebra, the usual
+  consequence of a library choosing its blocking by the shape of what it is given.
+
+So a prediction is reproducible to about five decimal places across orderings, and exactly
+reproducible for a given ordering. Anything that claims to depend on more digits than that is
+reading noise. If you need two runs to agree exactly, feed them the rows in the same order.
+
+What this is *not* is a shuffle. Labels, SMILES and predictions travel together: shifting the
+predictions by a single row against their molecules takes that model's R² from 0.994 to -0.243,
+which is the size of the signal a real misalignment would destroy.
+
 ## Knobs
 
 | flag | effect |
