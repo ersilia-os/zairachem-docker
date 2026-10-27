@@ -28,7 +28,7 @@ import h5py
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT = REPO / "example" / "data_train.csv"
+DEFAULT_INPUT = REPO / "example" / "classification_train.csv"
 DEFAULT_ERSILIA = Path.home() / "miniconda3" / "envs" / "ersilia" / "bin" / "ersilia"
 
 

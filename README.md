@@ -35,17 +35,23 @@ zairachem --help
 
 ## Quickstart
 
-Train a classifier and predict, using the example DILI data shipped in `example/`:
-`data_train.csv` (380 molecules, columns `smiles,dili`) to train, and `smiles_test.csv`
-(95 molecules, `smiles` only) to predict. Make sure Docker is running first.
+Train a model and predict, using the example data shipped in `example/`, one set per task:
+classification (DILI, columns `smiles,dili`) and regression (ESOL aqueous solubility, columns
+`smiles,logS`). Each has 380 molecules to train (`*_train.csv`) and 95 to predict
+(`*_test_smiles.csv`, `smiles` only; `*_test.csv` has their labels). Make sure Docker is running first.
 
 ```bash
-# 1. Train a classification model
-zairachem fit -i example/data_train.csv -m example_model
+# Classification
+zairachem fit -i example/classification_train.csv -m example_classification_model
+zairachem predict -i example/classification_test_smiles.csv -m example_classification_model -o classification_predictions
 
-# 2. Predict on new molecules
-zairachem predict -i example/smiles_test.csv -m example_model -o predictions_test
+# Regression (-r: the default task is classification)
+zairachem fit -r -i example/regression_train.csv -m example_regression_model
+zairachem predict -i example/regression_test_smiles.csv -m example_regression_model -o regression_predictions
 ```
+
+The regression set is a seeded 475-molecule sample (380 / 95 split) of the ESOL / Delaney solubility
+benchmark from MoleculeNet; `logS` is the measured log solubility in mol/L.
 
 ## Commands
 

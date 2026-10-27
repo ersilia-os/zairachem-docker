@@ -3,16 +3,16 @@
 Opt-in, because it needs a trained model kept with its descriptor matrices (about 25 MB, not in
 git). Create one once, then record its reference outputs with the code you trust::
 
-    zairachem fit -i example/data_train.csv -m <fixture> --keep-intermediate-data
+    zairachem fit -i example/classification_train.csv -m <fixture> --keep-intermediate-data
     ZAIRACHEM_GOLDEN_MODEL=<fixture> ZAIRACHEM_GOLDEN_RECORD=1 pytest tests/test_golden.py
 
 Every later run (``ZAIRACHEM_GOLDEN_MODEL=<fixture> pytest tests/test_golden.py``) copies the
 fixture, re-runs estimate -> pool -> report -> finish through the CLI and compares against that
 reference. The reference lives next to the fixture as ``<fixture>.reference/``.
 
-A regression fixture is made the same way, with ``-r`` on a continuous target (lazy-qsar's 300-row
-EGFR pChEMBL set does the job); nothing here is task-specific, since both tasks write the same four
-files. Keep one fixture of each and run the test against both.
+A regression fixture is made the same way, with ``-r`` on ``example/regression_train.csv`` (ESOL
+solubility); nothing here is task-specific, since both tasks write the same four files. Keep one
+fixture of each and run the test against both.
 """
 
 import json
