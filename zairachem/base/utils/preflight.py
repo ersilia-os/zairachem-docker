@@ -201,22 +201,27 @@ def _model_images_table():
 def _probe_model_image(item):
   """Return ``(kind, model, image, version, state)`` for one ``(kind, model)`` item.
 
-  ``state`` is ``"missing"``, ``"outdated"`` or ``"ok"``.
+  ``state`` is ``"missing"``, ``"outdated"``, ``"unverified"`` or ``"ok"``.
   """
   kind, m = item
   image = f"{ORG}/{m.lower()}:latest"
   if not _docker_image_present(image):
     state = "missing"
-  elif is_image_up_to_date(m) is False:
-    state = "outdated"  # local :latest digest differs from the registry's current :latest
   else:
-    state = "ok"
+    current = is_image_up_to_date(m)
+    if current is False:
+      state = "outdated"  # local :latest digest differs from the registry's current :latest
+    elif current is None:
+      state = "unverified"  # the registry could not be reached: present, but not known current
+    else:
+      state = "ok"
   return kind, m, image, ersilia_model_version(m), state
 
 
 _IMAGE_STATUS_MARKUP = {
   "missing": "[red]✗ missing[/]",
   "outdated": "[yellow]⚠ behind latest[/]",
+  "unverified": "[dim]? not verified[/]",
   "ok": "[green]✓ available[/]",
 }
 
@@ -279,6 +284,12 @@ def report_model_images(featurizer_ids, projection_ids):
       outdated.append(m)
     table.add_row(kind, m, image, version, _IMAGE_STATUS_MARKUP[state])
   console.print(table)
+  if any(p[4] == "unverified" for p in probed):
+    echo(
+      "Could not compare these images with the registry (not pulled from it, or it is "
+      "unreachable); if a model fails, update it with `ersilia fetch <id> --from_dockerhub`.",
+      kind="warning",
+    )
 
   _stop_on_bad_images(missing, outdated, len(featurizer_ids) + len(projection_ids))
 

@@ -20,6 +20,14 @@ _DOCKERHUB_TAGS_URL = "https://hub.docker.com/v2/repositories/{repo}/tags?page_s
 _SEMVER_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 _DEFAULT_VERSION = "v1"
 _HTTP_TIMEOUT = 5
+_REGISTRY_AUTH_URL = "https://auth.docker.io/token"
+_REGISTRY_URL = "https://registry-1.docker.io/v2/{repo}/manifests/{ref}"
+_MANIFEST_TYPES = ",".join((
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json",
+))
 
 # Per-process caches so each model resolves once (version, local image digest, DockerHub tags).
 _cache = {}
@@ -141,17 +149,87 @@ def _resolve(model_id):
   return f"v{max(candidates)[1]}"
 
 
+def _local_image_id_and_arch(model_id):
+  # The image's ID (the hash of its config) and CPU architecture, or (None, None).
+  try:
+    out = subprocess.run(
+      [
+        "docker",
+        "image",
+        "inspect",
+        f"{ORG}/{model_id.lower()}",
+        "--format",
+        "{{.Id}} {{.Architecture}}",
+      ],
+      capture_output=True,
+      text=True,
+      timeout=_HTTP_TIMEOUT,
+    )
+    if out.returncode == 0 and out.stdout.strip():
+      image_id, _, arch = out.stdout.strip().partition(" ")
+      return image_id, arch
+  except (OSError, subprocess.TimeoutExpired):
+    pass
+  return None, None
+
+
+def _registry_latest_config(model_id, arch):
+  # Config digest of the registry's ``latest`` image for ``arch``: the value a local image's ID
+  # equals when it is that image.
+  repo = f"{ORG}/{model_id.lower()}"
+  token = requests.get(
+    _REGISTRY_AUTH_URL,
+    params={"service": "registry.docker.io", "scope": f"repository:{repo}:pull"},
+    timeout=_HTTP_TIMEOUT,
+  )
+  token.raise_for_status()
+  headers = {"Authorization": f"Bearer {token.json()['token']}", "Accept": _MANIFEST_TYPES}
+
+  def manifest(ref):
+    resp = requests.get(
+      _REGISTRY_URL.format(repo=repo, ref=ref), headers=headers, timeout=_HTTP_TIMEOUT
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+  top = manifest("latest")
+  for entry in top.get("manifests") or []:
+    platform = entry.get("platform") or {}
+    if platform.get("os") == "linux" and platform.get("architecture") == arch:
+      return manifest(entry["digest"]).get("config", {}).get("digest")
+  return (top.get("config") or {}).get("digest")  # a single-platform image
+
+
+def _matches_registry_latest(model_id):
+  """Whether the local image is the registry's current ``latest``, judged by its config digest.
+
+  For an image with no registry digest (retagged or built locally, so ``RepoDigests`` is empty): a
+  local image's ID is the hash of its config, which the registry's manifest for the same
+  architecture also lists. False when they differ or the registry cannot be asked; never raises.
+  """
+  image_id, arch = _local_image_id_and_arch(model_id)
+  if not image_id:
+    return False
+  try:
+    return _registry_latest_config(model_id, arch) == image_id
+  except Exception as e:
+    logger.debug(f"Could not compare {model_id} with the registry's latest ({e})")
+    return False
+
+
 def is_image_up_to_date(model_id):
   """Whether the local ``:latest`` image matches the registry's current ``:latest``.
 
   Returns True if the locally-pulled image's digest equals the digest the ``latest`` tag points to
   on DockerHub right now, False if it's behind (a newer image has been pushed), or None if it can't
-  be determined (no local image, DockerHub unreachable, or no ``latest`` tag). Reuses the cached
+  be determined (no local image, DockerHub unreachable, or no ``latest`` tag). An image without a
+  registry digest is True only if its config matches the registry's ``latest``, else None: it was
+  built or retagged locally, so it cannot be called behind. A pulled image reuses the cached
   digest/tags, so it adds no extra network beyond version resolution.
   """
   local = _local_image_digest(model_id)
   if not local:
-    return None
+    return True if _matches_registry_latest(model_id) else None
   try:
     tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
   except Exception as e:
