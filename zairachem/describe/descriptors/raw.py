@@ -380,8 +380,13 @@ class RawDescriptors(ZairaBase):
       _note_docker_share(vm)  # more Docker resources only matter when describe takes a while
     if wall is not None:
       slowest = max(known, key=known.get)
-      longest = f"; the longest, {slowest}, ≈ {_minutes(known[slowest])}" if len(known) > 1 else ""
-      echo(f"Expected describe time ≈ {_minutes(wall)}{longest}.", kind="info")
+      # The slowest model is only worth naming when its time is not just the total again.
+      longest = (
+        f"; longest, {slowest}, ≈ {_minutes(known[slowest])}"
+        if _minutes(known[slowest]) != _minutes(wall)
+        else ""
+      )
+      echo(f"≈ {_minutes(wall)}{longest}", kind="info")
     return plans, budget
 
   def _input_smiles(self):
