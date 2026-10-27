@@ -477,7 +477,11 @@ class RawDescriptors(ZairaBase):
     )
     for pid in projector_ids:
       if outcome.get(pid) is not None:  # the projections step computes it again
-        self.logger.warning(f"[raw] projection {pid} failed during describe: {outcome[pid]}")
+        self.logger.warning(
+          f"[raw] projection {pid} failed during describe; its image may be stale or broken. "
+          f"Update it with `ersilia fetch {pid} --from_dockerhub` and re-run."
+        )
+        self.logger.debug(f"[raw] projection {pid} error: {outcome[pid]}")
     done, errors = set(), {}
     for eos_id in eos_ids:
       e = outcome.get(eos_id)

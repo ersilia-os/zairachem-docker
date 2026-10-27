@@ -457,8 +457,11 @@ class BinaryStreamClient(ZairaBase):
     except (requests.RequestException, IOError, ValueError, KeyError, TypeError) as heavy_error:
       try:
         out = self._attempt(batch, "simple")
-      except (requests.RequestException, IOError):
-        raise heavy_error from None
+      except (requests.RequestException, IOError) as simple_error:
+        # Binary always fails on some images, so its error alone hides the real cause.
+        raise type(simple_error)(
+          f"{simple_error} [binary output had failed first: {heavy_error}]"
+        ) from None
       self.logger.info(f"{self.model_id}: binary output not supported by this image; using JSON.")
       self.profile.output_type = "simple"
       return out
