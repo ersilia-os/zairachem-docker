@@ -35,15 +35,17 @@ def test_an_image_the_registry_cannot_vouch_for_is_not_shown_as_current(monkeypa
     assert preflight._probe_model_image(("projector", "eos1klk"))[4] == state
 
 
-def test_an_image_without_a_registry_digest_is_current_only_if_its_config_matches(monkeypatch):
+def test_an_image_without_a_registry_digest_is_current_only_if_its_layers_match(monkeypatch):
   from zairachem.base.utils import model_version
 
   monkeypatch.setattr(model_version, "_local_image_digest", lambda m: None)
-  monkeypatch.setattr(model_version, "_local_image_id_and_arch", lambda m: ("sha256:aaa", "arm64"))
-  monkeypatch.setattr(model_version, "_registry_latest_config", lambda m, arch: "sha256:aaa")
+  monkeypatch.setattr(
+    model_version, "_local_image_layers_and_arch", lambda m: (["sha256:aaa"], "arm64")
+  )
+  monkeypatch.setattr(model_version, "_registry_latest_layers", lambda m, arch: ["sha256:aaa"])
   assert model_version.is_image_up_to_date("eosxxxx") is True
-  # Built or retagged locally, so it cannot be called behind: it is just unknown.
-  monkeypatch.setattr(model_version, "_registry_latest_config", lambda m, arch: "sha256:bbb")
+  # Built locally, so it cannot be called behind: it is just unknown.
+  monkeypatch.setattr(model_version, "_registry_latest_layers", lambda m, arch: ["sha256:bbb"])
   assert model_version.is_image_up_to_date("eosxxxx") is None
 
 
