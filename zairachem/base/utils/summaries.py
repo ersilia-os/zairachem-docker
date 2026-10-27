@@ -250,8 +250,14 @@ def summarize_treat(output_dir=None):
   if not d:
     return ""
   n = _n_compounds(d)
-  width = _descriptor_feature_width(d, _featurizers(d))
-  return f"{n:,} × {width:,} matrix" if (n is not None and width is not None) else "matrix imputed"
+  featurizers = _featurizers(d)
+  width = _descriptor_feature_width(d, featurizers)
+  if n is None or width is None:
+    return "descriptors imputed"
+  # Each descriptor keeps its own matrix; the feature count is the total over all of them.
+  return (
+    f"{_plurals(n, 'compound')} × {_plurals(len(featurizers), 'descriptor')} ({width:,} features)"
+  )
 
 
 def _cv_stats(output_dir):
