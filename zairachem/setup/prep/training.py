@@ -17,6 +17,7 @@ from zairachem.base.utils.preflight import (
   report_model_images,
   require_docker_and_base,
   validate_model_roles,
+  warn_other_runs,
 )
 from zairachem.base.utils.utils import write_smiles_list
 from zairachem.base.vars import (
@@ -468,6 +469,7 @@ class TrainSetup(BaseSetup):
     rank references, and seeds the isaura project from the shared lake when a store is set.
     """
     require_docker_and_base()
+    warn_other_runs()
     self._initialize()
     self._normalize_input()
     self._standardise()

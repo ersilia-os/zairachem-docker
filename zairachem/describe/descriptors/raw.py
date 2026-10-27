@@ -6,6 +6,7 @@ import pandas as pd
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.isaura_report import quiet_isaura_reads
+from zairachem.base.utils.processes import describe_process
 from zairachem.base.utils.progress import STEP_COLORS, LiveTableMonitor, _bar
 from zairachem.base.vars import (
   DATA_FILENAME,
@@ -443,7 +444,8 @@ class RawDescriptors(ZairaBase):
       monitor.start(eos_id)
       service = _service_name(eos_id)
       try:
-        with compose.locked(eos_id):  # one run at a time on a shared server
+        # One run at a time on a shared server; behind another run, the row says so.
+        with compose.locked(eos_id, on_wait=lambda pid: _waiting(eos_id, pid, monitor)):
           if eos_id in projector_ids:
             self._project_on_server(eos_id, service, monitor)
           else:
@@ -542,6 +544,12 @@ def _float(value):
     return float(value)
   except (TypeError, ValueError):
     return None
+
+
+def _waiting(eos_id, pid, monitor):
+  """Show in ``eos_id``'s row that it is queued behind another run (``pid``), not working."""
+  monitor.set_substep(eos_id, "waiting")
+  monitor.update_fields(eos_id, source=f"[yellow]{describe_process(pid, brief=True)}[/]")
 
 
 def _minutes(seconds):

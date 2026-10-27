@@ -15,6 +15,7 @@ from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo, plural
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
+from zairachem.base.utils.processes import other_runs
 from zairachem.base.vars import ORG, REDIS_IMAGE
 
 #: Base/infrastructure images the model-serving stack needs, beyond the per-model images.
@@ -91,6 +92,28 @@ def require_docker_and_base():
     for img in missing_base:
       console.print(f"      [cyan]docker pull {img}[/]")
     raise SystemExit(1)
+
+
+def warn_other_runs():
+  """Warn when other ZairaChem runs of this user are active.
+
+  Runs share the model servers and wait for each other's locks, so a run that is long, or was
+  suspended with Ctrl-Z, holds up this one. Only warns: it never stops the run.
+  """
+  runs = other_runs()
+  if not runs:
+    return
+  echo(
+    f"{plural(len(runs), 'other ZairaChem run')} active; runs share the model servers and wait "
+    "for each other:",
+    kind="warning",
+  )
+  for run in runs:
+    console.print(f"      {run['text']}")
+  echo(
+    "Resume a suspended run with `fg`, or stop it with `kill <pid>` (`kill -9` if it is suspended).",
+    kind="info",
+  )
 
 
 _NUMERIC_DTYPES = {"int", "integer", "float", "float32", "float64", "numeric", "double"}

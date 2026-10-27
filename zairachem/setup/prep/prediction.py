@@ -12,7 +12,11 @@ from zairachem.base.utils.isaura_report import (
 )
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.pipeline import PipelineStep, SessionFile
-from zairachem.base.utils.preflight import report_model_images, require_docker_and_base
+from zairachem.base.utils.preflight import (
+  report_model_images,
+  require_docker_and_base,
+  warn_other_runs,
+)
 from zairachem.base.utils.utils import write_smiles_list
 from zairachem.base.vars import (
   DATA_FILENAME,
@@ -337,6 +341,7 @@ class PredictSetup(BaseSetup):
     for a named isaura project, migrates their stored results from the shared lake.
     """
     require_docker_and_base()
+    warn_other_runs()
     self._initialize()
     self._normalize_input()
     self._standardize()

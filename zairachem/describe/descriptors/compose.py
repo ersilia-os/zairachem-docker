@@ -9,6 +9,7 @@ port that then stays fixed (``ports.json``), so adding a model never recreates t
 import contextlib
 import fcntl
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -16,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.processes import describe_process
 from zairachem.base.utils.terminal import run_command
 from zairachem.base.vars import BASE_DIR, SERVERS_PROJECT_NAME
 
@@ -40,16 +42,47 @@ def project_name():
 
 
 @contextlib.contextmanager
-def locked(name):
-  """Hold an exclusive lock on ``compose_dir()/<name>.lock`` (shared by all runs of this user)."""
+def locked(name, on_wait=None):
+  """Hold an exclusive lock on ``compose_dir()/<name>.lock`` (shared by all runs of this user).
+
+  The holder writes its PID into the file. When the lock is already held, ``on_wait(pid)`` is called
+  once with the holder's PID (None if it recorded none) before this waits for it, so a caller can say
+  why it is not making progress; a waiting run is otherwise indistinguishable from a working one.
+  """
   folder = compose_dir()
   folder.mkdir(parents=True, exist_ok=True)
-  with open(folder / f"{name}.lock", "w") as f:
-    fcntl.flock(f, fcntl.LOCK_EX)
+  with open(folder / f"{name}.lock", "a+") as f:  # not "w": that would erase the holder's PID
     try:
+      fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+      pid = _holder_pid(f)
+      logger.info(f"[compose] {name} is in use by {describe_process(pid)}; waiting for it")
+      if on_wait is not None:
+        on_wait(pid)
+      fcntl.flock(f, fcntl.LOCK_EX)
+    try:
+      _write_pid(f, os.getpid())
       yield
     finally:
+      _write_pid(f, None)
       fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _holder_pid(f):
+  # The PID the holder wrote, or None (not written yet, or unreadable).
+  try:
+    f.seek(0)
+    return int(f.read().strip())
+  except ValueError:
+    return None
+
+
+def _write_pid(f, pid):
+  f.seek(0)
+  f.truncate()
+  if pid is not None:
+    f.write(str(pid))
+  f.flush()
 
 
 def load_ports():
