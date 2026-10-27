@@ -807,36 +807,34 @@ class BinaryStreamClient(ZairaBase):
     """Read descriptors for a subset of (project-present) molecules, aligned to `smiles` order.
 
     Runs entirely under :attr:`_store_lock` — isaura's DuckDB/S3 layer is not thread-safe, so
-    describe (several models at once) must not open concurrent readers. The reader is built once
-    and the reads stay chunked (with the inter-chunk gc) to bound peak memory on large reads."""
+    describe (several models at once) must not open concurrent readers. The reads stay chunked
+    (with the inter-chunk gc) to bound peak memory on large reads. Each chunk gets its own reader:
+    a reader keeps the first inputs it is given and would return that chunk again (isaura#29)."""
     cols = None
     rows = []
     IsauraReader = _isaura_classes()[0]
     with BinaryStreamClient._store_lock:
-      r = IsauraReader(
-        model_id=self.model_id,
-        model_version=self.version,
-        input_csv=None,
-        approximate=False,
-        bucket=self.read_store,
-      )
-      try:
-        for lo in range(0, len(smiles), isaura_batch_size):
-          chunk = smiles[lo : lo + isaura_batch_size]
+      for lo in range(0, len(smiles), isaura_batch_size):
+        chunk = smiles[lo : lo + isaura_batch_size]
+        r = IsauraReader(
+          model_id=self.model_id,
+          model_version=self.version,
+          input_csv=None,
+          approximate=False,
+          bucket=self.read_store,
+        )
+        try:
           rdf = r.read(df=pd.DataFrame({"input": chunk}))
-          if "input" in rdf.columns:
-            rdf = (
-              rdf.drop_duplicates(subset="input").set_index("input").reindex(chunk).reset_index()
-            )
-          if cols is None:
-            cols = rdf.columns.difference(["key", "input"]).tolist()
-          rows.append(rdf[cols].values.astype("float32"))
-          del rdf
-          gc.collect()
-      finally:
-        # Release the reader (and its DuckDB connection) deterministically before another thread can
-        # acquire the lock and open its own — avoids a cross-thread "connection already closed".
-        r = None
+        finally:
+          # Release the reader (and its DuckDB connection) deterministically before another thread
+          # can acquire the lock and open its own — avoids a cross-thread "connection already closed".
+          r = None
+        if "input" in rdf.columns:
+          rdf = rdf.drop_duplicates(subset="input").set_index("input").reindex(chunk).reset_index()
+        if cols is None:
+          cols = rdf.columns.difference(["key", "input"]).tolist()
+        rows.append(rdf[cols].values.astype("float32"))
+        del rdf
         gc.collect()
     return (np.vstack(rows) if rows else None), cols
 
