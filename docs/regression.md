@@ -1,6 +1,6 @@
 # Regression in ZairaChem
 
-`zairachem fit -r` trains a model that predicts the target value itself. This note records what
+`zairachem fit` on a continuous target (or `-r`, which forces it) trains a model that predicts the target value itself. This note records what
 that means in practice, and why the regression pipeline is shaped the way it is — mostly by what
 lazy-qsar does, and by what simply has no meaning once the target is continuous.
 

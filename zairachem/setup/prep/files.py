@@ -24,7 +24,7 @@ from zairachem.base.vars import (
   VALUES_COLUMN,
   VALUES_FILENAME,
 )
-from zairachem.setup.prep.schema import InputSchema
+from zairachem.setup.prep.schema import InputSchema, not_binary_message, target_kind
 
 DEDUPE_BATCH_SIZE = 5000
 DEDUPE_MAX_WORKERS = None
@@ -369,6 +369,12 @@ class SingleFile(InputSchema):
     # values are binary labels, so round the median back to a 0/1 label (a tie of 0.5 → 1); for
     # REGRESSION keep the continuous median as-is.
     task = (self.params or {}).get("task")
+    if task == "classification" and not self.is_predict():
+      # Rounding a continuous target to 0/1 would train on labels nobody gave; predict keeps its own,
+      # tolerant handling of ground truth that is not binary.
+      kind, distinct = target_kind(dfv[VALUES_COLUMN])
+      if kind != "binary":
+        raise Exception(not_binary_message(self.values_column, kind, distinct))
     # A blank cell is not a measurement. Taking the median across it turns a compound that WAS
     # measured into a missing value, which then fails the whole run on the next step; drop the
     # blanks within each compound first and keep its real values. A compound with nothing but

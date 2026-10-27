@@ -13,6 +13,7 @@ from zairachem.cli.options import (
   _STORE_SENTINEL,
   _resolve_evaluate,
   _resolve_store,
+  _resolve_task,
   common_options,
 )
 from zairachem.cli.steps import process_group
@@ -112,10 +113,8 @@ def fit(
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
   if batch_size:
     logger.info(f"[#ff69b4]Using batch size: {batch_size}[/]")
-  if classification:
-    task = "classification"
-  else:
-    task = "regression"
+  task = _resolve_task(classification, input_file)
+  classification = task == "classification"
   from zairachem.base.utils.progress import tracker
 
   # --evaluate is an optional-value flag: off / bare (all schemas) / a comma-separated subset.

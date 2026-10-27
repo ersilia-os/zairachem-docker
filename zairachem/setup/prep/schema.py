@@ -9,6 +9,44 @@ from zairachem.base.utils.logging import logger
 _SNIFF_SAMPLE_SIZE = 1000
 _MIN_CORRECT = 0.8
 
+#: The values a classification label may take (0.5 counts as positive).
+BINARY_LABELS = (0, 0.5, 1)
+
+
+def target_kind(values):
+  """Tell classification labels from a continuous target.
+
+  Parameters
+  ----------
+  values : array-like
+      The target values; missing ones are ignored.
+
+  Returns
+  -------
+  tuple of (str, list)
+      ``"binary"`` when every value is 0, 0.5 or 1; ``"ambiguous"`` when there are at most two
+      distinct values and they are not all among those (1 and 2: a class label, or a number?);
+      ``"continuous"`` otherwise. Then the sorted distinct values.
+  """
+  distinct = sorted(pd.Series(values).dropna().unique().tolist())
+  if all(v in BINARY_LABELS for v in distinct):
+    return "binary", distinct
+  return ("ambiguous" if len(distinct) <= 2 else "continuous"), distinct
+
+
+def not_binary_message(column, kind, distinct):
+  """What to tell the user when classification is given a target that is not 0/1 labels."""
+  if kind == "continuous":
+    return (
+      f"The target '{column}' is continuous ({len(distinct):,} distinct values), but classification "
+      "needs 0/1 labels. Use --regression, or omit the flag to detect the task."
+    )
+  shown = ", ".join(str(v) for v in distinct)
+  return (
+    f"The target '{column}' has only two values ({shown}), not 0/1. Recode it to 0/1 and use "
+    "--classification, or use --regression to model it as a number."
+  )
+
 
 class InputSchema(ZairaBase):
   """Column sniffer that finds the SMILES and activity-value columns of an input CSV."""

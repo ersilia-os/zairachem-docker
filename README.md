@@ -45,8 +45,8 @@ classification (DILI, columns `smiles,dili`) and regression (ESOL aqueous solubi
 zairachem fit -i example/classification_train.csv -m example_classification_model
 zairachem predict -i example/classification_test_smiles.csv -m example_classification_model -o classification_predictions
 
-# Regression (-r: the default task is classification)
-zairachem fit -r -i example/regression_train.csv -m example_regression_model
+# Regression (the task is detected from the target; -c / -r force it)
+zairachem fit -i example/regression_train.csv -m example_regression_model
 zairachem predict -i example/regression_test_smiles.csv -m example_regression_model -o regression_predictions
 ```
 

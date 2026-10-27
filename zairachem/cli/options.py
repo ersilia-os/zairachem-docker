@@ -21,6 +21,41 @@ def _resolve_store(value, default):
   return sanitize_project_name(name) if name else None
 
 
+def _resolve_task(flag, input_file):
+  """Resolve ``--classification/--regression`` to ``"classification"`` or ``"regression"``.
+
+  ``flag`` is True (``-c``), False (``-r``) or None (not typed: detect it from the target column,
+  read whole). A continuous target with ``-c``, or two values that are not 0/1, stops here with what
+  to do instead, rather than being rounded to 0/1 later. A run with no readable target falls back
+  to classification, and setup reports what is wrong with the input.
+  """
+  if flag is False:
+    return "regression"
+  import pandas as pd
+
+  from zairachem.setup.prep.schema import InputSchema, not_binary_message, target_kind
+
+  try:
+    column = InputSchema(input_file).resolve_columns()["values_column"]
+    values = pd.read_csv(input_file, usecols=[column])[column] if column else None
+  except (AssertionError, OSError, ValueError):
+    return "classification"
+  if values is None:
+    return "classification"
+  kind, distinct = target_kind(pd.to_numeric(values, errors="coerce"))
+  if kind == "binary":
+    task, why = "classification", f"'{column}' has 0/1 labels"
+  elif flag is None and kind == "continuous":
+    task, why = "regression", f"'{column}' is continuous, {len(distinct):,} distinct values"
+  else:
+    raise click.UsageError(not_binary_message(column, kind, distinct))
+  if flag is None:
+    from zairachem.base.utils.console import echo
+
+    echo(f"Task: {task} (detected: {why}).", kind="info")
+  return task
+
+
 # `--evaluate` is an optional-value option: omitted -> off; bare `--evaluate` -> this sentinel (all
 # schemas); `--evaluate scaffold,random` -> that subset.
 _EVALUATE_SENTINEL = "\x00all"
@@ -144,8 +179,9 @@ def _common_option_decorators(require_input, include_task, include_eos, require_
       click.option(
         "--classification/--regression",
         "-c/-r",
-        default=True,
-        help="Model type: classification (default) or regression.",
+        default=None,
+        help="Model type. Detected from the target when omitted: 0/1 labels are classification, a "
+        "continuous target is regression.",
       )
     )
   if include_eos:

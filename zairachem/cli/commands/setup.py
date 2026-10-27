@@ -4,7 +4,13 @@ import rich_click as click
 
 from zairachem.base.utils.logging import logger
 from zairachem.cli.create_cli import cli
-from zairachem.cli.options import _STORE_HELP, _STORE_SENTINEL, _resolve_store, common_options
+from zairachem.cli.options import (
+  _STORE_HELP,
+  _STORE_SENTINEL,
+  _resolve_store,
+  _resolve_task,
+  common_options,
+)
 
 
 @cli.command(name="setup", help="Standardize and prepare the input molecules.")
@@ -25,10 +31,7 @@ def setup_cmd(
 
   logger.configure()
   logger.info("[#ff69b4]Running the setup pipeline to preprocess the input data[/]")
-  if classification:
-    task = "classification"
-  else:
-    task = "regression"
+  task = _resolve_task(classification, input_file)
   _model = model_dir or os.path.splitext(os.path.basename(input_file))[0]
   store = _resolve_store(store, os.path.basename(os.path.normpath(_model)))
   run_fit(
