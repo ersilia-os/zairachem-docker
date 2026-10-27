@@ -76,6 +76,20 @@ def describe_process(pid, brief=False):
     return f"pid {pid} (gone)"
 
 
+def identity():
+  """This process as ``{"pid", "started"}``: the start time tells it from a later process that reuses the PID."""
+  return {"pid": os.getpid(), "started": psutil.Process().create_time()}
+
+
+def is_alive(who):
+  """Whether the process ``who`` (see :func:`identity`) still exists, a suspended one included."""
+  try:
+    proc = psutil.Process(who["pid"])
+    return abs(proc.create_time() - who["started"]) < 1.0 and proc.status() != psutil.STATUS_ZOMBIE
+  except (psutil.Error, KeyError, TypeError):
+    return False
+
+
 def other_runs():
   """The user's other ``zairachem fit`` and ``zairachem predict`` processes.
 

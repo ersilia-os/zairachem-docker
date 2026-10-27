@@ -14,11 +14,11 @@ def process_group(
   """Run describe through finish on a prepared run folder.
 
   Takes the same arguments as :func:`_run_steps`. SIGTERM is turned into an interrupt, so a
-  terminated run unwinds like Ctrl-C. The model servers stay up for the next run.
+  terminated run unwinds like Ctrl-C. The servers this run started are stopped when it ends.
   """
-  # The model servers are shared by all runs and left up afterwards (`zairachem stop` removes
-  # them). SIGTERM is turned into an interrupt so the run unwinds, and its cleanup (e.g. describe's
-  # `docker stats` monitor) runs.
+  # The servers this run started are stopped when the process exits (compose.release_servers).
+  # SIGTERM is turned into an interrupt so the run unwinds, and its cleanup (e.g. describe's
+  # `docker stats` monitor, that release) runs.
   import signal
 
   def _interrupt(signum, frame):

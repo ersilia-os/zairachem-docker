@@ -94,6 +94,24 @@ def require_docker_and_base():
     raise SystemExit(1)
 
 
+def reap_orphaned_servers():
+  """Stop model servers left running by a ZairaChem run that was killed, and say so.
+
+  A run stops the servers it started when it ends; one that was killed (SIGKILL, a closed terminal)
+  could not, so the next run does it. Servers that a live run uses, or that no run started (for
+  example one served with `ersilia serve`), are not touched.
+  """
+  from zairachem.describe.descriptors.compose import reap_orphans
+
+  stopped = reap_orphans()
+  if stopped:
+    names = ", ".join(s.removesuffix("_api") for s in stopped)
+    echo(
+      f"Stopped {plural(len(stopped), 'model server')} left by a run that was killed: {names}.",
+      kind="info",
+    )
+
+
 def warn_other_runs():
   """Warn when other ZairaChem runs of this user are active.
 

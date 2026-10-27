@@ -14,6 +14,7 @@ from zairachem.base.utils.logging import logger
 from zairachem.base.utils.preflight import (
   prepare_rank_references,
   prepare_reference_transformers,
+  reap_orphaned_servers,
   report_model_images,
   require_docker_and_base,
   validate_model_roles,
@@ -470,6 +471,7 @@ class TrainSetup(BaseSetup):
     """
     require_docker_and_base()
     warn_other_runs()
+    reap_orphaned_servers()
     self._initialize()
     self._normalize_input()
     self._standardise()

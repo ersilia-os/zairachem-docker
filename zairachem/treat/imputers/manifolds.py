@@ -288,7 +288,7 @@ class Manifolds(DescriptorBase):
     logger.info(f"[manifolds] Computing projections for {len(self.inputs)} molecules")
     projections = [self._compute_mw_logp()]
     if self.projection_ids:
-      # Start the projection servers (shared and kept up between runs, like the descriptors').
+      # Start the projection servers (shared between runs and stopped by the run that started them, like the descriptors').
       from zairachem.describe.descriptors.describe import Describer
 
       missing = [m for m in self.projection_ids if self._read_cache(m) is None]

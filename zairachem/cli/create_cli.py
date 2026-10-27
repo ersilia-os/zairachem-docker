@@ -147,8 +147,9 @@ def _docker_status_line():
   from zairachem.base.utils.docker_socket import running_containers
   from zairachem.base.vars import SERVERS_PROJECT_NAME
 
-  # Model servers stay up between runs (faster next run); `zairachem stop` is hidden from the
-  # command list and only pointed to here, while there is something to stop.
+  # A run stops the servers it started, so what is up here is another run's, or a leftover;
+  # `zairachem stop` is hidden from the command list and only pointed to here, while there is
+  # something to stop.
   n_up = running_containers(SERVERS_PROJECT_NAME)
   servers = f" [dim]· {n_up} model servers up (zairachem stop)[/]" if n_up else ""
   return (

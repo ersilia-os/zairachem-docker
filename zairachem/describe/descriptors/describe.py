@@ -89,7 +89,7 @@ class Describer(ZairaBase):
   def setup_model_servers(self, model_ids=None):
     """Start the redis cache and the servers of ``model_ids`` (default: none), if not already up.
 
-    Servers are shared by all runs and stay up afterwards (``zairachem stop`` removes them).
+    The run stops the servers it started when it ends (see :mod:`~zairachem.describe.descriptors.compose`).
     Describe starts all of a run's servers at once when it begins (see :meth:`_raw_descriptions`).
     """
     self.create_config_files()

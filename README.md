@@ -61,8 +61,9 @@ zairachem predict -i example/smiles_test.csv -m example_model -o predictions_tes
 | `zairachem report` | Render the plots, tables and HTML report. |
 | `zairachem finish` | Assemble final outputs and clean up intermediate data. |
 
-The Ersilia model servers stay running between runs, to save their start-up time; `zairachem stop`
-removes them.
+A run stops the Ersilia model servers it started when it ends (a server that was already running,
+for example one served with `ersilia serve`, is left alone, and servers left by a killed run are
+stopped by the next one); `zairachem stop` removes them all.
 
 Run `zairachem <command> --help` for its options. `setup` creates a model directory (`-m`) from the
 input CSV; the later step commands (`describe` to `finish`) each run one stage on it.

@@ -13,6 +13,7 @@ from zairachem.base.utils.isaura_report import (
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.pipeline import PipelineStep, SessionFile
 from zairachem.base.utils.preflight import (
+  reap_orphaned_servers,
   report_model_images,
   require_docker_and_base,
   warn_other_runs,
@@ -342,6 +343,7 @@ class PredictSetup(BaseSetup):
     """
     require_docker_and_base()
     warn_other_runs()
+    reap_orphaned_servers()
     self._initialize()
     self._normalize_input()
     self._standardize()

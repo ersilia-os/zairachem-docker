@@ -324,7 +324,7 @@ def _resolve_raw(path, eos_id, version, csv, raw_path, batch_size):
     return "downloaded"
   from zairachem.describe.descriptors.describe import Describer
 
-  # Start this model's server if it is not up (servers are shared and kept up between runs).
+  # Start this model's server if it is not up (the run stops the ones it started when it ends).
   logger.info(f"[rank_reference] {eos_id} computing the 50,000 reference molecules")
   Describer(path=path).setup_model_servers([eos_id])
   client = BinaryStreamClient(
