@@ -73,8 +73,8 @@ def _run_steps(
   from zairachem.base.utils.progress import final_summary_panel
 
   _featurize(output_dir, batch_size, describe_workers)
-  estimate_seconds = _estimate(output_dir, batch_size)
-  _pool_and_validate(output_dir, batch_size, estimate_seconds)
+  _estimate(output_dir, batch_size)
+  _pool_and_validate(output_dir, batch_size)
   _report_and_finish(output_dir, anonymize, keep_intermediate_data, no_report)
   final_summary_panel(output_dir)
 
@@ -131,25 +131,15 @@ def _featurize(output_dir, batch_size, describe_workers):
 
 
 def _estimate(output_dir, batch_size):
-  """Run the estimate step and return the training wall-clock seconds."""
-  import time
-
+  """Run the estimate step."""
   from zairachem.estimate.estimators.pipe import EstimatorPipeline
 
-  def _train():
-    _estimate_t0 = time.time()
-    EstimatorPipeline(path=output_dir, batch_size=batch_size).run()
-    # Wall-clock of training the full descriptor stack — the per-fold predictor for held-out
-    # validation (each fold refits the same stack). ~0 on a resume where estimate was already done;
-    # the monitor ignores tiny values.
-    return time.time() - _estimate_t0
-
-  estimate_seconds = _tracked_step("estimate", output_dir, _train)
-
-  return estimate_seconds
+  _tracked_step(
+    "estimate", output_dir, lambda: EstimatorPipeline(path=output_dir, batch_size=batch_size).run()
+  )
 
 
-def _pool_and_validate(output_dir, batch_size, estimate_seconds):
+def _pool_and_validate(output_dir, batch_size):
   """Run the pool and holdout steps, then drop the rank-reference matrices."""
   from zairachem.pool.pipe import PoolerPipeline
 
@@ -164,9 +154,7 @@ def _pool_and_validate(output_dir, batch_size, estimate_seconds):
   _tracked_step(
     "holdout",
     output_dir,
-    lambda: HoldoutValidationPipeline(
-      path=output_dir, batch_size=batch_size, est_seconds=estimate_seconds
-    ).run(),
+    lambda: HoldoutValidationPipeline(path=output_dir, batch_size=batch_size).run(),
   )
 
   # The held-out folds are the last fits; after them the rank-reference matrices are never read.

@@ -18,7 +18,7 @@ from zairachem.base.vars import (
   METADATA_SUBFOLDER,
   SPLITS_FILENAME,
 )
-from zairachem.holdout.monitor import EvaluateMonitor, _fmt_duration
+from zairachem.holdout.monitor import EvaluateMonitor
 
 
 class HoldoutValidationPipeline(ZairaBase):
@@ -30,17 +30,12 @@ class HoldoutValidationPipeline(ZairaBase):
     Run folder.
   batch_size : int, optional
     Rows per chunk when reading the descriptor matrices.
-  est_seconds : float, optional
-    Wall-clock of the training step, used to estimate the time per fold.
   """
 
-  def __init__(self, path=None, batch_size=None, est_seconds=None):
+  def __init__(self, path=None, batch_size=None):
     ZairaBase.__init__(self)
     self.path = path
     self.batch_size = batch_size
-    # Per-fold time predictor: the just-finished training step's wall-clock (a fold refits as many
-    # descriptors, at most). Used for the upfront estimate and the live ETA.
-    self.est_seconds = est_seconds
     self.params = self._load_params()
     self._select = None  # per-fold descriptor selection (see _fold_selector), set by run()
 
@@ -100,19 +95,11 @@ class HoldoutValidationPipeline(ZairaBase):
     return select
 
   def _announce(self, n):
-    """Echo the upfront fold count (with a time estimate when training took long enough)."""
-    if self.est_seconds and self.est_seconds > 5:
-      echo(
-        f"Held-out validation — {n} folds, ~{_fmt_duration(self.est_seconds)} each (based on "
-        f"training) → ~{_fmt_duration(self.est_seconds * n)} total. Refits the model per fold; the "
-        f"saved model is unaffected.",
-        kind="info",
-      )
-    else:
-      echo(
-        f"Held-out validation — {n} folds. Refits the model per fold (the saved model is unaffected).",
-        kind="info",
-      )
+    """Echo the upfront fold count."""
+    echo(
+      f"Held-out validation — {n} folds. Refits the model per fold (the saved model is unaffected).",
+      kind="info",
+    )
 
   def _run_fold(
     self, run_one_fold, monitor, fold_name, spec, model_ids, fetcher, records, failures
@@ -164,7 +151,6 @@ class HoldoutValidationPipeline(ZairaBase):
     monitor = EvaluateMonitor(
       list(folds),
       color=STEP_COLORS.get("holdout", "bright_blue"),
-      est_seconds=self.est_seconds,
       task=self.params.get("task", "classification"),
     )
     records = []

@@ -379,15 +379,6 @@ class RawDescriptors(ZairaBase):
       )
     if wall is None or wall > DOCKER_SHARE_HINT_S:
       _note_docker_share(vm)  # more Docker resources only matter when describe takes a while
-    if wall is not None:
-      slowest = max(known, key=known.get)
-      # The slowest model is only worth naming when its time is not just the total again.
-      longest = (
-        f"; longest, {slowest}, ≈ {_minutes(known[slowest])}"
-        if _minutes(known[slowest]) != _minutes(wall)
-        else ""
-      )
-      echo(f"≈ {_minutes(wall)}{longest}", kind="info")
     return plans, budget
 
   def _input_smiles(self):
@@ -550,10 +541,6 @@ def _waiting(eos_id, pid, monitor):
   """Show in ``eos_id``'s row that it is queued behind another run (``pid``), not working."""
   monitor.set_substep(eos_id, "waiting")
   monitor.update_fields(eos_id, source=f"[yellow]{describe_process(pid, brief=True)}[/]")
-
-
-def _minutes(seconds):
-  return f"{seconds / 60:.0f} min" if seconds >= 90 else f"{seconds:.0f} s"
 
 
 def _expected_seconds(profile, meta, n_mol, n):

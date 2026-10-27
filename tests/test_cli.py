@@ -263,3 +263,17 @@ def test_a_failed_parameters_write_leaves_the_run_resumable(tmp_path):
     sections._model_titles,
   ):
     assert "_atomic_json" in inspect.getsource(owner), owner
+
+
+def test_the_held_out_table_does_not_guess_how_long_is_left():
+  """The title said "~3m left", an estimate that can be wrong; the fold count and the bars are enough."""
+  import time
+
+  from zairachem.holdout.monitor import EvaluateMonitor
+
+  monitor = EvaluateMonitor(["a", "b", "c"])
+  monitor.start("a")
+  time.sleep(0.02)
+  monitor.finish("a")
+  monitor.start("b")
+  assert monitor.title == "Held-out validation · 1/3 folds"
