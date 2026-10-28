@@ -115,6 +115,26 @@ def test_the_version_of_an_image_without_a_digest_does_not_depend_on_its_build_t
   assert mv.resolved_model_version("eos4ex3") == "v2"  # unknown image: the registry's latest
 
 
+def test_an_unreachable_registry_stops_a_run_instead_of_defaulting_the_version(monkeypatch):
+  from zairachem.base.utils import model_version
+
+  def reset(tags):
+    monkeypatch.setattr(model_version, "_cache", {})
+    monkeypatch.setattr(model_version, "_unreachable", set())
+    monkeypatch.setattr(model_version, "_dockerhub_tags", tags)
+
+  def down(repo):
+    raise requests.ConnectionError("no route to hub.docker.com")
+
+  reset(down)
+  with pytest.raises(SystemExit):
+    preflight.require_model_versions(["eosaaaa", "eosbbbb"])
+  reset(down)  # a version the run already recorded is not looked up: predict works offline
+  preflight.require_model_versions(["eosaaaa"], {"eosaaaa": "v2"})
+  reset(lambda repo: [("latest", "2026-01-01T00:00:00Z", set())])
+  preflight.require_model_versions(["eosaaaa"])  # no release at all is a real v1, not an outage
+
+
 def test_reading_the_store_in_chunks_gives_each_chunk_its_own_rows(monkeypatch):
   import numpy as np
   import pandas as pd

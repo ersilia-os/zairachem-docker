@@ -36,6 +36,7 @@ _cache = {}
 _digest_cache = {}
 _tags_cache = {}
 _release_cache = {}
+_unreachable = set()
 
 
 def _local_image_digest(model_id):
@@ -107,6 +108,16 @@ def resolved_model_version(model_id):
   return version
 
 
+def registry_unreachable(model_id):
+  """Whether DockerHub could not be asked for ``model_id``'s releases (after trying to resolve it).
+
+  An unknown version is otherwise ambiguous: it is also what a model with no released tag gives,
+  and that one is a real ``v1``, not an outage.
+  """
+  resolved_model_version(model_id)
+  return model_id in _unreachable
+
+
 def _resolve(model_id):
   try:
     tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
@@ -114,6 +125,7 @@ def _resolve(model_id):
     # Broad on purpose: ersilia_model_version() must never raise. Log so a silent default isn't
     # mistaken for a real version when DockerHub is unreachable.
     logger.debug(f"Could not resolve version for {model_id} ({e})")
+    _unreachable.add(model_id)
     return None
 
   semver = [

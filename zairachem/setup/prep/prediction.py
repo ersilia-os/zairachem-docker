@@ -16,6 +16,7 @@ from zairachem.base.utils.preflight import (
   reap_orphaned_servers,
   report_model_images,
   require_docker_and_base,
+  require_model_versions,
   warn_other_runs,
 )
 from zairachem.base.utils.utils import write_smiles_list
@@ -344,6 +345,10 @@ class PredictSetup(BaseSetup):
     require_docker_and_base()
     warn_other_runs()
     reap_orphaned_servers()
+    featurizers, projections = self._model_id_groups()
+    with open(params_path(self.model_dir)) as f:
+      trained = json.load(f).get("latest_featurizer_version")
+    require_model_versions([*featurizers, *projections], trained)
     self._initialize()
     self._normalize_input()
     self._standardize()
@@ -353,7 +358,6 @@ class PredictSetup(BaseSetup):
     self._check()
     self._clean()
     self._print_summary()
-    featurizers, projections = self._model_id_groups()
     report_model_images(featurizers, projections)
     # Coverage/version checks always inspect the central lake (migration source), not the project.
     check_isaura_version_consistency(DEFAULT_ISAURA_BUCKET, featurizers, projections)

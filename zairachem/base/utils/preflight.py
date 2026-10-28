@@ -14,7 +14,11 @@ from concurrent.futures import ThreadPoolExecutor
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo, plural
 from zairachem.base.utils.logging import logger
-from zairachem.base.utils.model_version import ersilia_model_version, is_image_up_to_date
+from zairachem.base.utils.model_version import (
+  ersilia_model_version,
+  is_image_up_to_date,
+  registry_unreachable,
+)
 from zairachem.base.utils.processes import other_runs
 from zairachem.base.vars import ORG, REDIS_IMAGE
 
@@ -288,6 +292,35 @@ def _stop_on_bad_images(missing, outdated, total):
     echo("Update them to the latest image, then re-run:", kind="info")
     for m in outdated:
       console.print(f"      [cyan]ersilia fetch {m} --from_dockerhub[/]")
+    raise SystemExit(1)
+
+
+def require_model_versions(model_ids, known=None):
+  """Stop the run if a model's version cannot be told because DockerHub is unreachable.
+
+  The version decides which stored predictions, rank references and transformers a run uses, and
+  an unknown one would silently become ``v1``. Models whose version a run already recorded are not
+  looked up, so predicting with a trained model works offline.
+
+  Parameters
+  ----------
+  model_ids : list of str
+      Descriptor and projector model IDs of the run.
+  known : dict, optional
+      ``{model_id: version}`` already recorded for the run (``latest_featurizer_version``).
+  """
+  todo = [m for m in model_ids if m not in (known or {})]
+  if not todo:
+    return
+  with ThreadPoolExecutor(max_workers=io_workers(len(todo))) as ex:
+    down = [m for m, off in zip(todo, ex.map(registry_unreachable, todo)) if off]
+  if down:
+    echo(
+      f"Cannot tell which version of {', '.join(down)} is installed: Docker Hub is unreachable. "
+      "The version decides which stored predictions, rank references and transformers are used, "
+      "so ZairaChem will not guess it. Check the connection (or proxy) and re-run.",
+      kind="error",
+    )
     raise SystemExit(1)
 
 

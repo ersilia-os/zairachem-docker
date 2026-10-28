@@ -17,6 +17,7 @@ from zairachem.base.utils.preflight import (
   reap_orphaned_servers,
   report_model_images,
   require_docker_and_base,
+  require_model_versions,
   validate_model_roles,
   warn_other_runs,
 )
@@ -472,6 +473,10 @@ class TrainSetup(BaseSetup):
     require_docker_and_base()
     warn_other_runs()
     reap_orphaned_servers()
+    require_model_versions(
+      [*self.featurizer_ids, *self.projection_ids],
+      (self._load_disk_params() or {}).get("latest_featurizer_version") if self.resume else None,
+    )
     self._initialize()
     self._normalize_input()
     self._standardise()
