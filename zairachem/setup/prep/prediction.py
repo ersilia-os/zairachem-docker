@@ -43,7 +43,13 @@ from zairachem.setup.prep import (
   SingleFileForPrediction,
   SingleTasksForPrediction,
 )
-from zairachem.setup.prep.base import BaseSetup, format_store_summary
+from zairachem.setup.prep.base import (
+  BaseSetup,
+  format_store_summary,
+  require_input_file,
+  require_separate_dirs,
+  require_zairachem_dir,
+)
 
 
 class PredictSetup(BaseSetup):
@@ -58,10 +64,14 @@ class PredictSetup(BaseSetup):
     store=None,
     projection_ids=None,
   ):
+    # Validate everything before the output directory is touched: --override wipes it, so a
+    # mistyped input, a missing or incomplete model, or an output that overlaps the model must not
+    # reach the wipe.
+    require_input_file(input_file)
     self.input_file = os.path.abspath(input_file)
     self.override_dir = override_dir
     if output_dir is None:
-      self.output_dir = os.path.abspath(self.input_file.split(".")[0])
+      self.output_dir = os.path.splitext(self.input_file)[0]
     else:
       self.output_dir = os.path.abspath(output_dir)
     # `store` is the already-resolved isaura project name (or None), produced by the CLI (a bare
@@ -77,20 +87,22 @@ class PredictSetup(BaseSetup):
     self.read_store = store
     self.contribute_store = store
 
+    if model_dir is None:
+      self._report_not_ready(None, None)
+    self.model_dir = os.path.abspath(model_dir)
+    self._check_model_ready()
+    require_separate_dirs(self.output_dir, self.model_dir)
+
     if os.path.exists(self.output_dir) and not self.override_dir:
       logger.warning(
         f"Specified output directory existed at {self.output_dir}. Please remove it manually or use [red]--override[/] flag to remove it."
       )
     if os.path.exists(self.output_dir) and self.override_dir:
+      require_zairachem_dir(self.output_dir)
       logger.warning(
         f"Specified output directory existed at {self.output_dir}. Removing the directory!."
       )
-      if self.override_dir:
-        shutil.rmtree(self.output_dir)
-    if model_dir is None:
-      self._report_not_ready(None, None)
-    self.model_dir = os.path.abspath(model_dir)
-    self._check_model_ready()
+      shutil.rmtree(self.output_dir)
 
   @property
   def has_tasks(self):

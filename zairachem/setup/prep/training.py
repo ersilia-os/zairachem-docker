@@ -55,7 +55,12 @@ from zairachem.setup.prep import (
   SingleFile,
   SingleTasks,
 )
-from zairachem.setup.prep.base import BaseSetup, format_store_summary
+from zairachem.setup.prep.base import (
+  BaseSetup,
+  format_store_summary,
+  require_input_file,
+  require_zairachem_dir,
+)
 
 
 def _check_model_count(ids, cap, kind, flag):
@@ -100,8 +105,11 @@ class TrainSetup(BaseSetup):
     evaluate_schemas=None,
     max_descriptors=DEFAULT_MAX_DESCRIPTORS,
   ):
+    # Validate before anything is created or wiped: a mistyped input path, or a -m that holds
+    # someone else's files, must cost nothing.
+    require_input_file(input_file)
     if output_dir is None:
-      output_dir = input_file.split(".")[0]
+      output_dir = os.path.splitext(input_file)[0]
     if model_ids is not None:
       self.model_ids = ModelIdsFile(model_ids).load()
     else:
@@ -124,6 +132,7 @@ class TrainSetup(BaseSetup):
     _check_model_count(self.projection_ids, MAX_PROJECTIONS, "projection", "--projection-ids")
     self.input_file = os.path.abspath(input_file)
     self.output_dir = os.path.abspath(output_dir)
+    require_zairachem_dir(self.output_dir)
     self.task = task
     assert self.task in ["classification", "regression"]
     # `store` is the already-resolved isaura project name (or None for "no store"), produced by the
