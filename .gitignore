@@ -118,8 +118,7 @@ ipython_config.py
 # poetry
 #   ZairaChem installs via `pip install -e .` (see install.sh), which never reads this file, and
 #   committing it only fed Dependabot the full transitive tree (noise). Reproducibility comes from
-#   the exact pins in pyproject.toml plus constraints.txt (scripts/make_constraints.py), which
-#   install.sh passes to `pip install -c`.
+#   the exact pins in pyproject.toml.
 poetry.lock
 
 # pdm

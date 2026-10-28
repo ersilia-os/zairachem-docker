@@ -26,8 +26,16 @@ psutil        = "7.0.0"
 requests      = "2.34.2"
 eosframes     = "1.1.0"
 fpsim2        = "0.7.4"  # Tanimoto search for the distance to the training set
+# lazy-qsar's model and numerics stack (not imported here): pinned so a release cannot change the
+# saved models or the numbers a run produces.
+xgboost       = "3.2.0"
+onnx          = "1.22.0"
+onnxruntime   = "1.20.1"
+onnxmltools   = "1.16.0"
+skl2onnx      = "1.19.1"
+onnxconverter-common = "1.16.0"
 # Security floors for transitive deps (pulled via matplotlib / requests): the first patched release,
-# so a resolve can't land on a version with a known advisory. constraints.txt pins what was tested.
+# so a resolve can't land on a version with a known advisory.
 pillow        = ">=12.2.0"
 urllib3       = ">=2.7.0"
 idna          = ">=3.15"
