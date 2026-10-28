@@ -157,7 +157,6 @@ def test_predict_says_so_when_the_featurizer_image_has_moved_on(monkeypatch):
     monkeypatch.setattr(model_version, "_tags_cache", {})
     monkeypatch.setattr(model_version, "_dockerhub_tags", raiser_or_tags)
     monkeypatch.setattr(model_version, "_local_image_digest", lambda _: None)
-    monkeypatch.setattr(model_version, "_local_image_created", lambda _: None)
 
   def boom(_):
     raise RuntimeError("DockerHub unreachable")

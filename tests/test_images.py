@@ -76,18 +76,43 @@ def test_an_image_the_registry_cannot_vouch_for_is_not_shown_as_current(monkeypa
     assert preflight._probe_model_image(("projector", "eos1klk"))[4] == state
 
 
-def test_an_image_without_a_registry_digest_is_current_only_if_its_layers_match(monkeypatch):
+def _undigested_image(monkeypatch, local, registry):
+  """A re-tagged image (no digest) with ``local`` layers, against a registry of ``{tag: layers}``."""
   from zairachem.base.utils import model_version
 
+  monkeypatch.setattr(model_version, "_release_cache", {})
+  monkeypatch.setattr(model_version, "_cache", {})
   monkeypatch.setattr(model_version, "_local_image_digest", lambda m: None)
-  monkeypatch.setattr(
-    model_version, "_local_image_layers_and_arch", lambda m: (["sha256:aaa"], "arm64")
-  )
-  monkeypatch.setattr(model_version, "_registry_latest_layers", lambda m, arch: ["sha256:aaa"])
-  assert model_version.is_image_up_to_date("eosxxxx") is True
-  # Built locally, so it cannot be called behind: it is just unknown.
-  monkeypatch.setattr(model_version, "_registry_latest_layers", lambda m, arch: ["sha256:bbb"])
-  assert model_version.is_image_up_to_date("eosxxxx") is None
+  monkeypatch.setattr(model_version, "_local_image_layers_and_arch", lambda m: (local, "arm64"))
+  monkeypatch.setattr(model_version, "_registry_layers", lambda m, arch, tag: registry[tag])
+  # eos4ex3's real release history: the image was built before its v2.0.0 tag was pushed.
+  tags = [
+    ("v1.2.1", "2026-06-22T18:33:17Z", {"sha256:old"}),
+    ("v2.0.0", "2026-08-31T11:05:32Z", {"sha256:new"}),
+    ("latest", "2026-08-31T11:05:32Z", {"sha256:new"}),
+  ]
+  monkeypatch.setattr(model_version, "_dockerhub_tags", lambda repo: tags)
+  return model_version
+
+
+def test_an_image_without_a_registry_digest_is_judged_by_its_layers(monkeypatch):
+  registry = {"latest": ["aaa"], "v2.0.0": ["aaa"], "v1.2.1": ["old"]}
+  mv = _undigested_image(monkeypatch, ["aaa"], registry)
+  assert mv.is_image_up_to_date("eos4ex3") is True
+  mv = _undigested_image(monkeypatch, ["old"], registry)
+  assert mv.is_image_up_to_date("eos4ex3") is False  # an older release: behind
+  mv = _undigested_image(monkeypatch, ["built-here"], registry)
+  assert mv.is_image_up_to_date("eos4ex3") is None  # matches nothing: unknown, not behind
+
+
+def test_the_version_of_an_image_without_a_digest_does_not_depend_on_its_build_time(monkeypatch):
+  registry = {"latest": ["aaa"], "v2.0.0": ["aaa"], "v1.2.1": ["old"]}
+  mv = _undigested_image(monkeypatch, ["aaa"], registry)
+  assert mv.resolved_model_version("eos4ex3") == "v2"  # built before v2.0.0 was pushed
+  mv = _undigested_image(monkeypatch, ["old"], registry)
+  assert mv.resolved_model_version("eos4ex3") == "v1"  # genuinely the older release
+  mv = _undigested_image(monkeypatch, ["built-here"], registry)
+  assert mv.resolved_model_version("eos4ex3") == "v2"  # unknown image: the registry's latest
 
 
 def test_reading_the_store_in_chunks_gives_each_chunk_its_own_rows(monkeypatch):

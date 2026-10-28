@@ -1,9 +1,10 @@
 """Resolve the Ersilia Model Hub major version of a locally-pulled model image.
 
 The canonical version is the MAJOR of the released semver tag (``vX.Y.Z``) that the locally-pulled
-``ersiliaos/<id>:latest`` image corresponds to, found chronologically: place the local image among
-the DockerHub tags by build time, then take the most recent ``vN`` at or before it (``v1.1.0`` ->
-``v1``). Defaults to ``v1`` and never raises — any failure (no docker, DockerHub unreachable, parse
+``ersiliaos/<id>:latest`` image corresponds to (``v1.1.0`` -> ``v1``). An image pulled from DockerHub
+is matched to its tag by digest. One Ersilia re-tagged has no digest, so its layers are compared
+with each released tag; an image that matches none is taken to be the registry's latest. Build times
+are not used: an image is built before its tag is pushed. Defaults to ``v1`` and never raises — any failure (no docker, DockerHub unreachable, parse
 error) falls back to ``v1``. :func:`resolved_model_version` returns None in those cases
 instead, for callers that have to tell a real ``v1`` from a fallback.
 """
@@ -34,6 +35,7 @@ _MANIFEST_TYPES = ",".join((
 _cache = {}
 _digest_cache = {}
 _tags_cache = {}
+_release_cache = {}
 
 
 def _local_image_digest(model_id):
@@ -60,19 +62,6 @@ def _local_image_digest(model_id):
     digest = None
   _digest_cache[model_id] = digest
   return digest
-
-
-def _local_image_created(model_id):
-  try:
-    out = subprocess.run(
-      ["docker", "image", "inspect", f"{ORG}/{model_id.lower()}", "--format", "{{.Created}}"],
-      capture_output=True,
-      text=True,
-      timeout=_HTTP_TIMEOUT,
-    )
-    return out.stdout.strip() or None if out.returncode == 0 else None
-  except (OSError, subprocess.TimeoutExpired):
-    return None
 
 
 def _dockerhub_tags(repo):
@@ -127,27 +116,27 @@ def _resolve(model_id):
     logger.debug(f"Could not resolve version for {model_id} ({e})")
     return None
 
-  # When was the locally-pulled image pushed? Use the tags sharing its digest; else the image's
-  # created date; else (no docker) the most recent moment, i.e. consider all released tags.
-  digest = _local_image_digest(model_id)
-  local_time = None
-  if digest:
-    matched = [lu for (_, lu, digs) in tags if lu and digest in digs]
-    local_time = max(matched) if matched else None
-  if local_time is None:
-    local_time = _local_image_created(model_id)
-
-  # Released semver tags at or before the local build time (ISO-8601 strings sort chronologically).
-  candidates = []
-  for name, last_updated, _ in tags:
-    m = _SEMVER_RE.match(name or "")
-    if not m or not last_updated:
-      continue
-    if local_time is None or last_updated <= local_time:
-      candidates.append((last_updated, int(m.group(1))))
-  if not candidates:
+  semver = [
+    (last_updated, int(m.group(1)), name)
+    for name, last_updated, _ in tags
+    if (m := _SEMVER_RE.match(name or "")) and last_updated
+  ]
+  if not semver:
     return None
-  return f"v{max(candidates)[1]}"
+  # Pulled from DockerHub: the tags sharing the local image's digest say when it was pushed, and
+  # the release is the newest tag pushed at or before that.
+  digest = _local_image_digest(model_id)
+  matched = [lu for (_, lu, digs) in tags if digest and lu and digest in digs]
+  if matched:
+    pushed = max(matched)
+    candidates = [(lu, major) for lu, major, _ in semver if lu <= pushed]
+    return f"v{max(candidates)[1]}" if candidates else None
+  # No digest to match (Ersilia re-tags a pulled image): the layers name the release if it is an
+  # older one; an image matching the latest, or none, is taken to be the latest.
+  release = _layers_release(model_id)
+  if release and release != "latest":
+    return f"v{int(_SEMVER_RE.match(release).group(1))}"
+  return f"v{max(semver)[1]}"
 
 
 def _local_image_layers_and_arch(model_id):
@@ -174,8 +163,8 @@ def _local_image_layers_and_arch(model_id):
   return None, None
 
 
-def _registry_latest_layers(model_id, arch):
-  # Layer hashes of the registry's ``latest`` image for ``arch``, from its config blob.
+def _registry_layers(model_id, arch, tag):
+  # Layer hashes of the registry's ``tag`` image for ``arch``, from its config blob.
   repo = f"{ORG}/{model_id.lower()}"
   token = requests.get(
     _REGISTRY_AUTH_URL,
@@ -192,7 +181,7 @@ def _registry_latest_layers(model_id, arch):
     resp.raise_for_status()
     return resp.json()
 
-  manifest = fetch("manifests", "latest")
+  manifest = fetch("manifests", tag)
   for entry in manifest.get("manifests") or []:  # a multi-platform index: take this architecture
     platform = entry.get("platform") or {}
     if platform.get("os") == "linux" and platform.get("architecture") == arch:
@@ -201,22 +190,39 @@ def _registry_latest_layers(model_id, arch):
   return fetch("blobs", manifest["config"]["digest"]).get("rootfs", {}).get("diff_ids")
 
 
-def _matches_registry_latest(model_id):
-  """Whether the local image is the registry's current ``latest``, judged by its layers.
+def _released_tags(model_id):
+  # The released semver tag names, newest version first.
+  found = []
+  for name, _last_updated, _ in _dockerhub_tags(f"{ORG}/{model_id.lower()}"):
+    m = _SEMVER_RE.match(name or "")
+    if m:
+      found.append((tuple(int(g) for g in m.groups()), name))
+  return [name for _, name in sorted(found, reverse=True)]
+
+
+def _layers_release(model_id):
+  """The registry tag the local image's layers match: ``"latest"``, a released tag, or None.
 
   For an image with no registry digest (``RepoDigests`` is empty). Ersilia re-tags a pulled image
   with a label of its own (``ersilia.user.id``), which changes the image's config and so its ID but
-  not its layers, so the layers are what is compared. False when they differ or the registry cannot
+  not its layers, so the layers are what is compared. ``latest`` is tried first, then the released
+  tags newest first. None when none matches (the image was built locally) or the registry cannot
   be asked; never raises.
   """
+  if model_id in _release_cache:
+    return _release_cache[model_id]
+  release = None
   layers, arch = _local_image_layers_and_arch(model_id)
-  if not layers:
-    return False
-  try:
-    return _registry_latest_layers(model_id, arch) == layers
-  except Exception as e:
-    logger.debug(f"Could not compare {model_id} with the registry's latest ({e})")
-    return False
+  if layers:
+    try:
+      for tag in ["latest", *_released_tags(model_id)]:
+        if _registry_layers(model_id, arch, tag) == layers:
+          release = tag
+          break
+    except Exception as e:
+      logger.debug(f"Could not compare {model_id} with the registry's releases ({e})")
+  _release_cache[model_id] = release
+  return release
 
 
 def is_image_up_to_date(model_id):
@@ -225,13 +231,14 @@ def is_image_up_to_date(model_id):
   Returns True if the locally-pulled image's digest equals the digest the ``latest`` tag points to
   on DockerHub right now, False if it's behind (a newer image has been pushed), or None if it can't
   be determined (no local image, DockerHub unreachable, or no ``latest`` tag). An image without a
-  registry digest is True only if its layers match the registry's ``latest``, else None: it was
-  built locally, so it cannot be called behind. A pulled image reuses the cached
-  digest/tags, so it adds no extra network beyond version resolution.
+  registry digest is True if its layers match the registry's ``latest``, False if they match an
+  older release, else None: it was built locally, so it cannot be called behind. A pulled image
+  reuses the cached digest/tags, so it adds no extra network beyond version resolution.
   """
   local = _local_image_digest(model_id)
   if not local:
-    return True if _matches_registry_latest(model_id) else None
+    release = _layers_release(model_id)
+    return None if release is None else release == "latest"
   try:
     tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
   except Exception as e:
