@@ -1,8 +1,9 @@
+import hashlib
 import json
 import os
 import shutil
 
-from zairachem.base import _atomic_json, params_path
+from zairachem.base import _atomic_json, params_path, read_session, write_session
 from zairachem.base.utils.console import echo, summary_panel
 from zairachem.base.utils.isaura_report import (
   check_isaura_version_consistency,
@@ -82,6 +83,15 @@ def _check_model_count(ids, cap, kind, flag):
       f"Too many {kind} models: {len(ids)} requested but at most {cap} are allowed. "
       f"Trim {flag} to {cap} or fewer IDs."
     )
+
+
+def _file_sha256(path):
+  """SHA-256 hex digest of the file's content (read in chunks, so any size)."""
+  digest = hashlib.sha256()
+  with open(path, "rb") as f:
+    for chunk in iter(lambda: f.read(1 << 20), b""):
+      digest.update(chunk)
+  return digest.hexdigest()
 
 
 class TrainSetup(BaseSetup):
@@ -168,6 +178,47 @@ class TrainSetup(BaseSetup):
     sf = SessionFile(self.output_dir)
     sf.open_session(mode="fit", output_dir=self.output_dir, model_dir=self.output_dir)
 
+  def _record_input(self):
+    """Remember which input the run was started on, in ``session.json`` (``input``)."""
+    session = read_session(self.output_dir)
+    session["input"] = {"path": self.input_file, "sha256": _file_sha256(self.input_file)}
+    write_session(self.output_dir, session)
+
+  def resume_input_conflict(self):
+    """Return an error message if the input now given is not the one the run was started on.
+
+    The run's tables, splits and parameters were all built from the recorded input, so resuming it
+    on different content would train on the old data under the new file's name. Same content from
+    another path is the same input. A run directory written before the input was recorded has
+    nothing to compare and is resumed as before (returns None).
+    """
+    recorded = (read_session(self.output_dir) or {}).get("input")
+    if not recorded:
+      return None
+    try:
+      given = _file_sha256(self.input_file)
+    except OSError as e:
+      return (
+        f"Cannot resume '{self.output_dir}': the input '{self.input_file}' cannot be read ({e}). "
+        f"Pass the original input '{recorded['path']}' to resume it, or --override to start again."
+      )
+    if given == recorded["sha256"]:
+      return None
+    if os.path.abspath(recorded["path"]) == self.input_file:
+      what = (
+        f"it was started on '{recorded['path']}' (sha256 {recorded['sha256'][:12]}), which has "
+        f"changed since (sha256 {given[:12]})"
+      )
+    else:
+      what = (
+        f"it was started on '{recorded['path']}' (sha256 {recorded['sha256'][:12]}), but -i is "
+        f"'{self.input_file}' (sha256 {given[:12]})"
+      )
+    return (
+      f"Cannot resume '{self.output_dir}': {what}. Pass the original input to resume it, or "
+      f"--override to start again."
+    )
+
   def _make_subfolders(self):
     self._make_subfolder(DATA_SUBFOLDER)
     self._make_subfolder(METADATA_SUBFOLDER)
@@ -196,6 +247,7 @@ class TrainSetup(BaseSetup):
     self._make_subfolders()
     self._save_params()
     self._copy_input_file()
+    self._record_input()
     step.update()
 
   def _keep_featurizers(self, kept):
@@ -219,6 +271,13 @@ class TrainSetup(BaseSetup):
       return None
     with open(p) as f:
       return json.load(f)
+
+  @staticmethod
+  def _evaluate_label(params):
+    """How ``--evaluate`` reads in ``params``: ``off``, ``all`` schemas, or the sorted schema list."""
+    if not params.get("evaluate"):
+      return "off"
+    return ",".join(sorted(params.get("evaluate_schemas") or [])) or "all"
 
   def resume_config_conflict(self, explicit_config):
     """Reconcile the run config when resuming. The on-disk ``params.json`` is authoritative (the
@@ -246,6 +305,17 @@ class TrainSetup(BaseSetup):
         "max descriptors",
         self.params.get("max_descriptors"),
         disk.get("max_descriptors"),
+      ),
+      "evaluate": (
+        "evaluate",
+        self._evaluate_label(self.params),
+        self._evaluate_label(disk),
+      ),
+      "evaluate_repeats": (
+        "evaluate repeats",
+        self.params.get("evaluate_repeats"),
+        # A directory from before the setting was recorded has no value to disagree with.
+        disk.get("evaluate_repeats", self.params.get("evaluate_repeats")),
       ),
     }
     conflicts = [
@@ -501,7 +571,7 @@ class TrainSetup(BaseSetup):
     # Classification only. lazy-qsar's regression ensemble has no reference library -- its single
     # output is the value, with no rank to position -- so the estimate step never scores these
     # matrices on a regression fit (see estimate/estimators/pipe.py). Downloading them anyway costs
-    # up to ~1.6 GB and several minutes for nothing.
+    # up to ~2 GB and several minutes for nothing.
     if self.task == "classification":
       prepare_rank_references(self.featurizer_ids)
     # Coverage/version checks always inspect the central lake (the migration source), not the

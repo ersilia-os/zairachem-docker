@@ -130,7 +130,7 @@ skipped above 10,000 molecules, and pre-screening scores a sample above 25,000 r
 
 lazy-qsar positions every prediction (`rank`) against a fixed library of 50,000 molecules, so each
 descriptor a fit trains needs that library featurized with it. A classification fit downloads the
-published matrices for the descriptors it trains into `~/zairachem/rank_reference/` (up to ~1.6 GB
+published matrices for the descriptors it trains into `~/zairachem/rank_reference/` (up to about 2 GB
 for the default featurizers; `ZAIRACHEM_HOME` moves the folder). One that is not published (e.g. a
 custom featurizer) is computed on its model server and cached there, so later fits reuse it. A
 regression fit has no rank, so it downloads nothing.

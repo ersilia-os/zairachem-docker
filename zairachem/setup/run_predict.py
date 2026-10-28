@@ -18,7 +18,8 @@ def run(
   Returns
   -------
   bool
-    False if predictions already exist in the output directory, True once setup completes.
+    False if predictions already exist in the output directory (a refusal the caller must turn into
+    a non-zero exit), True once setup completes.
   """
   # Build PredictSetup first: it validates the model folder and shows a formatted message + exits
   # if it's incomplete — before any run header is printed.
@@ -41,8 +42,8 @@ def run(
   )
   if ps.is_done():
     echo(
-      f"Predictions already exist at {ps.output_dir}. Use --override-dir or a different -o to redo.",
-      kind="warning",
+      f"Predictions already exist at {ps.output_dir}. Use --override or a different -o to redo.",
+      kind="error",
     )
     return False
   tracker.start("setup")
