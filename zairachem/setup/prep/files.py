@@ -1,4 +1,5 @@
 import collections
+import functools
 import json
 import os
 import re
@@ -7,8 +8,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 from rdkit import Chem
+from rich.markup import escape
 
-from zairachem.base.utils.console import echo
+from zairachem.base.utils.console import echo, plural
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.progress import SetupProgress
 from zairachem.base.vars import (
@@ -24,18 +26,49 @@ from zairachem.base.vars import (
   VALUES_COLUMN,
   VALUES_FILENAME,
 )
-from zairachem.setup.prep.schema import InputSchema, not_binary_message, target_kind
+from zairachem.setup.prep.schema import InputError, InputSchema, not_binary_message, target_kind
 
 DEDUPE_BATCH_SIZE = 5000
 DEDUPE_MAX_WORKERS = None
 
 
+def _is_valid_smiles(smi):
+  """Whether ``smi`` is a SMILES string RDKit can parse; a blank cell (NaN) or a number is not."""
+  return isinstance(smi, str) and bool(smi) and Chem.MolFromSmiles(smi) is not None
+
+
 def _validate_smiles_batch(batch_data):
   results = []
   for idx, cid, smi in batch_data:
-    mol = Chem.MolFromSmiles(smi) if smi else None
-    results.append((idx, cid, smi, mol is not None))
+    results.append((idx, cid, smi, _is_valid_smiles(smi)))
   return results
+
+
+def _short(smi, width=40):
+  """``smi`` as text, cut to ``width`` characters, for an example in a message."""
+  text = str(smi)
+  return text if len(text) <= width else text[: width - 3] + "..."
+
+
+def _warn(message):
+  """Show a non-fatal finding on screen (``message`` is plain text) and keep it in the log."""
+  logger.info(f"[setup] {message}")
+  echo(escape(message), kind="warning")
+
+
+def _stop_on_input_error(method):
+  """Turn an ``InputError`` from ``method`` into a one-line error and ``SystemExit(1)``."""
+
+  @functools.wraps(method)
+  def wrapper(*args, **kwargs):
+    try:
+      return method(*args, **kwargs)
+    except InputError as e:
+      logger.info(f"[setup] {e}")  # the log keeps it; the screen gets it once, from echo
+      echo(escape(str(e)), kind="error")
+      raise SystemExit(1) from None
+
+  return wrapper
 
 
 def replicate_summary(groups, task):
@@ -198,11 +231,13 @@ class SingleFile(InputSchema):
     """Return one row per input row with compound id, SMILES and activity value.
 
     Resolves the SMILES and values columns and assigns a ``CID…`` identifier per unique SMILES
-    (empty SMILES get None).
+    (empty SMILES get None). Raises ``InputError`` if no SMILES or no target column is found.
     """
     resolved_columns = self.resolve_columns()
     self.smiles_column = resolved_columns["smiles_column"]
     self.values_column = resolved_columns["values_column"]
+    if self.values_column is None:
+      raise InputError(self.missing_values_column_message(self.smiles_column))
     identifiers = self._make_identifiers()
     df = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: identifiers})
     df[SMILES_COLUMN] = self.df[self.smiles_column]
@@ -216,8 +251,7 @@ class SingleFile(InputSchema):
     with SetupProgress() as progress:
       task = progress.add_task("Validating SMILES", total=n_total)
       for idx, cid, smi in data:
-        mol = Chem.MolFromSmiles(smi) if smi else None
-        results.append((idx, cid, smi, mol is not None))
+        results.append((idx, cid, smi, _is_valid_smiles(smi)))
         progress.update(task, advance=1)
     return results
 
@@ -230,7 +264,7 @@ class SingleFile(InputSchema):
       end = min(start + DEDUPE_BATCH_SIZE, n_total)
       batches.append(data[start:end])
     logger.info(f"[dedupe] Validating {n_total:,} SMILES in {n_batches:,} batches (parallel)")
-    results = []
+    results_by_batch = {}
     with SetupProgress() as progress:
       task = progress.add_task("Validating SMILES", total=n_batches)
       with ProcessPoolExecutor(max_workers=DEDUPE_MAX_WORKERS) as executor:
@@ -240,13 +274,45 @@ class SingleFile(InputSchema):
         for future in as_completed(futures):
           batch_idx = futures[future]
           try:
-            batch_results = future.result()
-            results.extend(batch_results)
-            progress.update(task, advance=1)
+            results_by_batch[batch_idx] = future.result()
           except Exception as e:
-            logger.error(f"[dedupe] Batch {batch_idx} failed: {e}")
-            progress.update(task, advance=1)
+            # A batch that is lost is a batch of molecules that silently vanish: run it again here.
+            logger.warning(f"[dedupe] Batch {batch_idx} failed in a worker ({e}); re-running it")
+            try:
+              results_by_batch[batch_idx] = _validate_smiles_batch(batches[batch_idx])
+            except Exception as again:
+              raise RuntimeError(
+                f"SMILES validation failed for {len(batches[batch_idx]):,} rows (batch "
+                f"{batch_idx}) in a worker and again when re-run: {again}"
+              ) from again
+          progress.update(task, advance=1)
+    results = []
+    for i in range(n_batches):
+      results.extend(results_by_batch[i])
     return results
+
+  @staticmethod
+  def _report_dropped(dropped):
+    """Say how many rows were dropped for a SMILES that is blank or cannot be parsed, with examples.
+
+    Parameters
+    ----------
+    dropped : list of tuple
+      ``(row index, SMILES as read)`` for each dropped row, in input order. The row number shown
+      is ``index + 2`` (header = line 1), which assumes one physical line per row.
+    """
+    if not dropped:
+      return
+    # Row numbers are the spreadsheet's: the header is row 1, so the first data row is row 2. This
+    # counts one physical line per row, so a quoted cell that spans lines shifts the numbers after it.
+    shown = ", ".join(
+      f"row {idx + 2} {'blank' if not isinstance(smi, str) or not smi else repr(_short(smi))}"
+      for idx, smi in dropped[:3]
+    )
+    _warn(
+      f"{plural(len(dropped), 'row')} dropped: the SMILES is blank or cannot be parsed "
+      f"(e.g. {shown})."
+    )
 
   def dedupe(self, df, path):
     """Drop invalid SMILES, write ``mapping.csv`` to ``path`` and return the unique compounds.
@@ -269,11 +335,16 @@ class SingleFile(InputSchema):
       validated = self._validate_smiles_sequential(data)
     mapping = collections.defaultdict(list)
     cid2smiles = {}
+    dropped = []
     for idx, cid, smi, is_valid in validated:
       if not is_valid:
+        dropped.append((idx, smi))
         continue
       mapping[cid].append(idx)
       cid2smiles[cid] = smi
+    self._report_dropped(dropped)
+    #: Compounds that survived validation, so a later step can tell them from dropped rows.
+    self.kept_ids = set(mapping.keys())
     unique_cids = sorted(set(mapping.keys()))
     unique_cids_idx = {k: i for i, k in enumerate(unique_cids)}
     idx_to_cid = {x: k for k, v in mapping.items() for x in v}
@@ -348,12 +419,46 @@ class SingleFile(InputSchema):
       kind="warning",
     )
 
+  def _require_labels(self, df, groups):
+    """Stop if a compound has no label at all: a blank must not be read as ``inactive``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+      The normalised input rows (compound id and SMILES).
+    groups : dict
+      ``{compound id: [its non-blank labels]}``, ``[nan]`` for a compound with none.
+
+    Raises
+    ------
+    InputError
+      Naming how many compounds have no label and up to three of their SMILES. Rows dropped for
+      their SMILES, and rows with no SMILES at all, are not compounds and do not count.
+    """
+    kept = getattr(self, "kept_ids", None)
+    missing = [
+      k for k, v in groups.items() if k is not None and v[0] != v[0] and (kept is None or k in kept)
+    ]
+    if not missing:
+      return
+    smiles = dict(zip(df[COMPOUND_IDENTIFIER_COLUMN], df[SMILES_COLUMN]))
+    shown = ", ".join(_short(smiles[k]) for k in missing[:3])
+    verb = "has" if len(missing) == 1 else "have"
+    raise InputError(
+      f"{plural(len(missing), 'compound')} {verb} no label: every row of theirs has a blank "
+      f"'{self.values_column}' (e.g. {shown}). A blank is not read as inactive; remove those "
+      "rows or fill in their labels."
+    )
+
   def values_table(self, df):
     """Return one activity value per compound id: the median over duplicate rows.
 
-    For classification the median is rounded back to a 0/1 label (a 0.5 tie becomes 1). The spread
-    of those duplicate rows is kept (:attr:`replicates`) before they are collapsed, since it is the
-    only measurement of the assay's own reproducibility the pipeline ever sees.
+    For classification the median is rounded back to a 0/1 label (a 0.5 tie becomes 1); at predict
+    that happens only when the ground truth is 0/1, anything else is left as it is and warned about.
+    For classification at fit, a compound with no label at all raises ``InputError``; regression
+    has no such check here. The spread of those duplicate rows is kept (:attr:`replicates`) before
+    they are collapsed, since it is the only measurement of the assay's own reproducibility the
+    pipeline ever sees.
     """
     dfv = pd.DataFrame({COMPOUND_IDENTIFIER_COLUMN: df[COMPOUND_IDENTIFIER_COLUMN]})
     dfv[VALUES_COLUMN] = df[VALUES_COLUMN]
@@ -369,22 +474,34 @@ class SingleFile(InputSchema):
     # values are binary labels, so round the median back to a 0/1 label (a tie of 0.5 → 1); for
     # REGRESSION keep the continuous median as-is.
     task = (self.params or {}).get("task")
-    if task == "classification" and not self.is_predict():
-      # Rounding a continuous target to 0/1 would train on labels nobody gave; predict keeps its own,
-      # tolerant handling of ground truth that is not binary.
+    binarise = task == "classification"
+    if binarise:
       kind, distinct = target_kind(dfv[VALUES_COLUMN])
-      if kind != "binary":
+      if kind != "binary" and not self.is_predict():
+        # Rounding a continuous target to 0/1 would train on labels nobody gave.
         raise Exception(not_binary_message(self.values_column, kind, distinct))
+      if kind != "binary":
+        # Predict: ground truth is only ever compared with the predictions, so labels nobody gave
+        # are worse than none. Leave it as it is; the tasks step then sets it aside and the report
+        # skips the metrics.
+        binarise = False
+        _warn(
+          f"The ground-truth column '{self.values_column}' is not 0/1 labels "
+          f"({len(distinct):,} distinct values), so it is ignored: the compounds are predicted "
+          "but not scored."
+        )
     # A blank cell is not a measurement. Taking the median across it turns a compound that WAS
     # measured into a missing value, which then fails the whole run on the next step; drop the
     # blanks within each compound first and keep its real values. A compound with nothing but
     # blanks stays missing, which is what it is.
     dedupe = {k: [x for x in v if x == x] or [float("nan")] for k, v in dedupe.items()}
+    if binarise and not self.is_predict():
+      self._require_labels(df, dedupe)
     self.replicates = replicate_summary(dedupe, task)
     R = []
     for k, v in dedupe.items():
       m = float(np.median(list(v)))
-      if task == "classification":
+      if binarise:
         m = 1 if m >= 0.5 else 0
       R += [[k, m]]
     dfv = pd.DataFrame(
@@ -405,10 +522,13 @@ class SingleFile(InputSchema):
     }
     return sc
 
+  @_stop_on_input_error
   def process(self):
     """Write ``compounds.csv``, ``values.csv``, ``mapping.csv`` and ``input_schema.json``.
 
-    All files go to the data subfolder of the run's output directory.
+    All files go to the data subfolder of the run's output directory. An input that cannot be used
+    (no data rows, no SMILES or target column, compounds with no label) ends with a one-line error
+    and ``SystemExit(1)``.
     """
     path = os.path.join(self.get_output_dir(), DATA_SUBFOLDER)
     df = self.normalize_dataframe()
@@ -471,6 +591,7 @@ class SingleFileForPrediction(SingleFile):
     }
     return sc
 
+  @_stop_on_input_error
   def process(self):
     """Write compounds, mapping and ``input_schema.json``, plus ``values.csv`` if any are labelled.
 

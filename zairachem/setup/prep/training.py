@@ -268,6 +268,10 @@ class TrainSetup(BaseSetup):
   def _normalize_input(self):
     step = PipelineStep("normalize_input", self.output_dir)
     if not step.is_done():
+      # A resume skips `_initialize`, which is where the input is copied, so a run that stopped here
+      # because the input was unusable would otherwise go on reading its old copy (the report, the
+      # pool and the finish step use it) after the user has corrected the file.
+      self._copy_input_file()
       f = SingleFile(self.input_file, self.params, self.output_dir)
       f.process()
       step.update()
