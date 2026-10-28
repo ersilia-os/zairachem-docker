@@ -15,6 +15,12 @@ def process_group(
 
   Takes the same arguments as :func:`_run_steps`. SIGTERM is turned into an interrupt, so a
   terminated run unwinds like Ctrl-C. The servers this run started are stopped when it ends.
+
+  Returns
+  -------
+  bool
+    False when held-out validation (``--evaluate``) was asked for and no fold could be scored. The
+    model and its results are written all the same; the caller decides the exit code.
   """
   # The servers this run started are stopped when the process exits (compose.release_servers).
   # SIGTERM is turned into an interrupt so the run unwinds, and its cleanup (e.g. describe's
@@ -26,7 +32,7 @@ def process_group(
 
   previous = signal.signal(signal.SIGTERM, _interrupt)
   try:
-    _run_steps(
+    return _run_steps(
       output_dir,
       anonymize,
       batch_size=batch_size,
@@ -62,6 +68,11 @@ def _run_steps(
     Write the result tables only, skipping the plots and the HTML report.
   describe_workers : int, optional
     Number of descriptor models featurized concurrently.
+
+  Returns
+  -------
+  bool
+    False when held-out validation was requested and no fold could be scored, else True.
   """
   # ``output_dir`` is the run folder; it is passed explicitly to every step (no global session
   # lookup). Each pipeline class is imported right before its step runs, so heavy dependencies load
@@ -74,23 +85,27 @@ def _run_steps(
 
   _featurize(output_dir, batch_size, describe_workers)
   _estimate(output_dir, batch_size)
-  _pool_and_validate(output_dir, batch_size)
+  validated = _pool_and_validate(output_dir, batch_size)
   _report_and_finish(output_dir, anonymize, keep_intermediate_data, no_report)
-  final_summary_panel(output_dir)
+  final_summary_panel(output_dir, validation_failed=not validated)
+  return validated
 
 
-def _tracked_step(name, output_dir, run):
+def _tracked_step(name, output_dir, run, succeeded=None):
   """Run one pipeline step under the progress tracker and return what ``run`` returns.
 
   Re-asserts ``logger.configure()`` (the step's freshly imported module may have removed the log
-  sinks), marks the step started, calls ``run`` and marks it complete with its summary.
+  sinks), marks the step started, calls ``run`` and marks it complete with its summary. The step is
+  shown as failed (a red cross) when ``succeeded(result)`` is false; by default every step that
+  returns is shown as done.
   """
   from zairachem.base.utils.progress import SUMMARIES, tracker
 
   logger.configure()
   tracker.start(name)
   result = run()
-  tracker.complete(name, SUMMARIES[name](output_dir))
+  ok = True if succeeded is None else bool(succeeded(result))
+  tracker.complete(name, SUMMARIES[name](output_dir), ok=ok)
   return result
 
 
@@ -140,7 +155,10 @@ def _estimate(output_dir, batch_size):
 
 
 def _pool_and_validate(output_dir, batch_size):
-  """Run the pool and holdout steps, then drop the rank-reference matrices."""
+  """Run the pool and holdout steps, then drop the rank-reference matrices.
+
+  Returns False when held-out validation ran and scored no fold, else True.
+  """
   from zairachem.pool.pipe import PoolerPipeline
 
   _tracked_step(
@@ -151,16 +169,20 @@ def _pool_and_validate(output_dir, batch_size):
   # this is a no-op for a plain fit and for predict. Runs before the report so its section is rendered.
   from zairachem.holdout.pipe import HoldoutValidationPipeline
 
-  _tracked_step(
+  # run() says False only for an evaluate run that scored nothing; None (not asked, already done)
+  # and True are both fine.
+  validated = _tracked_step(
     "holdout",
     output_dir,
     lambda: HoldoutValidationPipeline(path=output_dir, batch_size=batch_size).run(),
+    succeeded=lambda result: result is not False,
   )
 
   # The held-out folds are the last fits; after them the rank-reference matrices are never read.
   from zairachem.base.utils.descriptors import drop_rank_references
 
   drop_rank_references(output_dir)
+  return validated is not False
 
 
 def _report_and_finish(output_dir, anonymize, keep_intermediate_data, no_report):

@@ -6,6 +6,7 @@ the two cases where a split cannot be drawn at all and has to say so.
 """
 
 import json
+import os
 
 import numpy as np
 import pytest
@@ -262,3 +263,210 @@ def test_a_fold_missing_a_class_on_either_side_is_rejected():
   assert not _both_classes(y, np.array([0, 1]), np.array([2, 4]))  # train one class, test both
   assert not _both_classes(np.zeros(8), np.arange(4), np.arange(4, 8))  # nothing to separate
   assert not _both_classes(y, np.array([], dtype=int), np.arange(8))  # an empty side
+
+
+# --- A fold must be savable, and a failed evaluation must not look like a finished model --------
+
+
+def _fold_spec(strategy="scaffold", n=8):
+  return {"strategy": strategy, "seed": 0, "train_idx": list(range(n)), "test_idx": [n, n + 1]}
+
+
+def _stub_the_slow_parts(monkeypatch, tmp_path, task):
+  """Replace the refit and the pooling, keeping the REAL metrics helpers the fold is scored with."""
+  from zairachem.holdout import engine
+  from zairachem.report.fetcher import ResultsFetcher
+
+  monkeypatch.setattr(engine, "build_fold_workspace", lambda *a, **k: str(tmp_path))
+  monkeypatch.setattr(engine, "_fit_descriptors", lambda *a, **k: None)
+  fetcher = object.__new__(ResultsFetcher)  # no run folder, no containers: the helpers need none
+
+  if task == "classification":
+    y = np.array([0, 1, 0, 1, 1, 0])
+    score = np.array([0.2, 0.9, 0.4, 0.6, 0.3, 0.1])
+
+    def score_fold(path, train_idx, test_idx, fetcher, batch_size):
+      # The tail of the real _score_fold: both reports come from the shared fetcher.
+      report = fetcher.classification_performance_report(y, score, "kappa", 0.5)
+      at_default = fetcher.classification_performance_report(y, score, "default", 0.5)
+      for k in ("accuracy", "balanced_accuracy", "precision", "recall", "f1_score", "mcc"):
+        report[f"{k}_default"] = at_default[k]
+      return report, y, score
+
+  else:
+    y = np.linspace(4.0, 9.0, 6)
+    score = y[::-1] + 0.3
+
+    def score_fold(path, train_idx, test_idx, fetcher, batch_size):
+      return fetcher.regression_performance_report(y, score), y, score
+
+  monkeypatch.setattr(engine, "_score_fold", score_fold)
+  return fetcher
+
+
+@pytest.mark.parametrize("task", ["classification", "regression"])
+def test_a_scored_fold_is_written_and_reads_back(tmp_path, monkeypatch, task):
+  """The classification report returns its confusion-matrix counts as numpy.int64, which ``json``
+  refuses: every classification fold was refitted in full and then died writing its own record."""
+  from zairachem.holdout import engine
+
+  fetcher = _stub_the_slow_parts(monkeypatch, tmp_path, task)
+  record = engine.run_one_fold(str(tmp_path), "scaffold_00", _fold_spec(), ["eosA"], fetcher)
+
+  assert (tmp_path / "metrics.json").exists() and (tmp_path / engine.HELD_OUT_FILENAME).exists()
+  saved = json.loads((tmp_path / "metrics.json").read_text())
+  assert saved["fold"] == "scaffold_00"
+  if task == "classification":
+    # Confusion matrix of the stub at 0.5: predicted 1 for 0.9, 0.6 -> tp 2, fp 0; tn 3, fn 1.
+    assert (saved["tp"], saved["tn"], saved["fp"], saved["fn"]) == (2, 3, 0, 1)
+    assert all(type(saved[k]) is int for k in ("tp", "tn", "fp", "fn", "num_0", "num_1"))
+  # Nothing numpy is left in the record, and what was saved is what a later reader gets back.
+  assert not [k for k, v in record.items() if isinstance(v, np.generic)]
+  fold_dir = tmp_path / "folds" / "scaffold_00"
+  fold_dir.mkdir(parents=True)
+  engine._save_fold_record(str(fold_dir), record)
+  assert engine.load_fold_record(str(tmp_path), "scaffold_00") == record
+  write_validation_outputs(str(tmp_path), {"scaffold_00": {"strategy": "scaffold"}}, [record])
+  assert (tmp_path / "report" / "validation_table.csv").exists()
+
+
+def _pipeline(tmp_path, monkeypatch, fold_names, run_one_fold):
+  """A HoldoutValidationPipeline over a run folder with ``fold_names`` and a fake fold runner."""
+  from zairachem.holdout import engine, pipe
+  from zairachem.report import fetcher
+
+  run = tmp_path / "run"
+  (run / "metadata").mkdir(parents=True)
+  (run / "metadata" / "parameters.json").write_text(
+    json.dumps({"evaluate": True, "task": "classification"})
+  )
+  (run / "metadata" / "splits.json").write_text(
+    json.dumps({name: _fold_spec(name.split("_")[0]) for name in fold_names})
+  )
+  (run / "session.json").write_text(json.dumps({"steps": [], "mode": "fit"}))
+  monkeypatch.setattr(engine, "run_one_fold", run_one_fold)
+  monkeypatch.setattr(fetcher, "ResultsFetcher", lambda path=None: object())
+  monkeypatch.setattr(pipe.HoldoutValidationPipeline, "_model_ids", lambda self: ["eosA"])
+  return pipe.HoldoutValidationPipeline(path=str(run)), str(run)
+
+
+def test_all_folds_failing_is_a_failed_step_not_a_finished_one(tmp_path, monkeypatch):
+  """The Evaluate step used to close with a green tick on '0/3 folds (all failed)', the panel said
+  the model was ready, and the exit code was 0."""
+  from zairachem.base.utils import progress
+  from zairachem.base.utils.pipeline import PipelineStep
+  from zairachem.cli import steps
+
+  def always_fails(*args, **kwargs):
+    raise TypeError("Object of type int64 is not JSON serializable")
+
+  pipeline, run = _pipeline(tmp_path, monkeypatch, ["random_00", "scaffold_00"], always_fails)
+  closed = []
+  monkeypatch.setattr(
+    progress.tracker,
+    "complete",
+    lambda key, summary=None, ok=True: closed.append((key, summary, ok)),
+  )
+  validated = steps._tracked_step(
+    "holdout", run, pipeline.run, succeeded=lambda result: result is not False
+  )
+  assert validated is False
+  assert closed == [("holdout", "0/2 folds (all failed)", False)]
+  assert not PipelineStep("holdout", run).is_done()
+
+  # The failure travels from the step to the exit code through the return values; the model and
+  # its report are written before anything is raised.
+  seen = {}
+  monkeypatch.setattr(steps, "_featurize", lambda *a, **k: None)
+  monkeypatch.setattr(steps, "_estimate", lambda *a, **k: None)
+  monkeypatch.setattr(steps, "_pool_and_validate", lambda *a, **k: validated)
+  monkeypatch.setattr(steps, "_report_and_finish", lambda *a, **k: seen.setdefault("finished", 1))
+  monkeypatch.setattr(
+    progress,
+    "final_summary_panel",
+    lambda d, validation_failed=False: seen.update(f=validation_failed),
+  )
+  assert steps.process_group(run, False) is False
+  assert seen == {"finished": 1, "f": True}
+
+
+def test_fit_exits_non_zero_when_held_out_validation_failed(tmp_path, monkeypatch):
+  from click.testing import CliRunner
+
+  from zairachem.cli import cli
+  from zairachem.cli.commands import fit as fit_cmd
+
+  data = tmp_path / "x.csv"
+  data.write_text("smiles,activity\nCCO,1\nCCN,0\n")
+  monkeypatch.setattr("zairachem.setup.run_fit.run", lambda *a, **k: True)
+  args = ["fit", "-i", str(data), "-m", str(tmp_path / "model"), "--classification"]
+  for validated, code in ((False, 1), (True, 0)):
+    monkeypatch.setattr(fit_cmd, "process_group", lambda *a, _v=validated, **k: _v)
+    assert CliRunner().invoke(cli, args).exit_code == code
+
+
+def test_the_panel_says_when_held_out_validation_failed(tmp_path):
+  from zairachem.base.utils.console import console
+  from zairachem.base.utils.summaries import final_summary_panel
+
+  (tmp_path / "metadata").mkdir()
+  (tmp_path / "metadata" / "parameters.json").write_text(json.dumps({"task": "classification"}))
+  (tmp_path / "session.json").write_text(json.dumps({"steps": [], "mode": "fit"}))
+  with console.capture() as ok:
+    final_summary_panel(str(tmp_path))
+  with console.capture() as failed:
+    final_summary_panel(str(tmp_path), validation_failed=True)
+  assert "model ready" in ok.get() and "Held-out validation failed" not in ok.get()
+  assert "Held-out validation failed" in failed.get() and "usable" in failed.get()
+
+
+def test_a_partial_failure_is_retried_on_re_run_and_only_for_the_failed_folds(
+  tmp_path, monkeypatch
+):
+  """Some folds failing used to mark the step done, so a re-run never retried them; the finished
+  folds are reused from their metrics.json, so only the failed ones may run again."""
+  from zairachem.base.utils.pipeline import PipelineStep
+  from zairachem.holdout import engine
+
+  attempted, broken = [], {"scaffold_00"}
+
+  def run_one_fold(model_dir, fold_name, spec, model_ids, fetcher, **kwargs):
+    attempted.append(fold_name)
+    if fold_name in broken:
+      raise RuntimeError("boom")
+    fold_dir = os.path.join(model_dir, "folds", fold_name)
+    os.makedirs(fold_dir, exist_ok=True)
+    record = {
+      "fold": fold_name, "strategy": spec["strategy"], "seed": 0, "auroc": 0.8, "aupr": 0.7,
+      "_y_true": [1, 0], "_y_score": [0.9, 0.1],
+    }  # fmt: skip
+    engine._save_fold_record(fold_dir, record)
+    return record
+
+  names = ["random_00", "scaffold_00", "butina_00"]
+  pipeline, run = _pipeline(tmp_path, monkeypatch, names, run_one_fold)
+  assert pipeline.run() is True  # two folds scored
+  assert attempted == names
+  assert not PipelineStep("holdout", run).is_done()
+  summary = json.loads((tmp_path / "run" / "report" / "holdout_summary.json").read_text())
+  assert summary["n_folds_failed"] == 1 and summary["strategies"]["random"]["n_defined"] == 1
+
+  attempted.clear()
+  broken.clear()
+  assert pipeline.run() is True
+  assert attempted == ["scaffold_00"]  # the two finished folds were kept, not refitted
+  assert PipelineStep("holdout", run).is_done()
+  summary = json.loads((tmp_path / "run" / "report" / "holdout_summary.json").read_text())
+  assert summary["n_folds_run"] == 3 and summary["n_folds_failed"] == 0
+
+
+def test_the_summary_says_how_many_of_the_requested_folds_it_covers(tmp_path):
+  from zairachem.base.utils.summaries import summarize_holdout
+
+  folds = {f"scaffold_0{i}": {"strategy": "scaffold"} for i in range(3)}
+  records = [_record(f"scaffold_0{i}", "scaffold", 0.8) for i in range(2)]
+  failures = [{"fold": "scaffold_02", "strategy": "scaffold", "error": "RuntimeError: boom"}]
+  write_validation_outputs(str(tmp_path), folds, records, failures=failures)
+  assert (
+    summarize_holdout(str(tmp_path)) == "2/3 folds (1 failed) · scaffold AUROC 0.80 (2 of 3 folds)"
+  )

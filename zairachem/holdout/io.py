@@ -100,6 +100,8 @@ def write_validation_outputs(model_dir, folds, records, failures=None):
     rows = by_strategy[strat]
     strategies[strat] = {
       "n_folds": len(rows),
+      # How many folds of this schema were asked for, so a reader can tell 2 of 3 from 2 of 2.
+      "n_defined": sum(1 for spec in folds.values() if spec.get("strategy") == strat),
       **{m: _stats([r.get(m) for r in rows]) for m in metrics},
     }
   _write_summary(report_dir, folds, records, strategies, failures)

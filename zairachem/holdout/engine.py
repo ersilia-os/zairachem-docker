@@ -34,6 +34,16 @@ def _slice(matrix, idx):
   return matrix[idx] if matrix is not None else None
 
 
+def _plain(value):
+  """A numpy scalar (integer, float or bool) as the Python value it holds; anything else as is.
+
+  The shared metrics helpers hand back whatever numpy produced -- the confusion-matrix counts are
+  ``numpy.int64`` -- and ``json`` refuses those, so a fold record is converted as it is built.
+  The numeric value is unchanged.
+  """
+  return value.item() if isinstance(value, np.generic) else value
+
+
 def _fit_descriptors(fold_path, model_ids, train_idxs, batch_size, substep_cb=None):
   """Re-fit each descriptor's estimator on the train slice and assemble its per-row predictions."""
   n = len(model_ids)
@@ -140,8 +150,9 @@ def run_one_fold(
     "fold": fold_name,
     "strategy": spec["strategy"],
     "seed": spec.get("seed"),
-    **{k: (float(v) if isinstance(v, (np.floating, float)) else v) for k, v in metrics.items()},
+    **metrics,
   }
+  record = {k: _plain(v) for k, v in record.items()}
   # Per-compound held-out truth+score, kept off the scalar metrics.json (persisted separately by
   # io.write_validation_outputs into report/validation_predictions.csv for the per-strategy curves).
   # The truth is a 0/1 label for classification and a target value for regression, so it keeps its
