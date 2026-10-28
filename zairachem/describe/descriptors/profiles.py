@@ -186,13 +186,17 @@ def load(model_id, digest):
     # Nothing measured on this image here: start empty (a new image may differ in memory, cores and
     # output format, so everything is learned again).
     return ModelProfile(model_id, digest)
+  # Without a digest the image cannot be told from the one measured (a deleted and re-fetched image
+  # is re-tagged by Ersilia), so what belongs to the image itself is learned again; the measured
+  # memory and speed are still the best estimate.
+  known = bool(digest)
   return ModelProfile(
     model_id,
     digest or entry.get("digest"),
     entry.get("samples"),
-    entry.get("output_type"),
+    entry.get("output_type") if known else None,
     entry.get("cores"),
-    entry.get("failed_at"),
+    entry.get("failed_at") if known else None,
   )
 
 

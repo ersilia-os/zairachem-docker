@@ -449,7 +449,17 @@ class BinaryStreamClient(ZairaBase):
     if self.profile is None:  # nothing to learn into: the client's own format
       return self._attempt(batch, self.output_type)
     if self.profile.output_type:
-      return self._attempt(batch, self.profile.output_type)
+      try:
+        return self._attempt(batch, self.profile.output_type)
+      except (requests.Timeout, requests.ConnectionError):
+        raise
+      except (requests.RequestException, IOError, ValueError, KeyError, TypeError) as error:
+        # A format that worked before and fails now: the image was replaced since it was learned
+        # (a deleted and re-fetched image keeps its profile), so learn it again.
+        self.logger.info(
+          f"{self.model_id}: {self.profile.output_type} output failed ({error}); trying again."
+        )
+        self.profile.output_type = None
     try:
       out = self._attempt(batch, "heavy")
     except (requests.Timeout, requests.ConnectionError):

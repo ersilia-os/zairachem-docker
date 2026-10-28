@@ -4,6 +4,7 @@ import pytest
 import requests
 
 from zairachem.base.utils import preflight
+from zairachem.describe.descriptors import profiles
 from zairachem.describe.descriptors.api import BinaryStreamClient
 from zairachem.describe.descriptors.profiles import ModelProfile
 
@@ -25,6 +26,46 @@ def test_a_failure_in_both_formats_reports_both():
     _client(attempt)._try_request(["CCO"])
   assert "500 in simple" in str(err.value)
   assert "500 in heavy" in str(err.value)
+
+
+def test_a_remembered_format_that_stops_working_is_learned_again():
+  def attempt(batch, output_type):
+    if output_type == "heavy":
+      raise requests.HTTPError("500 in heavy")
+    return "rows", None
+
+  client = _client(attempt)
+  client.profile.output_type = "heavy"  # learned on an image that has since been replaced
+  assert client._try_request(["CCO"]) == ("rows", None)
+  assert client.profile.output_type == "simple"
+
+
+def test_a_timeout_does_not_unlearn_the_remembered_format():
+  def attempt(batch, output_type):
+    raise requests.Timeout("slow")
+
+  client = _client(attempt)
+  client.profile.output_type = "heavy"
+  with pytest.raises(requests.Timeout):
+    client._try_request(["CCO"])
+  assert client.profile.output_type == "heavy"
+
+
+def test_what_belongs_to_the_image_is_not_kept_when_the_image_cannot_be_identified(monkeypatch):
+  stored = {
+    "eosxxxx": {
+      "digest": "sha256:old",
+      "samples": [[10, 1.0, 2.0]],
+      "output_type": "heavy",
+      "failed_at": 4096,
+    }
+  }
+  monkeypatch.setattr(profiles, "_load_all", lambda: stored)
+  unknown = profiles.load("eosxxxx", None)
+  assert unknown.output_type is None and unknown.failed_at is None
+  assert unknown.samples == [[10, 1.0, 2.0]]
+  same = profiles.load("eosxxxx", "sha256:old")
+  assert same.output_type == "heavy" and same.failed_at == 4096
 
 
 def test_an_image_the_registry_cannot_vouch_for_is_not_shown_as_current(monkeypatch):
