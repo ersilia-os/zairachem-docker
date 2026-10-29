@@ -121,7 +121,7 @@ def test_fit_does_not_wipe_a_folder_that_is_not_a_zairachem_model(tmp_path, over
   result = run([*args, "--override"] if override else args)
 
   assert result.exit_code == 1
-  assert "is not a ZairaChem directory" in result.output
+  assert "is not a ZairaChem directory" in " ".join(result.output.split())
   assert snapshot(mine) == before
 
 
@@ -189,7 +189,7 @@ def test_predict_override_does_not_wipe_a_folder_that_is_not_a_zairachem_directo
   ])
 
   assert result.exit_code == 1
-  assert "is not a ZairaChem directory" in result.output
+  assert "is not a ZairaChem directory" in " ".join(result.output.split())
   assert snapshot(mine) == before
 
 
@@ -208,5 +208,5 @@ def test_predict_refuses_an_output_that_overlaps_the_model(tmp_path, layout, ove
   result = run([*args, "--override"] if override else args)
 
   assert result.exit_code == 1
-  assert "model directory" in result.output
+  assert "model directory" in " ".join(result.output.split())
   assert snapshot(tmp_path) == before
