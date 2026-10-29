@@ -40,9 +40,12 @@ pillow        = ">=12.2.0"
 urllib3       = ">=2.7.0"
 idna          = ">=3.15"
 isaura = { version = "2.3.0", optional = true }
+# isaura <= 2.4.1 allows duckdb 2.x, which lacks `fetch_record_batch` (reads of models with < 100 output columns
+# fail); drop this line once an isaura release pins duckdb below 2.
+duckdb = { version = "1.5.5", optional = true }
 
 [tool.poetry.extras]
-isaura = ["isaura"]
+isaura = ["isaura", "duckdb"]
 
 [tool.poetry.scripts]
 zairachem = "zairachem.cli:main"
