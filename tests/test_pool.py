@@ -238,6 +238,7 @@ def test_the_pooler_reads_the_skill_its_estimator_wrote(tmp_path, task, suffix, 
     d.mkdir(parents=True)
     joblib.dump({oof_key: skill, "ad_hard_cutoff": 0.05}, d / "pool_signals.joblib")
     (d / "cv_report.json").write_text(json.dumps({train_key: skill + 0.1}))
+    (d / "results_unmapped.csv").write_text("x\n")  # a trained descriptor has its results
 
   io = BasePooler(path=str(root))
   columns = [f"lq_estimators-{eos}-{suffix}" for eos in ("eosA", "eosB")]
@@ -487,3 +488,63 @@ def test_the_screen_shows_what_each_descriptor_added(monkeypatch):
   cells = [c._cells for c in rendered[0].columns]
   assert "Adds" in [c.header for c in rendered[0].columns]
   assert any("seed" in str(x) for x in cells[2]) and any("+0.003" in str(x) for x in cells[2])
+
+
+def test_a_descriptor_whose_estimator_failed_is_left_out_not_a_crash(tmp_path, monkeypatch):
+  """The estimate step skips a descriptor whose estimator fails ("excluded from the final model"),
+  but the evaluation then went on to open that descriptor's missing results and stopped the fit."""
+  import json
+
+  from zairachem.base.utils import descriptors
+  from zairachem.base.vars import (
+    DATA_FILENAME,
+    DATA_SUBFOLDER,
+    ESTIMATORS_SUBFOLDER,
+    INPUT_SCHEMA_FILENAME,
+    RESULTS_UNMAPPED_FILENAME,
+  )
+  from zairachem.estimate.estimators.evaluate import SimpleEvaluator
+
+  for name, trained in (("eosA", True), ("eosB", False)):
+    folder = tmp_path / ESTIMATORS_SUBFOLDER / "lq_estimators" / name
+    folder.mkdir(parents=True)
+    if trained:
+      (folder / RESULTS_UNMAPPED_FILENAME).write_text("clf\n0.2\n0.9\n")
+  monkeypatch.setattr(descriptors, "effective_descriptors", lambda path: ["eosA", "eosB"])
+  data = tmp_path / DATA_SUBFOLDER
+  data.mkdir()
+  (data / DATA_FILENAME).write_text("bin\n0\n1\n")
+  (data / INPUT_SCHEMA_FILENAME).write_text(json.dumps({"values_column": "bin"}))
+  monkeypatch.setattr(SimpleEvaluator, "is_predict", lambda self: True)
+
+  evaluator = SimpleEvaluator(path=str(tmp_path))
+  assert list(evaluator.results_iterator.iter_relpaths()) == [["lq_estimators", "eosA"]]
+  evaluator.run()
+  written = sorted(p.parent.name for p in tmp_path.rglob("*evaluation*.json"))
+  assert written == ["eosA"]
+
+
+def test_a_descriptor_skipped_at_fit_is_not_computed_again_at_predict(tmp_path):
+  """The pooled record lists what was pooled and what was pruned; a descriptor whose estimator
+  failed is in neither, so predict (which computes ``pooled_descriptors``) kept featurizing it."""
+  import json
+
+  from zairachem.base.utils.descriptors import pooled_descriptors
+  from zairachem.base.vars import (
+    DESCRIPTORS_SUBFOLDER,
+    POOL_SUBFOLDER,
+    POOLED_DESCRIPTORS_FILENAME,
+  )
+
+  (tmp_path / DESCRIPTORS_SUBFOLDER).mkdir()
+  (tmp_path / DESCRIPTORS_SUBFOLDER / "done_eos.json").write_text(
+    json.dumps(["eosA", "eosB", "eosC", "eosD"])
+  )
+  (tmp_path / POOL_SUBFOLDER).mkdir(parents=True)
+  record = tmp_path / POOL_SUBFOLDER / POOLED_DESCRIPTORS_FILENAME
+  # eosB was pruned by the pool, eosC never trained (its estimator failed).
+  record.write_text(json.dumps({"pooled": ["eosA", "eosD"], "pruned": ["eosB"]}))
+  assert pooled_descriptors(str(tmp_path)) == ["eosA", "eosD"]
+  # A model fitted before the record listed what was pooled still reads as it did.
+  record.write_text(json.dumps({"pruned": ["eosB"]}))
+  assert pooled_descriptors(str(tmp_path)) == ["eosA", "eosC", "eosD"]

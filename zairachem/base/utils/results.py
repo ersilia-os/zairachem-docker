@@ -2,13 +2,14 @@
 
 Shared by the estimate, pool and report steps (previously copy-pasted in each). Yields the
 ``[estimator_family, descriptor_id]`` relative paths under ``estimators/`` for the descriptors that
-were actually produced (listed in ``descriptors/done_eos.json``).
+were actually produced (listed in ``descriptors/done_eos.json``) and trained: a descriptor whose
+estimator failed is skipped by the estimate step and has no results to iterate.
 """
 
 import os
 
 from zairachem.base import ZairaBase
-from zairachem.base.vars import ESTIMATORS_SUBFOLDER
+from zairachem.base.vars import ESTIMATORS_SUBFOLDER, RESULTS_UNMAPPED_FILENAME
 
 
 class ResultsIterator(ZairaBase):
@@ -26,7 +27,7 @@ class ResultsIterator(ZairaBase):
     return effective_descriptors(self.path)
 
   def iter_relpaths(self):
-    """Yield ``[estimator_family, descriptor]`` for each selected descriptor found under the estimators folder."""
+    """Yield ``[estimator_family, descriptor]`` for each selected descriptor with results under the estimators folder."""
     estimators_folder = os.path.join(self.path, ESTIMATORS_SUBFOLDER)
     model_ids = self._read_model_ids()
     rpaths = []
@@ -34,7 +35,9 @@ class ResultsIterator(ZairaBase):
       if os.path.isdir(os.path.join(estimators_folder, est_fam)):
         focus_folder = os.path.join(estimators_folder, est_fam)
         for d in os.listdir(focus_folder):
-          if d in model_ids:
+          if d in model_ids and os.path.isfile(
+            os.path.join(focus_folder, d, RESULTS_UNMAPPED_FILENAME)
+          ):
             rpaths += [[est_fam, d]]
     for rpath in rpaths:
       yield rpath

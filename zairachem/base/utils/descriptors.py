@@ -48,7 +48,7 @@ def pooled_descriptors(path):
   """The descriptor ids a trained model's pooled model uses (what a prediction computes).
 
   :func:`effective_descriptors` less those the pooled model left out at fit (lazy-qsar's pruning,
-  recorded in ``pool/pooled_descriptors.json``).
+  or a descriptor whose estimator failed), recorded in ``pool/pooled_descriptors.json``.
 
   Parameters
   ----------
@@ -65,8 +65,12 @@ def pooled_descriptors(path):
   if not os.path.exists(record):
     return ids
   with open(record) as f:
-    pruned = set(json.load(f).get("pruned", []))
-  return [i for i in ids if i not in pruned]
+    recorded = json.load(f)
+  pruned = set(recorded.get("pruned", []))
+  # What was pooled is exactly what has an estimator: a descriptor skipped at fit (its estimator
+  # failed) is neither pooled nor pruned, and must not be computed again at predict.
+  pooled = recorded.get("pooled")
+  return [i for i in ids if i not in pruned and (pooled is None or i in pooled)]
 
 
 def drop_rank_references(path):

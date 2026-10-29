@@ -975,6 +975,11 @@ def final_summary_panel(output_dir=None):
     from zairachem.base.utils.descriptors import effective_descriptors
 
     effective = effective_descriptors(d)
+    # A descriptor whose estimator failed was skipped and is not in the model, whatever was selected.
+    from zairachem.base.utils.results import ResultsIterator
+
+    trained = {rpath[1] for rpath in ResultsIterator(path=d).iter_relpaths()}
+    effective = [eos for eos in effective if eos in trained] or effective
   except Exception:
     effective = list(all_desc)
   used = set(effective)
