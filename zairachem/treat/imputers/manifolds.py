@@ -135,7 +135,10 @@ class Manifolds(DescriptorBase):
     client.url = get_model_url(model_id)
     client._provenance_kind = "projections"  # count toward the projector group, not featurizers
     client.splittable = False  # the projection embeds the molecules of a request together
-    # The profile keeps the response format this image supports, learned on its first request.
+    # One request of at most MAX_PROJECTION_MOLECULES: binary buys nothing here, and an image that
+    # cannot read it can answer with empty rows, so projectors always use JSON.
+    client.fixed_output_type = "simple"
+    # The profile keeps the image's memory and cores (its response format is fixed above).
     from zairachem.base.utils.model_version import _local_image_digest
     from zairachem.describe.descriptors import profiles
 

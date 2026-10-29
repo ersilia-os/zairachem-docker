@@ -224,9 +224,12 @@ def test_a_projection_with_no_coordinates_is_not_written_or_reused(tmp_path, mon
   assert manifolds._read_cache("eosxxxx") is not None
 
   # And a projector that answers with nothing stops the step, rather than writing empty columns.
+  made = []
+
   class Empty:
     def __init__(self, **kwargs):
       self.profile = None
+      made.append(self)
 
     def run(self, **kwargs):
       return {"dims": ["a_x", "a_y"], "data": np.full((2, 2), np.nan, dtype="float32")}
@@ -242,3 +245,25 @@ def test_a_projection_with_no_coordinates_is_not_written_or_reused(tmp_path, mon
   with pytest.raises(RuntimeError, match="no coordinates"):
     manifolds._run_projection_model("eosxxxx")
   assert not cache.exists()
+  assert made[0].fixed_output_type == "simple"  # projectors always ask for JSON
+
+
+def test_a_client_with_a_fixed_format_neither_learns_nor_falls_back():
+  """Projectors send one small request, where binary buys nothing; an image that cannot read it
+  can answer with empty rows, so they use JSON and never try the other format."""
+  seen = []
+
+  def attempt(batch, output_type):
+    seen.append(output_type)
+    raise requests.HTTPError("500 in simple")
+
+  client = _client(attempt)
+  client.fixed_output_type = "simple"
+  with pytest.raises(requests.HTTPError):
+    client._try_request(["CCO"])
+  assert seen == ["simple"] and client.profile.output_type is None
+
+  client = _client(lambda batch, output_type: ("rows", None))
+  client.fixed_output_type = "simple"
+  assert client._try_request(["CCO"]) == ("rows", None)
+  assert client.profile.output_type is None

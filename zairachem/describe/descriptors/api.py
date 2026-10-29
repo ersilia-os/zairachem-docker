@@ -106,6 +106,10 @@ class BinaryStreamClient(ZairaBase):
   computed rows to the isaura project.
   """
 
+  #: Response format used for every request, with no learning and no retry in the other one (a
+  #: projector sends a single small request, where binary buys nothing); None learns it per image.
+  fixed_output_type = None
+
   # ALL isaura store access (reads, index lookups AND writes) is serialized across models. Describe
   # featurizes models concurrently, but isaura's DuckDB/S3 layer is not thread-safe — concurrent
   # IsauraReader/IsauraInspect/IsauraWriter from worker threads collide (a shared connection gets
@@ -451,6 +455,8 @@ class BinaryStreamClient(ZairaBase):
     connection says nothing about the format, so it is raised without trying JSON, as is a JSON
     failure (then the problem is not the format, e.g. memory).
     """
+    if self.fixed_output_type:
+      return self._attempt(batch, self.fixed_output_type)
     if self.profile is None:  # nothing to learn into: the client's own format
       return self._attempt(batch, self.output_type)
     if self.profile.output_type:
