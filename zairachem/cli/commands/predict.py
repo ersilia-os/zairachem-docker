@@ -111,16 +111,14 @@ def predict(
     store=store,
     projection_ids=projection_ids,
   )
-  if proceed:
-    process_group(
-      os.path.abspath(output_dir),
-      anonymize,
-      batch_size=batch_size,
-      keep_intermediate_data=keep_intermediate_data,
-      no_report=no_report,
-      describe_workers=describe_workers,
-    )
-  else:
-    from zairachem.base.utils.progress import final_summary_panel
-
-    final_summary_panel(os.path.abspath(output_dir))
+  if not proceed:
+    # Setup returns False only for a refusal it has already explained (predictions exist here).
+    raise SystemExit(1)
+  process_group(
+    os.path.abspath(output_dir),
+    anonymize,
+    batch_size=batch_size,
+    keep_intermediate_data=keep_intermediate_data,
+    no_report=no_report,
+    describe_workers=describe_workers,
+  )

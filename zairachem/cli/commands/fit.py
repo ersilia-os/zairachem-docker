@@ -1,7 +1,6 @@
 import os
 
 import rich_click as click
-from click.core import ParameterSource
 
 from zairachem.base.utils.logging import logger
 from zairachem.base.vars import DEFAULT_MAX_DESCRIPTORS
@@ -11,6 +10,7 @@ from zairachem.cli.options import (
   _EVALUATE_SENTINEL,
   _STORE_HELP,
   _STORE_SENTINEL,
+  _explicit_config,
   _resolve_evaluate,
   _resolve_store,
   _resolve_task,
@@ -140,32 +140,12 @@ def fit(
     evaluate_schemas=evaluate_schemas,
     max_descriptors=max_descriptors,
   )
-  validated = _run_or_summarize(
+  validated = _run_or_stop(
     proceed, model_dir, anonymize, batch_size, keep_intermediate_data, no_report, describe_workers
   )
   if not validated:
     # The model and its results are written; only the held-out validation asked for failed.
     raise SystemExit(1)
-
-
-def _explicit_config(ctx):
-  """Return the names of the config-affecting parameters typed on the command line."""
-  # Config-affecting flags the user actually typed (vs click defaults). On resume, these are checked
-  # against the trained model's on-disk config so a conflicting re-run aborts instead of silently
-  # mixing settings; un-typed flags inherit the on-disk values.
-  return {
-    name
-    for name in (
-      "classification",
-      "featurizer_ids",
-      "projection_ids",
-      "store",
-      "evaluate",
-      "evaluate_repeats",
-      "max_descriptors",
-    )
-    if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
-  }
 
 
 def _tracked_steps(evaluate_on, max_descriptors, classification):
@@ -182,24 +162,24 @@ def _tracked_steps(evaluate_on, max_descriptors, classification):
   ]
 
 
-def _run_or_summarize(
+def _run_or_stop(
   proceed, model_dir, anonymize, batch_size, keep_intermediate_data, no_report, describe_workers
 ):
-  """Run the post-setup steps when setup says to proceed; otherwise show the final summary.
+  """Run the post-setup steps when setup says to proceed; otherwise exit 1.
+
+  Setup returns False only for a refusal it has already explained on screen (the directory is a
+  trained model, or the resumed run's input or configuration conflicts), so there is no summary to
+  show and the exit code must say the fit did not run.
 
   Returns False when held-out validation was asked for and no fold could be scored, else True.
   """
-  if proceed:
-    return process_group(
-      os.path.abspath(model_dir),
-      anonymize,
-      batch_size=batch_size,
-      keep_intermediate_data=keep_intermediate_data,
-      no_report=no_report,
-      describe_workers=describe_workers,
-    )
-  else:
-    from zairachem.base.utils.progress import final_summary_panel
-
-    final_summary_panel(os.path.abspath(model_dir))
-    return True
+  if not proceed:
+    raise SystemExit(1)
+  return process_group(
+    os.path.abspath(model_dir),
+    anonymize,
+    batch_size=batch_size,
+    keep_intermediate_data=keep_intermediate_data,
+    no_report=no_report,
+    describe_workers=describe_workers,
+  )

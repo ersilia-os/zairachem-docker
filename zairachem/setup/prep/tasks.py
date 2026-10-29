@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import rich_click as click
 
 from zairachem.base import ZairaBase
 from zairachem.base.utils.logging import logger
@@ -53,20 +54,20 @@ class RegTasks(object):
     self.values = np.array(data[VALUES_COLUMN], dtype=float)
 
   def validated(self):
-    """The target values, or raise with what is wrong with them."""
+    """The target values, or raise a ``click.ClickException`` saying what is wrong with them."""
     if not np.isfinite(self.values).all():
       n = int((~np.isfinite(self.values)).sum())
-      raise Exception(
+      raise click.ClickException(
         f"{n:,} of {len(self.values):,} activity values are empty or not a number. A regression "
         "target must be numeric for every compound."
       )
     if len(self.values) < MIN_REGRESSION_ROWS:
-      raise Exception(
+      raise click.ClickException(
         f"Only {len(self.values):,} compounds: a regression model needs at least "
         f"{MIN_REGRESSION_ROWS}."
       )
     if np.ptp(self.values) == 0:
-      raise Exception(
+      raise click.ClickException(
         f"Every activity value is {self.values[0]:g}: there is nothing to learn from a constant "
         "target."
       )
@@ -89,13 +90,14 @@ class ClfTasks(object):
   def binarize(self, values):
     """Return 0/1 labels from values in {0, 0.5, 1} (0.5 maps to 1).
 
-    Raises if any value is not binary or if either class has fewer than ``MIN_CLASS`` samples.
+    Raises a ``click.ClickException`` (one line, exit 1) if any value is not binary or if either
+    class has fewer than ``MIN_CLASS`` samples.
     """
     accepted = set([0, 0.5, 1])
     bin_values = []
     for v in values:
       if v not in accepted:
-        raise Exception("Data is not binary. Cannot do classification")
+        raise click.ClickException("Data is not binary. Cannot do classification")
       if v > 0:
         bin_values += [1]
       else:
@@ -103,7 +105,7 @@ class ClfTasks(object):
     if not self._has_enough_min_class(bin_values):
       n1 = int(np.sum(bin_values))
       n0 = len(bin_values) - n1
-      raise Exception(
+      raise click.ClickException(
         f"Not enough samples per class for classification: "
         f"{n1} positive / {n0} negative (minimum {MIN_CLASS} each required)."
       )

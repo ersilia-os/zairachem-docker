@@ -1,6 +1,7 @@
 import os
 
 import rich_click as click
+from click.core import ParameterSource
 
 # `--store` is an optional-value option: omitted -> None (no store); `--store` alone -> this
 # sentinel (resolve to a default name); `--store X` -> the literal X.
@@ -85,6 +86,27 @@ def _resolve_evaluate(value):
       param_hint="--evaluate",
     )
   return True, names
+
+
+def _explicit_config(ctx):
+  """Return the names of the config-affecting parameters typed on the command line."""
+  # Config-affecting flags the user actually typed (vs click defaults). On resume, these are checked
+  # against the trained model's on-disk config so a conflicting re-run aborts instead of silently
+  # mixing settings; un-typed flags inherit the on-disk values. A command that lacks one of these
+  # options simply never reports it (``get_parameter_source`` is None for an unknown name).
+  return {
+    name
+    for name in (
+      "classification",
+      "featurizer_ids",
+      "projection_ids",
+      "store",
+      "evaluate",
+      "evaluate_repeats",
+      "max_descriptors",
+    )
+    if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+  }
 
 
 def _trained_store(model_dir):

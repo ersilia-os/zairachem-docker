@@ -26,8 +26,9 @@ def run(
   Returns
   -------
   bool
-    False if the directory is already a trained model (without ``override``) or the resumed run's
-    configuration conflicts with ``explicit_config``; True once setup completes.
+    False, after explaining why on screen, if the directory is already a trained model (without
+    ``override``) or the resumed run's input or configuration conflicts with what was passed; the
+    caller must turn that refusal into a non-zero exit. True once setup completes.
   """
   ts = TrainSetup(
     input_file,
@@ -62,7 +63,7 @@ def run(
 
   ts.resume = resume
   if resume:
-    conflict = ts.resume_config_conflict(explicit_config or set())
+    conflict = ts.resume_input_conflict() or ts.resume_config_conflict(explicit_config or set())
     if conflict:
       echo(conflict, kind="error")
       return False
