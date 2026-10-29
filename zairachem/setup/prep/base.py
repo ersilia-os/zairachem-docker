@@ -10,12 +10,14 @@ import os
 import shutil
 
 from zairachem.base import ZairaBase
+from zairachem.base.utils.console import echo
 from zairachem.base.vars import (
   DATA_FILENAME,
   DATA_SUBFOLDER,
   DEFAULT_ISAURA_BUCKET,
   OUTPUT_FILENAME,
   RAW_INPUT_FILENAME,
+  SESSION_FILE,
   SMILES_COLUMN,
 )
 
@@ -27,6 +29,77 @@ def format_store_summary(store):
   if store == DEFAULT_ISAURA_BUCKET:
     return f"store [green]on[/] · [bold]{DEFAULT_ISAURA_BUCKET}[/] [dim](shared lake)[/]"
   return f"store [green]on[/] · project [bold]{store}[/] · lake [bold]{DEFAULT_ISAURA_BUCKET}[/]"
+
+
+def require_input_file(path):
+  """Stop with a one-line error unless ``path`` is a readable file.
+
+  Call this before anything is created, wiped or modified, so a mistyped input path costs nothing.
+
+  Raises
+  ------
+  SystemExit
+    With code 1 when ``path`` does not exist, is not a file, or cannot be read.
+  """
+  if not os.path.exists(path):
+    echo(f"Input file '{path}' does not exist.", kind="error")
+  elif not os.path.isfile(path):
+    echo(f"Input path '{path}' is not a file.", kind="error")
+  elif not os.access(path, os.R_OK):
+    echo(f"Input file '{path}' is not readable.", kind="error")
+  else:
+    return
+  raise SystemExit(1)
+
+
+def require_zairachem_dir(path):
+  """Stop unless ``path`` is absent, an empty directory or a ZairaChem directory.
+
+  A ZairaChem directory is one that holds a ``session.json``. Any other existing path (a file, or
+  a directory with content) may hold someone's own data, so the commands that call this refuse it:
+  ``fit`` and ``setup`` (``TrainSetup``) always, with or without ``--override``, and ``predict``
+  (``PredictSetup``) only when ``--override`` would wipe it. A ``predict`` without ``--override``
+  into an existing folder does not call this check: it warns, keeps the folder and builds into it.
+
+  Raises
+  ------
+  SystemExit
+    With code 1 when ``path`` exists and is neither empty nor a ZairaChem directory.
+  """
+  if not os.path.lexists(path):
+    return
+  if os.path.isdir(path) and (
+    not os.listdir(path) or os.path.exists(os.path.join(path, SESSION_FILE))
+  ):
+    return
+  echo(
+    f"'{path}' exists and is not a ZairaChem directory; choose another path or remove it yourself.",
+    kind="error",
+  )
+  raise SystemExit(1)
+
+
+def _is_within(path, parent):
+  """Whether ``path`` is ``parent`` or lies inside it (both resolved through symlinks)."""
+  path, parent = os.path.realpath(path), os.path.realpath(parent)
+  return os.path.commonpath([path, parent]) == parent
+
+
+def require_separate_dirs(output_dir, model_dir):
+  """Stop when the output directory is the model directory, inside it, or contains it.
+
+  Raises
+  ------
+  SystemExit
+    With code 1 when the two directories overlap.
+  """
+  if _is_within(output_dir, model_dir) or _is_within(model_dir, output_dir):
+    echo(
+      f"The output directory '{output_dir}' is the model directory '{model_dir}', is inside it or "
+      f"contains it; choose a different -o.",
+      kind="error",
+    )
+    raise SystemExit(1)
 
 
 class BaseSetup(object):

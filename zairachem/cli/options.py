@@ -183,6 +183,7 @@ def _common_option_decorators(require_input, include_task, include_eos, require_
       "--input-file",
       "-i",
       required=require_input,
+      type=click.Path(exists=True, dir_okay=False),
       help="Input CSV of molecules (must contain a SMILES column).",
     ),
     click.option(
