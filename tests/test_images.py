@@ -157,3 +157,88 @@ def test_reading_the_store_in_chunks_gives_each_chunk_its_own_rows(monkeypatch):
   values, cols = client._read_subset([f"C{i}" for i in range(25)], 10)
   assert cols == ["a"]
   assert not np.isnan(values).any()
+
+
+def _server_answering(monkeypatch, heavy, simple):
+  """A client whose server answers 200 in both formats, with the given arrays."""
+  import types
+
+  client = BinaryStreamClient.__new__(BinaryStreamClient)
+  client.model_id = "eosxxxx"
+  client.logger = preflight.logger
+  client.profile = ModelProfile("eosxxxx", "sha256:x")
+  client.url = "http://localhost:1/run"
+  client.server_workers = 1
+  client._ready = True
+  client._feature_len = None
+  response = types.SimpleNamespace(ok=True)
+  monkeypatch.setattr(requests, "post", lambda *a, **k: response)
+  client.decode_binary_stream = lambda r: (heavy, {})
+  client._decode_json_records = lambda r: (simple, {})
+  return client
+
+
+def test_a_reply_with_no_values_is_not_a_success(monkeypatch):
+  """An image that cannot read the binary request can still answer it with a 200 and empty rows.
+  That used to pass as a result: the projections step reported done and wrote empty coordinates."""
+  import numpy as np
+
+  empty, values = np.full((3, 2), np.nan, dtype="float32"), np.ones((3, 2), dtype="float32")
+
+  client = _server_answering(monkeypatch, empty, values)
+  array, _ = client._try_request(["CCO", "CCN", "CCC"])
+  assert np.array_equal(array, values) and client.profile.output_type == "simple"
+
+  with pytest.raises(IOError) as err:
+    _server_answering(monkeypatch, empty, empty)._try_request(["CCO", "CCN", "CCC"])
+  assert "simple" in str(err.value) and "heavy" in str(err.value)
+
+  # A model that cannot process one molecule leaves that row empty, which is not a failed reply.
+  partly = values.copy()
+  partly[1] = np.nan
+  client = _server_answering(monkeypatch, partly, values)
+  assert np.array_equal(client._try_request(["CCO", "CCN", "CCC"])[0], partly, equal_nan=True)
+  assert client.profile.output_type == "heavy"
+
+
+def test_a_projection_with_no_coordinates_is_not_written_or_reused(tmp_path, monkeypatch):
+  import json
+  import types
+
+  import numpy as np
+
+  from zairachem.describe.descriptors import api, profiles
+  from zairachem.treat.imputers import manifolds as manifolds_module
+
+  Manifolds = manifolds_module.Manifolds
+
+  manifolds = Manifolds.__new__(Manifolds)
+  manifolds.path, manifolds.inputs = str(tmp_path), ["CCO", "CCN"]
+  cache = tmp_path / "descriptors" / "eosxxxx" / "projection.json"
+  cache.parent.mkdir(parents=True)
+  manifolds._cache_path = lambda model_id: str(cache)
+
+  cache.write_text(json.dumps({"cols": ["a_x"], "rows": [{"a_x": None}, {"a_x": None}]}))
+  assert manifolds._read_cache("eosxxxx") is None
+  cache.write_text(json.dumps({"cols": ["a_x"], "rows": [{"a_x": 1.0}, {"a_x": None}]}))
+  assert manifolds._read_cache("eosxxxx") is not None
+
+  # And a projector that answers with nothing stops the step, rather than writing empty columns.
+  class Empty:
+    def __init__(self, **kwargs):
+      self.profile = None
+
+    def run(self, **kwargs):
+      return {"dims": ["a_x", "a_y"], "data": np.full((2, 2), np.nan, dtype="float32")}
+
+  monkeypatch.setattr(api, "BinaryStreamClient", Empty)
+  monkeypatch.setattr(manifolds_module, "get_model_url", lambda m: "http://localhost:1/run")
+  monkeypatch.setattr(profiles, "load", lambda m, d: types.SimpleNamespace())
+  monkeypatch.setattr(profiles, "save", lambda p: None)
+  monkeypatch.setattr("zairachem.base.utils.model_version._local_image_digest", lambda m: None)
+  cache.unlink()
+  manifolds.input_file = str(tmp_path / "input.csv")
+  manifolds._projection_sample, manifolds.batch_size = (lambda: None), 100
+  with pytest.raises(RuntimeError, match="no coordinates"):
+    manifolds._run_projection_model("eosxxxx")
+  assert not cache.exists()

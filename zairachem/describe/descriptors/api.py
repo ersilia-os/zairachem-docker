@@ -432,6 +432,11 @@ class BinaryStreamClient(ZairaBase):
       array, results = self.decode_binary_stream(response)
     else:
       array, results = self._decode_json_records(response)
+    values = np.asarray(array)  # no copy: a batch of descriptors is large
+    if values.dtype.kind == "f" and values.size and np.isnan(values).all():
+      # A 200 that holds nothing: an image that cannot read this format answers so (its code reads
+      # the input as a CSV, finds no molecules and returns empty rows), and would otherwise pass.
+      raise IOError(f"{self.model_id} returned no values in {output_type} output (all empty)")
     if self._feature_len is None:
       arr0 = np.asarray(array[0] if isinstance(array, (list, tuple)) else array)
       self._feature_len = arr0.shape[-1] if arr0.ndim > 1 else arr0.shape[0]

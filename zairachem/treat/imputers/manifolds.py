@@ -159,7 +159,7 @@ class Manifolds(DescriptorBase):
       if h5 is not None:
         cols = h5.features()
         data = h5.values()
-    if data is None:
+    if data is None or not np.isfinite(np.asarray(data, dtype=float)).any():
       raise RuntimeError(
         f"Projection model '{model_id}' returned no coordinates — refusing to write an empty "
         f"projection. Check the model container logs (docker logs)."
@@ -191,9 +191,12 @@ class Manifolds(DescriptorBase):
       return None
     with open(path) as f:
       data = json.load(f)
-    if len(data.get("rows") or []) != len(self.inputs):
+    rows = data.get("rows") or []
+    if len(rows) != len(self.inputs):
       return None
-    return data["rows"], data["cols"]
+    if not any(v is not None and np.isfinite(v) for r in rows for v in r.values()):
+      return None  # an empty projection cached by a model that could not read the request
+    return rows, data["cols"]
 
   def precompute(self, model_id, progress_cb=None, sampler=None):
     """Compute and cache one projection model's coordinates (describe runs this alongside the
