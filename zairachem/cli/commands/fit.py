@@ -140,9 +140,12 @@ def fit(
     evaluate_schemas=evaluate_schemas,
     max_descriptors=max_descriptors,
   )
-  _run_or_summarize(
+  validated = _run_or_summarize(
     proceed, model_dir, anonymize, batch_size, keep_intermediate_data, no_report, describe_workers
   )
+  if not validated:
+    # The model and its results are written; only the held-out validation asked for failed.
+    raise SystemExit(1)
 
 
 def _explicit_config(ctx):
@@ -182,9 +185,12 @@ def _tracked_steps(evaluate_on, max_descriptors, classification):
 def _run_or_summarize(
   proceed, model_dir, anonymize, batch_size, keep_intermediate_data, no_report, describe_workers
 ):
-  """Run the post-setup steps when setup says to proceed; otherwise show the final summary."""
+  """Run the post-setup steps when setup says to proceed; otherwise show the final summary.
+
+  Returns False when held-out validation was asked for and no fold could be scored, else True.
+  """
   if proceed:
-    process_group(
+    return process_group(
       os.path.abspath(model_dir),
       anonymize,
       batch_size=batch_size,
@@ -196,3 +202,4 @@ def _run_or_summarize(
     from zairachem.base.utils.progress import final_summary_panel
 
     final_summary_panel(os.path.abspath(model_dir))
+    return True

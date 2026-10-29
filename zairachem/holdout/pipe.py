@@ -130,7 +130,8 @@ class HoldoutValidationPipeline(ZairaBase):
       records.append(rec)
       monitor.finish(fold_name, ok=True)
     except Exception as e:
-      # Full traceback to the log file only: inside the live table the console must stay clean.
+      # Full traceback to console.log (the file sink keeps DEBUG) only: inside the live table the
+      # console must stay clean. The first error's type and message are echoed afterwards.
       logger.debug(f"[evaluate] Fold {fold_name} failed:\n{traceback.format_exc()}")
       failures.append({
         "fold": fold_name,
@@ -185,13 +186,14 @@ class HoldoutValidationPipeline(ZairaBase):
     if records:
       echo(
         f"{len(failures)} of {n} held-out folds failed ({names}); metrics cover the other "
-        f"{len(records)}. First error: {first}. Details: report/holdout_summary.json",
+        f"{len(records)}. First error: {first}. Traceback: console.log. "
+        "Details: report/holdout_summary.json",
         kind="warning",
       )
     else:
       echo(
-        f"All {n} held-out folds failed; validation was not completed and will be retried on "
-        f"re-run. First error: {first}. Details: report/holdout_summary.json",
+        f"All {n} held-out folds failed; held-out validation was not completed. "
+        f"First error: {first}. Traceback: console.log. Details: report/holdout_summary.json",
         kind="error",
       )
 
@@ -199,6 +201,15 @@ class HoldoutValidationPipeline(ZairaBase):
     """Run every fold defined at setup and write the validation outputs.
 
     A no-op for predict runs, without ``--evaluate``, or when the step is already done.
+
+    Returns
+    -------
+    bool or None
+      False when no fold could be scored, so the caller can show the step as failed and the run can
+      end with a non-zero exit code; True when at least one fold was scored; None when nothing was
+      attempted (not an evaluate run, already done, or no splits). The step is marked done only
+      when every fold was scored: after a partial failure a re-run keeps the scored folds (see
+      :func:`~zairachem.holdout.engine.load_fold_record`) and retries only the failed ones.
     """
     if self.is_predict() or not self.params.get("evaluate"):
       return
@@ -227,5 +238,6 @@ class HoldoutValidationPipeline(ZairaBase):
     records, failures = self._run_folds(run_one_fold, folds, model_ids, fetcher)
     write_validation_outputs(self.path, folds, records, failures=failures)
     self._report_failures(n, records, failures)
-    if records:
+    if records and not failures:
       step.update()
+    return bool(records) or not failures

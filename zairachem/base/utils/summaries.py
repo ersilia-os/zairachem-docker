@@ -356,6 +356,13 @@ def summarize_screen(output_dir=None):
   return f"kept {n_sel} of {n_all} descriptors"
 
 
+def _folds_of(n, defined):
+  """``"2 of 3 folds"`` when only ``n`` of the ``defined`` folds were scored, else ``"3 folds"``."""
+  if defined and n < defined:
+    return f"{n} of {defined} folds"
+  return _plurals(n, "fold")
+
+
 def summarize_holdout(output_dir=None):
   """Summarize held-out validation (folds scored and failed, scaffold skill); empty when missing."""
   d = _resolve_output_dir(output_dir)
@@ -386,7 +393,11 @@ def summarize_holdout(output_dir=None):
   for metric, label in (("auroc", "AUROC"), ("r2", "R\u00b2")):
     mean = (scaffold.get(metric) or {}).get("mean")
     if mean is not None:
-      parts.append(f"scaffold {label} {mean:.2f}")
+      text = f"scaffold {label} {mean:.2f}"
+      n_scaffold, defined = scaffold.get("n_folds") or 0, scaffold.get("n_defined")
+      if defined and n_scaffold < defined:
+        text += f" ({_folds_of(n_scaffold, defined)})"
+      parts.append(text)
       break
   return " · ".join(parts)
 
@@ -689,7 +700,8 @@ def _note_held_out_skill(rows, output_dir, task, pooled):
     return
   rows.append((
     "Held out",
-    f"{label} [bold green]{held:.3f}[/]  [dim](scaffold, {_plurals(n_folds, 'fold')})[/]",
+    f"{label} [bold green]{held:.3f}[/]  "
+    f"[dim](scaffold, {_folds_of(n_folds, scaffold.get('n_defined'))})[/]",
   ))
   headline = _finite_or_none(pooled.get(key))
   gap = PRUNE_GAP.get(task)
@@ -948,8 +960,17 @@ def _detail_rows(key, output_dir=None):
   return []
 
 
-def final_summary_panel(output_dir=None):
-  """Render the closing run-summary panel: headline metrics + output location."""
+def final_summary_panel(output_dir=None, validation_failed=False):
+  """Render the closing run-summary panel: headline metrics + output location.
+
+  Parameters
+  ----------
+  output_dir : str, optional
+    The run folder.
+  validation_failed : bool
+    True when held-out validation was asked for and no fold could be scored: the panel says so,
+    in red, instead of closing as a plain success. The model itself is unaffected.
+  """
   # The live checklist is transient; stop it first so the panel lands cleanly below the records.
   # Imported lazily (the tracker module imports this one) to keep the module load acyclic.
   from zairachem.base.utils.pipeline_tracker import tracker
@@ -1047,5 +1068,19 @@ def final_summary_panel(output_dir=None):
   elif plots:
     rows.append(("Report", f"{_plurals(plots, 'plot')} in [bold]{REPORT_SUBFOLDER}/[/]"))
 
+  if validation_failed:
+    rows.append((
+      "Held out",
+      "[bold red]Held-out validation failed[/] [dim]— no fold could be scored, so there is no "
+      "held-out estimate. The model above is trained and usable. See "
+      f"{REPORT_SUBFOLDER}/holdout_summary.json.[/]",
+    ))
+    summary_panel(
+      "ZairaChem · model ready, held-out validation failed",
+      rows,
+      border_style="yellow",
+      icon="⚠",
+    )
+    return
   title = "ZairaChem · predictions ready" if _is_predict(d) else "ZairaChem · model ready"
   summary_panel(title, rows, border_style="bright_green", icon="✓")
