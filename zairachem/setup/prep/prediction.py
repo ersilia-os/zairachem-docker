@@ -247,6 +247,8 @@ class PredictSetup(BaseSetup):
   def _normalize_input(self):
     step = PipelineStep("normalize_input", self.output_dir)
     if not step.is_done():
+      # Same as at fit: a resume skips the copy in `_initialize`, so follow the file given now.
+      self._copy_input_file()
       params = ParametersFile(path=params_path(self.model_dir)).load()
       f = SingleFileForPrediction(self.input_file, params, self.output_dir)
       f.process()

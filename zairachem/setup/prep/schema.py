@@ -13,6 +13,10 @@ _MIN_CORRECT = 0.8
 BINARY_LABELS = (0, 0.5, 1)
 
 
+class InputError(ValueError):
+  """The input file cannot be used; the message says what is wrong and what to change."""
+
+
 def target_kind(values):
   """Tell classification labels from a continuous target.
 
@@ -82,13 +86,26 @@ class InputSchema(ZairaBase):
       return False
 
   def find_smiles_column(self):
-    """Return, as a one-item list, the first column named like or parsing as SMILES."""
+    """Return, as a one-item list, the first column named like or parsing as SMILES.
+
+    Raises
+    ------
+    InputError
+      If the input has no data rows or no column that looks like SMILES (all-empty columns are
+      ignored). It is a ``ValueError``.
+    """
+    name = os.path.basename(self.input_file)
+    if self.df_.empty:
+      raise InputError(f"The input '{name}' has no data rows.")
     cols = []
     for col in self.columns:
       if self._is_smiles_column(col):
         cols += [col]
       else:
         continue
+    if not cols:
+      looked = ", ".join(str(c) for c in self.columns) or "none with any values"
+      raise InputError(f"No SMILES column found in '{name}' (columns looked at: {looked}).")
     if len(cols) > 1:
       logger.warning(
         f"More than one column contains smiles as header. Proceeding with first col: {cols[0]}"
@@ -134,6 +151,42 @@ class InputSchema(ZairaBase):
       else:
         continue
     return cols
+
+  def _why_not_values(self, col):
+    """Short reason a column was not taken as the target, for the message when none is found."""
+    series = self.df_[col].dropna()
+    if series.empty:
+      return "empty"
+    if col.lower() == "id" or col == "Unnamed: 0":
+      return "an identifier"
+    for v in series:
+      try:
+        float(v)
+      except Exception:
+        return f"not numeric, e.g. '{v}'"
+    return "not used"
+
+  def missing_values_column_message(self, smiles_column):
+    """Say that no target column was found, which columns were looked at and why each was passed over.
+
+    Parameters
+    ----------
+    smiles_column : str
+      The SMILES column, which is not a candidate.
+
+    Returns
+    -------
+    str
+      A one-line message for ``InputError``.
+    """
+    name = os.path.basename(self.input_file)
+    others = [c for c in self.df_.columns if c != smiles_column]
+    looked = "; ".join(f"{c} ({self._why_not_values(c)})" for c in others)
+    return (
+      f"No numeric or 0/1 target column found in '{name}'. Columns looked at: "
+      f"{looked or 'none besides the SMILES column'}. The target must be numbers: recode text "
+      "labels such as active/inactive as 1/0."
+    )
 
   def find_values_column_by_name(self, target_name):
     """The input column whose header matches ``target_name`` (case-insensitive, trimmed), or ``[]``.

@@ -104,14 +104,25 @@ class ChemblStandardize(object):
           try:
             results_by_batch[batch_idx] = future.result()
           except Exception as e:
-            logger.error(f"[standardize] Batch {batch_idx} failed: {e}")
-            results_by_batch[batch_idx] = []
+            # A lost batch is up to a thousand molecules that silently vanish: run it again here.
+            # A molecule that still cannot be standardised keeps its own SMILES, as in the serial
+            # path (see _standardize_single).
+            logger.warning(
+              f"[standardize] Batch {batch_idx} failed in a worker ({e}); re-running it"
+            )
+            try:
+              results_by_batch[batch_idx] = _standardize_batch(batches[batch_idx])
+            except Exception as again:
+              raise RuntimeError(
+                f"Standardisation failed for {len(batches[batch_idx]):,} molecules (batch "
+                f"{batch_idx}) in a worker and again when re-run: {again}"
+              ) from again
           progress.update(task, advance=1)
     # Reassemble in submission (input) order: as_completed yields in completion order,
     # which would otherwise make compounds_std.csv / data.csv order non-deterministic.
     R = []
     for i in range(n_batches):
-      R.extend(results_by_batch.get(i, []))
+      R.extend(results_by_batch[i])
     return R
 
   def _run_vectorized(self, df):
