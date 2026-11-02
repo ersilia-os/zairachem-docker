@@ -16,7 +16,7 @@ scikit-learn  = "1.9.1"
 scipy         = "1.17.1"  # imported directly (Spearman/Pearson), not only via scikit-learn
 lazyqsar      = { version = "3.8.1", extras = ["fit"] }
 stylia        = "1.0.1"
-matplotlib    = "3.10.0"
+matplotlib    = "3.11.2"
 seaborn       = "0.13.2"
 pyyaml        = "6.0.3"
 rich          = "14.1.0"
