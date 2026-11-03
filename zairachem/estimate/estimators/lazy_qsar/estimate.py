@@ -273,7 +273,7 @@ class Fitter(BaseEstimatorIndividual):
     # matrix and derive its veto cutoff. Persisted alongside the model for inference. Guarded —
     # AD is an optional pooler signal.
     self.substep_cb("applicability domain")
-    ad_model, ad_cutoff = self._fit_ad(X_train, descriptor_dir)
+    ad_model, ad_cutoff, train_ad = self._fit_ad(X_train, descriptor_dir)
     # Per-row signals scattered back to original row order. ``preds`` is the calibrated
     # probability (OOF for training rows where available — honest, not resubstitution); ``ranks``
     # is lazy-qsar's percentile within the model's own OOF distribution (the reliability signal
@@ -287,7 +287,7 @@ class Fitter(BaseEstimatorIndividual):
     self._fill_train_proba(
       model, X_train, channels, train_order_arr, descriptor_dir, preds, preds_raw
     )
-    self._fill_train_rank_ad(model, ad_model, X_train, train_order_arr, channels, ranks, ads)
+    self._fill_train_rank_ad(model, train_ad, X_train, train_order_arr, channels, ranks, ads)
     del X_train
     gc.collect()
     self._save_model(model, t)
@@ -327,7 +327,7 @@ class Fitter(BaseEstimatorIndividual):
     channels = self._reg_oof_channels(model, X_train)
     self._write_report(_reg_cv_report(model, y_train), channels, y_train, descriptor_dir)
     self.substep_cb("applicability domain")
-    ad_model, ad_cutoff = self._fit_ad(X_train, descriptor_dir)
+    ad_model, ad_cutoff, train_ad = self._fit_ad(X_train, descriptor_dir)
 
     preds, ranks, ads = self._blank_signals(n_samples)
     covers_all = train_order_arr.size == n_samples and np.unique(train_order_arr).size == n_samples
@@ -344,8 +344,8 @@ class Fitter(BaseEstimatorIndividual):
       with contextlib.suppress(Exception):
         ranks[train_order_arr] = model._oof_percentile_from_value(preds[train_order_arr])
     self._record_oof_used(descriptor_dir, channels is not None)
-    if ad_model is not None:
-      ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
+    if train_ad is not None:
+      ads[train_order_arr] = train_ad
     del X_train
     gc.collect()
     self._save_model(model, t)
@@ -478,15 +478,18 @@ class Fitter(BaseEstimatorIndividual):
       preds[train_order_arr] = self._batched(lambda xb: model.predict_proba(X=xb)[:, 1], X_train)
     self._record_oof_used(descriptor_dir, use_oof)
 
-  def _fill_train_rank_ad(self, model, ad_model, X_train, train_order_arr, channels, ranks, ads):
-    """Fill the training rows of ``ranks`` and ``ads`` in place."""
+  def _fill_train_rank_ad(self, model, train_ad, X_train, train_order_arr, channels, ranks, ads):
+    """Fill the training rows of ``ranks`` and ``ads`` in place.
+
+    ``train_ad`` is the training rows' AD scores from :meth:`_fit_ad` (None without an AD).
+    """
     if channels is not None:
       # The percentile of the same out-of-fold probability the pooler is fitted on.
       ranks[train_order_arr] = channels[1]
     else:
       ranks[train_order_arr] = self._batched(lambda xb: _percentile(model, xb), X_train, np.nan)
-    if ad_model is not None:
-      ads[train_order_arr] = self._batched(lambda xb: ad_model.score(xb), X_train, default=np.nan)
+    if train_ad is not None:
+      ads[train_order_arr] = train_ad
 
   def _fill_unseen_signals(
     self, score_rows, model, ad_model, train_order_arr, n_samples, preds, ranks, ads
@@ -651,22 +654,26 @@ class Fitter(BaseEstimatorIndividual):
   def _fit_ad(self, X_train, descriptor_dir):
     """Fit lazy-qsar's PCA+Mahalanobis applicability domain on the training matrix.
 
-    Returns ``(ad_model, cutoff)`` where ``cutoff`` is the 5th percentile of training AD scores
-    (the per-descriptor veto threshold used by the pooler). The fitted AD is pickled to
-    ``ad.joblib`` for inference. Returns ``(None, None)`` on any failure — AD is optional.
+    Returns ``(ad_model, cutoff, train_ad)``: ``train_ad`` holds the training rows' AD scores (in
+    ``X_train`` order) and ``cutoff`` is their 5th percentile (the per-descriptor veto threshold
+    used by the pooler). The fitted AD is pickled to ``ad.joblib`` for inference. Returns
+    ``(None, None, None)`` on any failure — AD is optional.
     """
     try:
       from lazyqsar.applicability.domain import ApplicabilityDomain
 
       ad = ApplicabilityDomain()
       ad.fit(X_train)
-      train_ad = ad.score(X_train)
+      # The training rows' AD scores give both the cutoff and the training rows' AD signal, so
+      # the matrix is scored once here and the callers reuse the result. Batches give the same
+      # scores row for row as one call.
+      train_ad = self._batched(ad.score, X_train)
       cutoff = float(np.percentile(train_ad, 5))
       joblib.dump(ad, os.path.join(descriptor_dir, "ad.joblib"))
-      return ad, cutoff
+      return ad, cutoff, train_ad
     except Exception as e:
       logger.warning(f"[lazyqsar:fit] Applicability domain unavailable for {self.model_id}: {e}")
-      return None, None
+      return None, None, None
 
   @staticmethod
   def _build_rank_error_curve(ranks, preds, y, n_knots=20, normalize=False):
