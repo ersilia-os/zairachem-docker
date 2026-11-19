@@ -8,8 +8,11 @@ needs: the reference-library transformers and the rank-reference matrices.
 """
 
 import os
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+
+from rich.markup import escape
 
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo, plural
@@ -446,7 +449,7 @@ def _report_transformer_gaps(kept, missing, n_featurizers, reference_library):
   if not kept:
     echo(
       f"None of the {plural(n_featurizers, 'featurizer')} has a usable transformer in reference "
-      f"library '{reference_library}' — ZairaChem cannot continue.",
+      f"library '{escape(reference_library)}' — ZairaChem cannot continue.",
       kind="error",
     )
     echo(
@@ -454,15 +457,57 @@ def _report_transformer_gaps(kept, missing, n_featurizers, reference_library):
       "Fit and upload the missing ones, then re-run:",
       kind="info",
     )
-    for m, version, url, _ in missing:
-      console.print(f"      [red]✖[/] [bold]{m}[/] ({version}) → [dim]{url}[/]")
+    _list_missing_transformers(missing, "[red]✖[/]")
     raise SystemExit(1)
   if missing:
-    echo(
-      f"Skipping {plural(len(missing), 'descriptor')} with no transformer in '{reference_library}': "
-      f"{', '.join(m for m, *_ in missing)}.",
-      kind="warning",
-    )
+    _warn_skipped_transformers(kept, missing, n_featurizers, reference_library)
+
+
+def _skip_reason(error, url):
+  """Why a transformer could not be used, in a few words: the HTTP status, else the error."""
+  code = re.search(r"\(HTTP (\d+)", error)
+  if not code:
+    return error.replace(url, "the URL above")
+  return {
+    "404": "not published (HTTP 404)",
+    "403": "not published or not readable (HTTP 403)",
+  }.get(code.group(1), f"HTTP {code.group(1)}")
+
+
+def _list_missing_transformers(missing, mark):
+  """Print one line per ``(m, version, url, error)`` of ``missing``, with the reason below it."""
+  for m, version, url, error in missing:
+    console.print(f"      {mark} [bold]{escape(m)}[/] ({escape(version)}) → [dim]{escape(url)}[/]")
+    console.print(f"        [dim]{escape(_skip_reason(error, url))}[/]")
+
+
+def _warn_skipped_transformers(kept, missing, n_featurizers, reference_library):
+  """Warn, so it cannot be missed, that the run goes on without the featurizers of ``missing``.
+
+  Parameters
+  ----------
+  kept : list of str
+      Featurizers whose transformer was saved; the run goes on with these.
+  missing : list of tuple
+      ``(m, version, url, error)`` for each featurizer left out.
+  n_featurizers : int
+      How many featurizers the run asked for.
+  reference_library : str
+      The reference library the transformers were looked up in.
+  """
+  n = len(missing)
+  echo(
+    f"[bold]{len(kept)} of {plural(n_featurizers, 'descriptor')} have a usable transformer in "
+    f"reference library '{escape(reference_library)}'; the other {n} "
+    f"{'is' if n == 1 else 'are'} left out of this model.[/]",
+    kind="warning",
+  )
+  _list_missing_transformers(missing, "[yellow]–[/]")
+  echo(
+    "Each descriptor is scaled with a transformer fitted on the reference library for its version. "
+    "A descriptor left out here joins later fits once its transformer can be downloaded.",
+    kind="info",
+  )
 
 
 def prepare_reference_transformers(featurizer_ids, reference_library, output_dir):
