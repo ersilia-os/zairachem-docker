@@ -244,22 +244,23 @@ def is_image_up_to_date(model_id):
   on DockerHub right now, False if it's behind (a newer image has been pushed), or None if it can't
   be determined (no local image, DockerHub unreachable, or no ``latest`` tag). An image without a
   registry digest is True if its layers match the registry's ``latest``, False if they match an
-  older release, else None: it was built locally, so it cannot be called behind. A pulled image
-  reuses the cached digest/tags, so it adds no extra network beyond version resolution.
+  older release, else None: it was built locally, so it cannot be called behind. A digest that no
+  registry tag lists counts as none: Docker's containerd image store gives the image Ersilia
+  re-tags a digest of its own. A pulled image reuses the cached digest/tags, so it adds no extra
+  network beyond version resolution.
   """
   local = _local_image_digest(model_id)
-  if not local:
-    release = _layers_release(model_id)
-    return None if release is None else release == "latest"
-  try:
-    tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
-  except Exception as e:
-    logger.debug(f"Could not check if {model_id} is up to date ({e})")
-    return None
-  latest_digests = set()
-  for name, _last_updated, digests in tags:
-    if name == "latest":
-      latest_digests |= digests
-  if not latest_digests:
-    return None
-  return local in latest_digests
+  if local:
+    try:
+      tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
+    except Exception as e:
+      logger.debug(f"Could not check if {model_id} is up to date ({e})")
+      return None
+    if any(local in digests for _name, _last_updated, digests in tags):
+      latest_digests = set()
+      for name, _last_updated, digests in tags:
+        if name == "latest":
+          latest_digests |= digests
+      return (local in latest_digests) if latest_digests else None
+  release = _layers_release(model_id)
+  return None if release is None else release == "latest"

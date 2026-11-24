@@ -425,6 +425,8 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
   # that the project is *missing*. No display; lets us skip the migration table entirely when there
   # is nothing to bring over (e.g. a re-run where the project is already fully populated).
   to_migrate = {}  # model -> (version, [smiles to migrate])  | (None, None) marks a per-model error
+  # Whether the lake holds any of the input for any model, before what the project already has.
+  in_lake = False
   with quiet_isaura_reads():
     for m in model_ids:
       try:
@@ -432,6 +434,7 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
         with IsauraChecker(DEFAULT_ISAURA_BUCKET, m, version) as checker:
           seen = checker.seen_many(smiles)
         present = [s for s in smiles if seen.get(s, [False, None])[0]]
+        in_lake = in_lake or bool(present)
         if present:
           try:
             with IsauraChecker(project, m, version) as proj_checker:
@@ -445,11 +448,29 @@ def create_and_migrate_project(project, featurizer_ids, projection_ids, smiles, 
         logger.debug(f"Migration pre-check failed for {m} ({e})")
         to_migrate[m] = (None, None)
 
+  # "Nothing to migrate" has three causes, and only one of them means the project is populated.
+  failed = [m for m, (_v, present) in to_migrate.items() if present is None]
+  if failed:
+    echo(
+      f"Could not check {DEFAULT_ISAURA_BUCKET} for {', '.join(failed)}: "
+      "nothing is migrated for them, so describe computes what the project lacks.",
+      kind="warning",
+    )
   if not any(present for _v, present in to_migrate.values()):
     if output_dir is not None:
       for m in model_ids:
         record_migration(output_dir, m, 0)
-    echo(f"Project '{project}' already has all cached compounds — nothing to migrate.", kind="info")
+    if len(failed) == len(model_ids):
+      return
+    if in_lake:
+      echo(
+        f"Project '{project}' already has all cached compounds — nothing to migrate.", kind="info"
+      )
+    else:
+      echo(
+        f"None of these compounds are in {DEFAULT_ISAURA_BUCKET} yet — nothing to migrate.",
+        kind="info",
+      )
     return
 
   # Phase 2 — read the missing compounds from the lake and write them into the project, per model,
