@@ -277,3 +277,55 @@ def test_a_client_with_a_fixed_format_neither_learns_nor_falls_back():
   client.fixed_output_type = "simple"
   assert client._try_request(["CCO"]) == ("rows", None)
   assert client.profile.output_type is None
+
+
+def _migrate_messages(monkeypatch, lake, project_has, broken=False):
+  """Messages from create_and_migrate_project against a fake lake and project of SMILES sets."""
+  import isaura.base
+  import isaura.manage
+
+  from zairachem.base.utils import isaura_report
+
+  class Store:
+    def __init__(self, **kw):
+      pass
+
+    def ensure_bucket(self, name):
+      pass
+
+    def upload_file(self, *a):
+      pass
+
+  class Checker:
+    def __init__(self, bucket, model, version):
+      if broken:
+        raise ConnectionError("lake down")
+      self.has = lake if bucket == isaura_report.DEFAULT_ISAURA_BUCKET else project_has
+
+    def __enter__(self):
+      return self
+
+    def __exit__(self, *a):
+      return False
+
+    def seen_many(self, smiles):
+      return {s: [s in self.has, None] for s in smiles}
+
+  said = []
+  monkeypatch.setattr(isaura.base, "MinioStore", Store)
+  monkeypatch.setattr(isaura.manage, "IsauraChecker", Checker)
+  monkeypatch.setattr(isaura_report, "_engine_running", lambda: True)
+  monkeypatch.setattr(isaura_report, "ersilia_model_version", lambda m: "v1")
+  monkeypatch.setattr(isaura_report, "echo", lambda msg, kind=None: said.append((kind, msg)))
+  isaura_report.create_and_migrate_project("proj", ["eosaaaa"], [], ["C", "CC"])
+  return said
+
+
+def test_nothing_to_migrate_says_why(monkeypatch):
+  pytest.importorskip("isaura")
+  ((kind, msg),) = _migrate_messages(monkeypatch, lake={"C", "CC"}, project_has={"C", "CC"})
+  assert "already has all cached compounds" in msg
+  ((kind, msg),) = _migrate_messages(monkeypatch, lake=set(), project_has=set())
+  assert "None of these compounds are in" in msg
+  said = _migrate_messages(monkeypatch, lake=set(), project_has=set(), broken=True)
+  assert [k for k, _ in said] == ["warning"]  # a failed check is not reported as a full project
