@@ -211,6 +211,9 @@ MIN_CLASS = 30
 # for the out-of-fold splits its heads are calibrated on).
 MIN_REGRESSION_ROWS = 30
 RANDOM_SEED = 42
+# The exact LazyQSAR release this code runs on. Must equal the lazyqsar pin in pyproject.toml (a test
+# checks it), so change both together. The CLI stops when the installed release differs.
+LAZYQSAR_VERSION = "3.8.1"
 
 
 # Reference library used to pre-fit the eosframes descriptor transformers. The treat step
