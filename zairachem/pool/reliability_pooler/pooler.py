@@ -29,8 +29,8 @@ from lazyqsar.ensemble.combine import EnsembleSpec, combine
 from lazyqsar.ensemble.intervals import ad_summary, fit_intervals
 from lazyqsar.ensemble.reference import build_pooled_score_knots
 from lazyqsar.poolers.regression.inner_pooler import stacking_weights
-from lazyqsar.qsar import _quality_weight  # private, pinned with lazyqsar==3.8.0
-from lazyqsar.qsar_regressor import _quality_rho  # private, pinned with lazyqsar==3.8.0
+from lazyqsar.qsar import _quality_weight  # private, pinned with lazyqsar==3.9.3
+from lazyqsar.qsar_regressor import _quality_rho  # private, pinned with lazyqsar==3.9.3
 from lazyqsar.utils.ranking import (
   DECISION_RANK,
   prepare_knots,
