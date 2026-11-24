@@ -636,9 +636,8 @@ class BinaryStreamClient(ZairaBase):
     )
 
   def _write_to_store(self, writer, res, batch_size=None):
-    # Stream the upload chunk-by-chunk so the full descriptor matrix (n_molecules x
-    # thousands of features) is never materialised in memory at once. Falls back to a
-    # single write only when the values are already held in memory (non-streamed path).
+    # Upload chunk-by-chunk on both paths: each chunk is converted to a string DataFrame (about
+    # 16x the float32 size), so a single write of a held matrix needs tens of GB at 100k+ molecules.
     from zairachem.base.vars import DEFAULT_ISAURA_BATCH_SIZE
 
     bs = batch_size or DEFAULT_ISAURA_BATCH_SIZE
@@ -658,7 +657,15 @@ class BinaryStreamClient(ZairaBase):
         n += end - start
       logger.info(f"Contributed {n} rows to bucket (streamed in chunks of {bs})")
     else:
-      writer.write(df=self._get_ersilia_df(res), show_progress=False)
+      inputs = [str(x) for x in res["inputs"]]
+      data = res["data"]
+      for start in range(0, len(inputs), bs):
+        end = min(start + bs, len(inputs))
+        writer.write(
+          df=self._ersilia_chunk_df(inputs[start:end], np.asarray(data[start:end]), dims),
+          show_progress=False,
+        )
+      logger.info(f"Contributed {len(inputs)} rows to bucket (in chunks of {bs})")
 
   def _report(self, *event):
     """Forward a progress event ``(model_id, *event)`` to the injected monitor callback, if any."""
@@ -917,24 +924,6 @@ class BinaryStreamClient(ZairaBase):
 
     self._record_provenance(n_total, n_from_project, n_computed)
     return self._assemble_results(full, cols, dtype, output_h5, isaura_batch_size)
-
-  def _get_ersilia_df(self, res):
-    try:
-      keys = [hashlib.md5(inp.encode()).hexdigest() for inp in res["inputs"]]
-      data = res["data"]
-      # When descriptors are streamed to disk, res["data"] is None and the real
-      # values live in the h5 file. Load them so we don't upload all-NaN columns.
-      if data is None and res.get("h5_file"):
-        from zairachem.base.utils.matrices import open_h5
-
-        h5 = open_h5(res["h5_file"])
-        data = h5.values()
-      return pd.DataFrame({"key": keys, "input": res["inputs"]}).join(
-        pd.DataFrame(data, columns=res["dims"], dtype=str)
-      )
-    except Exception as e:
-      logger.error(f"Error creating Ersilia DataFrame: {e}")
-      raise
 
   def _run(self, output_h5=None):
     try:

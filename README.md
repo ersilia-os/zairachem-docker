@@ -33,6 +33,10 @@ Check the install (this also prints a Docker readiness line):
 zairachem --help
 ```
 
+To update, run `git pull` and then `pip install -e .` again in the same environment (or re-run
+`bash install.sh`). ZairaChem stops with a message if the installed LazyQSAR is not the version it pins;
+`ZAIRACHEM_ALLOW_LAZYQSAR_MISMATCH=1` runs it anyway, with a warning (for deliberate cross-version tests).
+
 ## Quickstart
 
 Train a model and predict, using the example data shipped in `example/`, one set per task:
