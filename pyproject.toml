@@ -39,9 +39,10 @@ onnxconverter-common = "1.16.0"
 pillow        = ">=12.2.0"
 urllib3       = ">=2.7.0"
 idna          = ">=3.15"
-isaura = { version = "2.4.2", optional = true }  # 2.4.2 fixes isaura#29 and pins duckdb<2 (#31)
-# isaura <= 2.4.1 allows duckdb 2.x, which lacks `fetch_record_batch` (reads of models with < 100 output columns
-# fail); drop this line once an isaura release pins duckdb below 2.
+# Needs >= 2.4.3: repeated writes on wide models (isaura#32) and chunked reads (isaura#29).
+isaura = { version = "2.4.3", optional = true }
+# isaura 2.4.3 accepts duckdb 2.x; ZairaChem is tested on duckdb 1.5.5 only, so it stays pinned until a run on
+# duckdb 2 passes.
 duckdb = { version = "1.5.5", optional = true }
 
 [tool.poetry.extras]
