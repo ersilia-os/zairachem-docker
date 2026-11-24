@@ -105,6 +105,16 @@ def test_an_image_without_a_registry_digest_is_judged_by_its_layers(monkeypatch)
   assert mv.is_image_up_to_date("eos4ex3") is None  # matches nothing: unknown, not behind
 
 
+def test_a_local_only_digest_is_judged_by_its_layers(monkeypatch):
+  # Docker's containerd store gives the image Ersilia re-tags a digest no registry tag lists.
+  registry = {"latest": ["aaa"], "v2.0.0": ["aaa"], "v1.2.1": ["old"]}
+  mv = _undigested_image(monkeypatch, ["aaa"], registry)
+  monkeypatch.setattr(mv, "_local_image_digest", lambda m: "sha256:local-only")
+  assert mv.is_image_up_to_date("eos4ex3") is True
+  monkeypatch.setattr(mv, "_local_image_digest", lambda m: "sha256:old")
+  assert mv.is_image_up_to_date("eos4ex3") is False  # a pulled older release is still behind
+
+
 def test_the_version_of_an_image_without_a_digest_does_not_depend_on_its_build_time(monkeypatch):
   registry = {"latest": ["aaa"], "v2.0.0": ["aaa"], "v1.2.1": ["old"]}
   mv = _undigested_image(monkeypatch, ["aaa"], registry)
