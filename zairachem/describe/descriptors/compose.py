@@ -91,7 +91,7 @@ def _write_pid(f, pid):
 
 
 def load_ports():
-  """Model id → host port of every model in the shared project."""
+  """Server key (model id, or ``<id>:<tag>`` when pinned) → host port, for the shared project."""
   try:
     return json.loads((compose_dir() / PORTS_FILENAME).read_text())
   except (OSError, ValueError):
@@ -99,7 +99,7 @@ def load_ports():
 
 
 def save_ports(ports):
-  """Store the model id → host port map of the shared project."""
+  """Store the server key → host port map of the shared project."""
   path = compose_dir() / PORTS_FILENAME
   path.parent.mkdir(parents=True, exist_ok=True)
   tmp = path.with_suffix(".tmp")

@@ -11,6 +11,7 @@ from zairachem.base.utils.isaura_report import (
   report_store_availability,
 )
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.model_version import image_records, pin_models
 from zairachem.base.utils.pipeline import PipelineStep, SessionFile
 from zairachem.base.utils.preflight import (
   reap_orphaned_servers,
@@ -28,6 +29,7 @@ from zairachem.base.vars import (
   ESTIMATORS_SUBFOLDER,
   INPUT_SCHEMA_FILENAME,
   METADATA_SUBFOLDER,
+  MODEL_IMAGES_KEY,
   OUTPUT_FILENAME,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
@@ -232,6 +234,14 @@ class PredictSetup(BaseSetup):
         )
     _atomic_json(pp, params)
 
+  def _record_images(self, model_ids):
+    """Record in this run's ``parameters.json`` the image tag and digest each model runs."""
+    pp = params_path(self.output_dir)
+    with open(pp, "r") as f:
+      params = json.load(f)
+    params[MODEL_IMAGES_KEY] = {**(params.get(MODEL_IMAGES_KEY) or {}), **image_records(model_ids)}
+    _atomic_json(pp, params)
+
   def _initialize(self):
     step = PipelineStep("initialize", self.output_dir)
     # Write (or keep) this run's own session.json before any other step, including a resume: every
@@ -361,8 +371,10 @@ class PredictSetup(BaseSetup):
     reap_orphaned_servers()
     featurizers, projections = self._model_id_groups()
     with open(params_path(self.model_dir)) as f:
-      trained = json.load(f).get("latest_featurizer_version")
-    require_model_versions([*featurizers, *projections], trained)
+      trained = json.load(f)
+    # A pinned model runs the exact tag it was fitted with (an older fit: its fitted major).
+    pin_models([*featurizers, *projections], trained)
+    require_model_versions([*featurizers, *projections], trained.get("latest_featurizer_version"))
     self._initialize()
     self._normalize_input()
     self._standardize()
@@ -373,6 +385,7 @@ class PredictSetup(BaseSetup):
     self._clean()
     self._print_summary()
     report_model_images(featurizers, projections)
+    self._record_images([*featurizers, *projections])
     # Coverage/version checks always inspect the central lake (migration source), not the project.
     check_isaura_version_consistency(DEFAULT_ISAURA_BUCKET, featurizers, projections)
     smiles = self._input_smiles()

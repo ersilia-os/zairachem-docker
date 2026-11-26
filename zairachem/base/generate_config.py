@@ -1,6 +1,6 @@
 import re
 
-from zairachem.base.vars import NETWORK_NAME, REDIS_IMAGE
+from zairachem.base.vars import NETWORK_NAME, ORG, REDIS_IMAGE
 
 
 def _sanitize(name):
@@ -8,15 +8,25 @@ def _sanitize(name):
   return s or "svc"
 
 
-def service_name(model_id):
-  """Compose service name of a model's server (e.g. ``eos3l5f_api``)."""
-  return f"{_sanitize(model_id)}_api"
+def service_name(key):
+  """Compose service name of a server (``eos3l5f_api``; ``eos3l5f_v2_0_1_api`` for a pinned tag).
+
+  ``key`` is the server's key in the project (``model_version.server_key``): a model id, or
+  ``<id>:<tag>`` for a model pinned to a tag.
+  """
+  return f"{_sanitize(key)}_api"
 
 
-def _service_block(model_id, host_port, network_name):
-  image_name = f"ersiliaos/{model_id.lower()}"
-  return f"""  {service_name(model_id)}:
-    image: {image_name}
+def image_name(key):
+  """The image of a server key: ``ersiliaos/<id>`` (``:latest``), or ``ersiliaos/<id>:<tag>``."""
+  model_id, _, tag = key.partition(":")
+  image = f"{ORG}/{model_id.lower()}"
+  return f"{image}:{tag}" if tag else image
+
+
+def _service_block(key, host_port, network_name):
+  return f"""  {service_name(key)}:
+    image: {image_name(key)}
     environment:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
@@ -74,7 +84,8 @@ def generate_compose(
   external=False,
 ):
   """The docker-compose YAML of the shared model servers: a redis cache plus one API service per
-  model (``models_with_ports``: model id → host port). Redis is stateless (no volume)."""
+  server (``models_with_ports``: server key → host port; see :func:`service_name`). Redis is
+  stateless (no volume)."""
   header = "services:\n"
 
   redis = f"""  redis:

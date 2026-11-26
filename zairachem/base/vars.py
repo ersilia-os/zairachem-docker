@@ -228,22 +228,30 @@ REFERENCE_LIBRARY_S3_BASE_URL = "https://eosvc-public.s3.amazonaws.com/eosframes
 # "<eos_id>_<version>_transformer.json.gz" (gzipped, compact JSON). Predict reads them from there.
 TRANSFORMER_SUFFIX = "_transformer.json.gz"
 
-# A descriptor with no published reference-library transformer is skipped at setup, so one can be
+# The default descriptors, each with the major version a run uses (docs/descriptor-versions.md).
+# A pinned model runs the newest released tag of its major present locally (ersiliaos/<id>:vN.x.y;
+# a local :latest that is a newer release of the major gets its tag at setup), whatever Docker Hub
+# holds, and the major keys its transformer, its stored results and its rank reference. A pin moves
+# only by a PR made after that major's eosframes scaler and rank-reference matrix are published. A
+# descriptor with no published reference-library transformer is skipped at setup, so one can be
 # listed here before its transformer exists and joins runs once it is published.
-DEFAULT_FEATURIZERS = [
-  "eos3l5f",
-  "eos8aa5",
-  "eos4u6p",
-  "eos9o72",
-  "eos4ex3",
-  "eos82v1",
-  "eos9q2i",
-  "eos8gop",
-]
+DEFAULT_FEATURIZERS = {
+  "eos3l5f": "v2",
+  "eos8aa5": "v3",
+  "eos4u6p": "v2",
+  "eos9o72": "v2",
+  "eos4ex3": "v2",
+  "eos82v1": "v1",
+  "eos9q2i": "v1",
+  "eos8gop": "v1",
+}
 # Default Ersilia projection model for the report's 2-D embedding: eos1klk (lazy-chemvis PCA/UMAP/
 # t-SNE/TMAP over the Ersilia reference library). The built-in MW-vs-LogP projection (computed
-# locally with RDKit) is always shown in addition. Override or disable via --projection-ids.
-DEFAULT_PROJECTIONS = ["eos1klk"]
+# locally with RDKit) is always shown in addition. Override or disable via --projection-ids. Pinned
+# like the descriptors; None leaves a model unpinned (its :latest image, major read from the image).
+DEFAULT_PROJECTIONS = {"eos1klk": None}
+# Key of parameters.json that records, per model, the image tag and digest a run used.
+MODEL_IMAGES_KEY = "model_images"
 # Hard caps on how many Ersilia Model Hub models a single run may pull. Each model is a Docker
 # container featurizing the full dataset, so more models means proportionally more compute and
 # disk; these ceilings keep a run tractable. Exceeding either cap is rejected at setup.

@@ -70,11 +70,14 @@ class Describer(ZairaBase):
     """Add this run's models to the shared compose project, keeping every existing model's port.
 
     The compose file lists every model any run has used, so a model added now does not change the
-    services already running (``compose up`` then leaves them alone).
+    services already running (``compose up`` then leaves them alone). A pinned model's server is
+    keyed by its tag, so each tag it runs gets its own server.
     """
+    from zairachem.base.utils.model_version import server_key
+
     with compose.locked("config"):
       ports = compose.load_ports()
-      missing = [m for m in self.models if m not in ports]
+      missing = [k for k in map(server_key, self.models) if k not in ports]
       if missing:
         taken = set(ports.values())
         fresh = [p for p in get_free_ports(len(missing) + len(taken)) if p not in taken]

@@ -41,7 +41,7 @@ ISAURA_FLAG="ask"     # ask | yes | no
 DO_BASE_IMAGES=true
 
 # Fallback default model list, used only if it cannot be read from the installed
-# package. Keep in sync with ALL_FEATURIZER in zairachem/base/vars.py.
+# package. Keep in sync with DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS in zairachem/base/vars.py.
 DEFAULT_MODELS="eos3l5f eos8aa5 eos4u6p eos9o72 eos4ex3 eos82v1 eos9q2i eos8gop eos1klk"
 
 # ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@ resolve_model_list() {
     printf '%s' "$MODELS_OVERRIDE"; return 0
   fi
   local models
-  models="$(PY -c 'from zairachem.base.vars import ALL_FEATURIZER; print(" ".join(ALL_FEATURIZER))' 2>/dev/null || true)"
+  models="$(PY -c 'from zairachem.base.vars import DEFAULT_FEATURIZERS as F, DEFAULT_PROJECTIONS as P; print(" ".join([*F, *P]))' 2>/dev/null || true)"
   models="$(printf '%s' "$models" | tr -d '\r')"
   [ -z "$models" ] && models="$DEFAULT_MODELS"
   printf '%s' "$models"
@@ -468,33 +468,64 @@ fetch_models() {
     return 0
   fi
 
-  if ! ensure_ersilia; then
-    return 0
+  # A model pinned to a major (zairachem/base/vars.py) runs a released tag of it, so its image is
+  # pulled as Docker Hub's newest tag of that major; the rest are fetched as :latest with ersilia.
+  # One "<id> <tag>" line per model: "-" not pinned; for a pinned one, "?" when Docker Hub has no
+  # tag of its major, "!" when Docker Hub is unreachable.
+  local plan
+  # shellcheck disable=SC2086  # $models is a space-separated id list
+  plan="$(PY -c 'import sys; from zairachem.base.utils.model_version import install_images; install_images(sys.argv[1:])' $models 2>/dev/null | tr -d '\r' || true)"
+  if [ -z "$plan" ]; then
+    warn "Could not read the descriptor pins; fetching every model as :latest. Setup prints the"
+    warn "docker pull of each pinned descriptor's tag."
+    plan="$(printf '%s -\n' $models)"
   fi
 
-  local id img ok=() skipped=() failed=()
-  for id in $models; do
-    img="ersiliaos/${id}:latest"
+  local id tag img have_ersilia="" ok=() skipped=() failed=()
+  # The plan is read on fd 3, so a command in the loop cannot consume it from stdin.
+  while read -r id tag <&3; do
+    [ -n "$id" ] || continue
+    if [ "$tag" = "?" ] || [ "$tag" = "!" ]; then
+      if [ "$tag" = "!" ]; then
+        warn "Docker Hub unreachable: could not pick ${id}'s tag."
+      else
+        warn "No released tag of ${id}'s pinned major found on Docker Hub."
+      fi
+      failed+=("$id")
+      continue
+    fi
+    if [ "$tag" = "-" ]; then img="ersiliaos/${id}:latest"; else img="ersiliaos/${id}:${tag}"; fi
     if docker image inspect "$img" >/dev/null 2>&1; then
-      printf '  %s %s %s(already present)%s\n' "${GREEN}✓${RESET}" "$id" "$DIM" "$RESET"
+      printf '  %s %s %s(already present)%s\n' "${GREEN}✓${RESET}" "$img" "$DIM" "$RESET"
       skipped+=("$id")
       continue
     fi
-    if run_step_soft "Fetching ${id}" "ersilia fetch ${id} --from_dockerhub" \
-         "${ERSILIA_PREFIX[@]}" fetch "$id" --from_dockerhub; then
+    if [ "$tag" != "-" ]; then
+      if run_step_soft "Pulling ${img}" "docker pull ${img}" docker pull "$img"; then
+        ok+=("$id")
+      else
+        failed+=("$id")
+      fi
+      continue
+    fi
+    if [ -z "$have_ersilia" ]; then
+      if ensure_ersilia; then have_ersilia=yes; else have_ersilia=no; fi
+    fi
+    if [ "$have_ersilia" = yes ] && run_step_soft "Fetching ${id}" \
+         "ersilia fetch ${id} --from_dockerhub" "${ERSILIA_PREFIX[@]}" fetch "$id" --from_dockerhub; then
       ok+=("$id")
     else
       failed+=("$id")
     fi
-  done
+  done 3<<< "$plan"
 
   printf '\n  %sModel summary%s\n' "$BOLD" "$RESET"
   printf '    fetched:         %s\n' "${ok[*]:-(none)}"
   printf '    already present: %s\n' "${skipped[*]:-(none)}"
   if [ "${#failed[@]}" -gt 0 ]; then
     printf '    %sfailed:          %s%s\n' "$RED" "${failed[*]}" "$RESET"
-    warn "Re-run the installer to retry failed models, or fetch manually with:"
-    warn "  ersilia fetch <id> --from_dockerhub"
+    warn "Re-run the installer to retry failed models; \`zairachem fit\` also prints the command"
+    warn "for each image it is missing."
   fi
 }
 
