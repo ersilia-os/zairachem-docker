@@ -41,7 +41,7 @@ ISAURA_FLAG="ask"     # ask | yes | no
 DO_BASE_IMAGES=true
 
 # Fallback default model list, used only if it cannot be read from the installed
-# package. Keep in sync with ALL_FEATURIZER in zairachem/base/vars.py.
+# package. Keep in sync with DEFAULT_FEATURIZERS + DEFAULT_PROJECTIONS in zairachem/base/vars.py.
 DEFAULT_MODELS="eos3l5f eos8aa5 eos4u6p eos9o72 eos4ex3 eos82v1 eos9q2i eos8gop eos1klk"
 
 # ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@ resolve_model_list() {
     printf '%s' "$MODELS_OVERRIDE"; return 0
   fi
   local models
-  models="$(PY -c 'from zairachem.base.vars import ALL_FEATURIZER; print(" ".join(ALL_FEATURIZER))' 2>/dev/null || true)"
+  models="$(PY -c 'from zairachem.base.vars import DEFAULT_FEATURIZERS as F, DEFAULT_PROJECTIONS as P; print(" ".join([*F, *P]))' 2>/dev/null || true)"
   models="$(printf '%s' "$models" | tr -d '\r')"
   [ -z "$models" ] && models="$DEFAULT_MODELS"
   printf '%s' "$models"
