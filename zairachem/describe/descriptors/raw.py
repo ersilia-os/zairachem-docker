@@ -428,6 +428,7 @@ class RawDescriptors(ZairaBase):
     ``BinaryStreamClient``. A model over its failure budget is dropped at fit; any other failure
     raises once every model has settled.
     """
+    from zairachem.base.utils.model_version import server_key
     from zairachem.describe.descriptors import compose, scheduler
     from zairachem.describe.descriptors.utils import _service_name
 
@@ -435,8 +436,8 @@ class RawDescriptors(ZairaBase):
       monitor.start(eos_id)
       service = _service_name(eos_id)
       try:
-        # One run at a time on a shared server; behind another run, the row says so.
-        with compose.locked(eos_id, on_wait=lambda pid: _waiting(eos_id, pid, monitor)):
+        # One run at a time on a shared server (one per tag); behind another run, the row says so.
+        with compose.locked(server_key(eos_id), on_wait=lambda pid: _waiting(eos_id, pid, monitor)):
           if eos_id in projector_ids:
             self._project_on_server(eos_id, service, monitor)
           else:

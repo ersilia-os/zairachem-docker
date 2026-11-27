@@ -7,6 +7,10 @@ with each released tag; an image that matches none is taken to be the registry's
 are not used: an image is built before its tag is pushed. Defaults to ``v1`` and never raises — any failure (no docker, DockerHub unreachable, parse
 error) falls back to ``v1``. :func:`resolved_model_version` returns None in those cases
 instead, for callers that have to tell a real ``v1`` from a fallback.
+
+A pinned model (:func:`pin_models`, from the tables in :mod:`zairachem.base.vars` or a fitted
+model's ``parameters.json``) is the exception: its version is the pinned major, and it runs one
+released tag of that major (:func:`image_tag`) instead of ``:latest``.
 """
 
 import json
@@ -15,8 +19,9 @@ import subprocess
 
 import requests
 
+from zairachem.base.generate_config import image_name
 from zairachem.base.utils.logging import logger
-from zairachem.base.vars import ORG
+from zairachem.base.vars import DEFAULT_FEATURIZERS, DEFAULT_PROJECTIONS, MODEL_IMAGES_KEY, ORG
 
 _DOCKERHUB_TAGS_URL = "https://hub.docker.com/v2/repositories/{repo}/tags?page_size=100"
 _SEMVER_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
@@ -37,11 +42,262 @@ _digest_cache = {}
 _tags_cache = {}
 _release_cache = {}
 _unreachable = set()
+# Pinned models of this process, by lower-case id: [major, tag]. The tag is None until it is
+# chosen from the local images.
+_pins = {}
+
+
+def pin_models(model_ids, params=None):
+  """Pin each of ``model_ids`` that has a pin, so it runs a released tag of its pinned major.
+
+  Only a major release changes a model's output, so a pinned model runs the newest local tag of
+  its major, whichever tag a fit ran. The major is the one ``params`` record for the model
+  (``latest_featurizer_version``), else that of the image tag they record
+  (:data:`MODEL_IMAGES_KEY`, provenance only), else the pin table's. A model with neither a pin nor
+  a recorded release tag runs ``:latest``, and loses any pin an earlier call gave it. Ids are
+  case-insensitive.
+
+  Parameters
+  ----------
+  model_ids : list of str
+      Descriptor and projection model IDs of the run.
+  params : dict, optional
+      The run's (or the fitted model's) ``parameters.json``.
+  """
+  params = params or {}
+  recorded = params.get(MODEL_IMAGES_KEY) or {}
+  fitted = params.get("latest_featurizer_version") or {}
+  table = {m: v for m, v in {**DEFAULT_FEATURIZERS, **DEFAULT_PROJECTIONS}.items() if v}
+  for m in model_ids:
+    match = _SEMVER_RE.match((recorded.get(m) or {}).get("tag") or "")
+    if match or m.lower() in table:
+      major = fitted.get(m) or (f"v{match.group(1)}" if match else table[m.lower()])
+      _pins[m.lower()] = [major, None]
+    else:
+      _pins.pop(m.lower(), None)
+    for cache in (_cache, _digest_cache, _release_cache):
+      cache.pop(m, None)
+
+
+def pinned_major(model_id):
+  """The major ``model_id`` is pinned to (``"vN"``), or None when it is not pinned."""
+  pin = _pins.get(model_id.lower())
+  return pin[0] if pin else None
+
+
+def image_tag(model_id):
+  """The released tag a pinned model runs, or None (not pinned, or no local tag of its major).
+
+  The newest ``vMAJOR.x.y`` of the pinned major present locally (or the tag a local ``:latest``
+  was given, :func:`tag_latest_as_release`).
+  Docker Hub is not asked, so a new release there changes nothing until it is pulled. Never raises.
+  """
+  pin = _pins.get(model_id.lower())
+  if not pin:
+    return None
+  if pin[1] is None:
+    pin[1] = _of_major(_local_tags(model_id), pin[0])
+  return pin[1]
+
+
+def tag_latest_as_release(model_id):
+  """Tag the local ``:latest`` as the release of the pinned major it is, when that release is newer
+  than every local tag of the major; return that tag, or None.
+
+  For a ``:latest`` (pulled before pins) that is a release of the pinned major: it is matched to
+  Docker Hub's tags by digest, or by layers for an image Ersilia re-tagged without one. ``docker
+  tag`` adds the release tag, which the run then uses; nothing is downloaded and ``:latest`` is
+  left as it is. None when ``:latest`` is not a newer release of the major, Docker Hub cannot be
+  asked, or the tag fails; never raises.
+  """
+  pin = _pins.get(model_id.lower())
+  if not pin:
+    return None
+  local = image_tag(model_id)
+  latest = f"{image_name(model_id)}:latest"
+  try:
+    release = _release_of(model_id, latest, pin[0])
+    if release is None or (local and _key(release) <= _key(local)):
+      return None
+    out = subprocess.run(
+      ["docker", "tag", latest, image_name(f"{model_id}:{release}")],
+      capture_output=True,
+      text=True,
+      timeout=_HTTP_TIMEOUT,
+    )
+  except Exception as e:
+    logger.debug(f"Could not tag {latest} as its release ({e})")
+    return None
+  if out.returncode != 0:
+    logger.warning(f"Could not tag {latest} as {release}: {out.stderr.strip()}")
+    return None
+  pin[1] = release
+  _digest_cache.pop(model_id, None)
+  return release
+
+
+def _release_of(model_id, ref, major):
+  # The released tag of ``major`` that the local image ``ref`` is, or None. Docker Hub is asked
+  # only for an image that is here, and raises when it cannot be.
+  digest = _repo_digest(ref)
+  layers, arch = (None, None) if digest else _local_image_layers_and_arch(model_id, ref)
+  if not digest and not layers:
+    return None
+  tags = _dockerhub_tags(f"{ORG}/{model_id.lower()}")
+  ours = _newest_first(n for n, _, _ in tags if (n or "").split(".")[0] == major)
+  if digest:
+    released = [n for n, _, digests in tags if _SEMVER_RE.match(n or "") and digest in digests]
+    if released:  # a release by its digest: of this major, or of another (nothing to compare)
+      return next((n for n in ours if n in released), None)
+    layers, arch = _local_image_layers_and_arch(model_id, ref)  # a digest of this machine's own
+  if layers:
+    for name in ours:
+      if _registry_layers(model_id, arch, name) == layers:
+        return name
+  return None
+
+
+def hub_tag(model_id):
+  """Docker Hub's newest released tag of ``model_id``'s pinned major, or None if it has none.
+
+  Raises when Docker Hub cannot be asked.
+  """
+  return _of_major(_released_tags(model_id), pinned_major(model_id))
+
+
+def pull_hint(model_id):
+  """What gets a pinned model's missing image: ``docker pull`` of its tag, or why there is none.
+
+  The tag is Docker Hub's newest of the pinned major.
+  """
+  major = pinned_major(model_id)
+  tag = image_tag(model_id)
+  if tag is None:
+    try:
+      tag = hub_tag(model_id)
+    except Exception:
+      return f"Docker Hub is unreachable; pull a {major} tag of {image_name(model_id)}"
+  if tag is None:
+    return f"Docker Hub has no {major} release of {model_id}"
+  return f"docker pull {image_name(f'{model_id}:{tag}')}"
+
+
+def newer_on_hub(model_id):
+  """Docker Hub's newest tag of the pinned major when it is newer than the local one a run chose.
+
+  None when it is not, or when Docker Hub cannot be asked; never raises.
+  """
+  pin = _pins.get(model_id.lower())
+  if not pin or not image_tag(model_id):
+    return None
+  try:
+    newest = hub_tag(model_id)
+  except Exception:
+    return None
+  return newest if newest and _key(newest) > _key(pin[1]) else None
+
+
+def _of_major(tags, major):
+  # The first of ``tags`` (newest first) in ``major``, or None.
+  return next((t for t in tags if t.split(".")[0] == major), None)
+
+
+def _key(tag):
+  return tuple(int(g) for g in _SEMVER_RE.match(tag).groups())
+
+
+def image_ref(model_id):
+  """The image a model runs: ``ersiliaos/<id>:<tag>`` when pinned, else ``ersiliaos/<id>``.
+
+  None for a pinned model with no tag of its major.
+  """
+  if not pinned_major(model_id):
+    return image_name(model_id)
+  tag = image_tag(model_id)
+  return image_name(f"{model_id}:{tag}") if tag else None
+
+
+def server_key(model_id):
+  """Key of a model's server in the shared compose project: ``<id>``, or ``<id>:<tag>`` if pinned.
+
+  Each tag of a model gets a server of its own, so runs on different tags do not share one. A
+  pinned model with no local tag stops the command (``click.ClickException``) with what to pull.
+  """
+  if not pinned_major(model_id):
+    return model_id
+  tag = image_tag(model_id)
+  if tag is None:
+    import click
+
+    raise click.ClickException(
+      f"No local {pinned_major(model_id)} image of {model_id}. {pull_hint(model_id)}, then re-run."
+    )
+  return f"{model_id.lower()}:{tag}"
+
+
+def install_images(model_ids):
+  """Print ``<id> <tag>`` for each model, for install.sh: the tag it pulls.
+
+  A pinned model gets Docker Hub's newest tag of its major (``?`` when it has none); when Docker
+  Hub cannot be asked, the newest local tag of the major, else ``!``. An unpinned one gets ``-``
+  and is fetched as ``:latest``. No ids: the default models.
+  """
+  model_ids = list(model_ids) or [*DEFAULT_FEATURIZERS, *DEFAULT_PROJECTIONS]
+  pin_models(model_ids)
+  for m in model_ids:
+    tag = "-"
+    if pinned_major(m):
+      try:
+        tag = hub_tag(m) or "?"
+      except Exception:
+        tag = image_tag(m) or "!"
+    print(f"{m} {tag}")
+
+
+def image_records(model_ids):
+  """The image each model ran, for ``parameters.json``: ``{id: {"tag": ..., "digest": ...}}``.
+
+  The tag is ``latest`` for an unpinned model.
+  """
+  return {
+    m: {
+      "tag": image_tag(m) if pinned_major(m) else "latest",
+      "digest": _local_image_digest(m),
+    }
+    for m in model_ids
+  }
+
+
+def _local_tags(model_id):
+  # The released tags of the model present locally, newest version first.
+  try:
+    out = subprocess.run(
+      ["docker", "image", "ls", f"{ORG}/{model_id.lower()}", "--format", "{{.Tag}}"],
+      capture_output=True,
+      text=True,
+      timeout=_HTTP_TIMEOUT,
+    )
+  except (OSError, subprocess.TimeoutExpired):
+    return []
+  return _newest_first(out.stdout.split() if out.returncode == 0 else [])
+
+
+def _newest_first(names):
+  return sorted((n for n in names if _SEMVER_RE.match(n or "")), key=_key, reverse=True)
 
 
 def _local_image_digest(model_id):
   if model_id in _digest_cache:
     return _digest_cache[model_id]
+  ref = image_ref(model_id)
+  if ref is None:
+    return None
+  _digest_cache[model_id] = _repo_digest(ref)
+  return _digest_cache[model_id]
+
+
+def _repo_digest(ref):
+  # The registry digest of the local image ``ref`` (``sha256:...``), or None.
   digest = None
   try:
     out = subprocess.run(
@@ -49,7 +305,7 @@ def _local_image_digest(model_id):
         "docker",
         "image",
         "inspect",
-        f"{ORG}/{model_id.lower()}",
+        ref,
         "--format",
         "{{index .RepoDigests 0}}",
       ],
@@ -61,29 +317,35 @@ def _local_image_digest(model_id):
       digest = out.stdout.strip().split("@", 1)[1]  # ersiliaos/eos3l5f@sha256:... -> sha256:...
   except (OSError, subprocess.TimeoutExpired):
     digest = None
-  _digest_cache[model_id] = digest
   return digest
 
 
 def _dockerhub_tags(repo):
-  # Return a list of (name, last_updated, {digests}) for every tag, following pagination.
+  # Return a list of (name, last_updated, {digests}) for every tag, following pagination. A failure
+  # is kept too, so an unreachable Docker Hub costs one timeout per repo and process.
   if repo in _tags_cache:
+    if isinstance(_tags_cache[repo], Exception):
+      raise _tags_cache[repo]
     return _tags_cache[repo]
   tags = []
   url = _DOCKERHUB_TAGS_URL.format(repo=repo)
-  while url:
-    resp = requests.get(url, timeout=_HTTP_TIMEOUT)
-    resp.raise_for_status()
-    data = resp.json()
-    for r in data.get("results", []):
-      digests = set()
-      if r.get("digest"):
-        digests.add(r["digest"])
-      for im in r.get("images") or []:
-        if im.get("digest"):
-          digests.add(im["digest"])
-      tags.append((r.get("name"), r.get("last_updated"), digests))
-    url = data.get("next")
+  try:
+    while url:
+      resp = requests.get(url, timeout=_HTTP_TIMEOUT)
+      resp.raise_for_status()
+      data = resp.json()
+      for r in data.get("results", []):
+        digests = set()
+        if r.get("digest"):
+          digests.add(r["digest"])
+        for im in r.get("images") or []:
+          if im.get("digest"):
+            digests.add(im["digest"])
+        tags.append((r.get("name"), r.get("last_updated"), digests))
+      url = data.get("next")
+  except Exception as e:
+    _tags_cache[repo] = e
+    raise
   _tags_cache[repo] = tags
   return tags
 
@@ -101,6 +363,8 @@ def resolved_model_version(model_id):
   something — but wrong for comparing two versions, where the default cannot be told from a
   genuine ``v1`` and would report a drift that may not have happened.
   """
+  if pinned_major(model_id):
+    return pinned_major(model_id)
   if model_id in _cache:
     return _cache[model_id]
   version = _resolve(model_id)
@@ -112,7 +376,7 @@ def registry_unreachable(model_id):
   """Whether DockerHub could not be asked for ``model_id``'s releases (after trying to resolve it).
 
   An unknown version is otherwise ambiguous: it is also what a model with no released tag gives,
-  and that one is a real ``v1``, not an outage.
+  and that one is a real ``v1``, not an outage. A pinned model's version is never unknown.
   """
   resolved_model_version(model_id)
   return model_id in _unreachable
@@ -151,15 +415,18 @@ def _resolve(model_id):
   return f"v{max(semver)[1]}"
 
 
-def _local_image_layers_and_arch(model_id):
-  # The image's layer hashes and CPU architecture, or (None, None).
+def _local_image_layers_and_arch(model_id, ref=None):
+  # The image's (default: the one the model runs) layer hashes and CPU architecture, or (None, None).
+  ref = ref or image_ref(model_id)
+  if ref is None:
+    return None, None
   try:
     out = subprocess.run(
       [
         "docker",
         "image",
         "inspect",
-        f"{ORG}/{model_id.lower()}",
+        ref,
         "--format",
         "{{.Architecture}} {{json .RootFS.Layers}}",
       ],
@@ -204,12 +471,7 @@ def _registry_layers(model_id, arch, tag):
 
 def _released_tags(model_id):
   # The released semver tag names, newest version first.
-  found = []
-  for name, _last_updated, _ in _dockerhub_tags(f"{ORG}/{model_id.lower()}"):
-    m = _SEMVER_RE.match(name or "")
-    if m:
-      found.append((tuple(int(g) for g in m.groups()), name))
-  return [name for _, name in sorted(found, reverse=True)]
+  return _newest_first(name for name, _, _ in _dockerhub_tags(f"{ORG}/{model_id.lower()}"))
 
 
 def _layers_release(model_id):

@@ -20,3 +20,11 @@ def _log_to_tmp(tmp_path_factory):
   yield
   zlogging.Logger._log_to_file = original
   zlogging.logger.configure()
+
+
+@pytest.fixture(autouse=True)
+def _no_pinned_models(monkeypatch):
+  """Each test starts with no pinned model: setup pins them for the rest of its process."""
+  from zairachem.base.utils import model_version
+
+  monkeypatch.setattr(model_version, "_pins", {})

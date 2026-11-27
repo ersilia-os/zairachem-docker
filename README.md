@@ -82,6 +82,13 @@ By default `fit` uses a curated set of Ersilia descriptors (`-f` to choose your 
 with no published transformer is skipped at setup. The default Mol-JEPA (`eos9q2i`) is licensed for
 non-commercial use only; pass `-f` without it to exclude it.
 
+Each default descriptor is pinned to a major version and runs the newest released tag of it
+present locally (`ersiliaos/<id>:vN.x.y`), so a new image on Docker Hub does not stop a run; setup
+says when Docker Hub has a newer tag, and prints the `docker pull` when no tag of the major is local.
+`install.sh` pulls these tags. Predict runs the newest local tag of the major the model was
+fitted with. See [`docs/descriptor-versions.md`](docs/descriptor-versions.md) for how pins work and
+how one is moved.
+
 ## Outputs
 
 `results/output.csv` has one row per molecule:

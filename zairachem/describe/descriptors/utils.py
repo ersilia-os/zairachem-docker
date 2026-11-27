@@ -34,13 +34,16 @@ class Hdf5Data:
 
 def _service_name(model_id: str) -> str:
   from zairachem.base.generate_config import service_name
+  from zairachem.base.utils.model_version import server_key
 
-  return service_name(model_id)
+  return service_name(server_key(model_id))
 
 
 def get_model_host_port(model_id: str) -> Optional[int]:
   """Host port of ``model_id``'s server in the shared project (``ports.json``), or None."""
-  port = compose.load_ports().get(model_id)
+  from zairachem.base.utils.model_version import server_key
+
+  port = compose.load_ports().get(server_key(model_id))
   return int(port) if port else None
 
 

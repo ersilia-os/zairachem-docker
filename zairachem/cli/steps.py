@@ -215,9 +215,20 @@ def _activate_step(model_dir, *step_names):
   fast iteration on one step against an existing model. The resolved path is passed straight to the
   step (there is no global "active run" to resolve against).
   """
+  import json
+
+  from zairachem.base import params_path
+  from zairachem.base.utils.model_version import pin_models
   from zairachem.setup.prep import PipelineStep
 
   output_dir = os.path.abspath(model_dir)
   for name in step_names:
     PipelineStep(name, output_dir).unmark()
+  # A step runs the newest local tag of each model's recorded major (setup ran in another process).
+  try:
+    with open(params_path(output_dir)) as f:
+      params = json.load(f)
+  except (OSError, ValueError):
+    params = {}
+  pin_models([*params.get("featurizer_ids", []), *params.get("projection_ids", [])], params)
   return output_dir

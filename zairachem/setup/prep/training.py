@@ -12,6 +12,7 @@ from zairachem.base.utils.isaura_report import (
   report_store_availability,
 )
 from zairachem.base.utils.logging import logger
+from zairachem.base.utils.model_version import image_records, pin_models
 from zairachem.base.utils.preflight import (
   prepare_rank_references,
   prepare_reference_transformers,
@@ -37,6 +38,7 @@ from zairachem.base.vars import (
   MAX_FEATURIZERS,
   MAX_PROJECTIONS,
   METADATA_SUBFOLDER,
+  MODEL_IMAGES_KEY,
   POOL_SUBFOLDER,
   REPORT_SUBFOLDER,
   RESULTS_SUBFOLDER,
@@ -125,7 +127,7 @@ class TrainSetup(BaseSetup):
     else:
       # No --featurizer-ids given: fall back to the default descriptors.
       self.model_ids = {}
-    self.featurizer_ids = self.model_ids.get("featurizer_ids", DEFAULT_FEATURIZERS)
+    self.featurizer_ids = self.model_ids.get("featurizer_ids", list(DEFAULT_FEATURIZERS))
     # Projection models (--projection-ids) drive the report's 2-D embedding; they are NOT model
     # features. Explicit --projection-ids wins; else a projection_ids key in the --featurizer-ids
     # JSON file; else the default. The report always also shows the built-in MW-vs-LogP projection,
@@ -136,7 +138,7 @@ class TrainSetup(BaseSetup):
       else:
         self.projection_ids = ModelIdsFile.parse_ids(projection_ids, flag="--projection-ids")
     else:
-      self.projection_ids = self.model_ids.get("projection_ids", DEFAULT_PROJECTIONS)
+      self.projection_ids = self.model_ids.get("projection_ids", list(DEFAULT_PROJECTIONS))
     # Enforce the per-run model-count ceilings regardless of source (CLI flag, JSON file, default).
     _check_model_count(self.featurizer_ids, MAX_FEATURIZERS, "descriptor", "--featurizer-ids")
     _check_model_count(self.projection_ids, MAX_PROJECTIONS, "projection", "--projection-ids")
@@ -556,6 +558,8 @@ class TrainSetup(BaseSetup):
     require_docker_and_base()
     warn_other_runs()
     reap_orphaned_servers()
+    # Before any version lookup: a pinned model's version is its pin (a resumed run's major).
+    pin_models([*self.featurizer_ids, *self.projection_ids], self.params)
     require_model_versions(
       [*self.featurizer_ids, *self.projection_ids],
       (self._load_disk_params() or {}).get("latest_featurizer_version") if self.resume else None,
@@ -581,6 +585,10 @@ class TrainSetup(BaseSetup):
     self._print_summary()
     validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
+    # The tag and digest each model ran, for provenance: predict and step commands re-pin from the
+    # majors, and run the newest local tag of each.
+    self.params[MODEL_IMAGES_KEY] = image_records([*self.featurizer_ids, *self.projection_ids])
+    self._save_params()
     # Classification only. lazy-qsar's regression ensemble has no reference library -- its single
     # output is the value, with no rank to position -- so the estimate step never scores these
     # matrices on a regression fit (see estimate/estimators/pipe.py). Downloading them anyway costs

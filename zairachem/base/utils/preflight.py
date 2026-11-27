@@ -1,6 +1,7 @@
 """Pre-flight checks for the setup step.
 
-ZairaChem serves Ersilia Model Hub models as local Docker images (``ersiliaos/<eos_id>``).
+ZairaChem serves Ersilia Model Hub models as local Docker images (``ersiliaos/<eos_id>``, or the
+released tag ``ersiliaos/<eos_id>:vN.x.y`` of a model pinned to major ``vN``).
 Before a run we require (a) the Docker daemon to be running and (b) every required model image
 to be present locally. Either failure stops the run with an informative message — model images are
 never pulled automatically, we only show how. Setup does download the per-featurizer data files a run
@@ -14,13 +15,19 @@ from concurrent.futures import ThreadPoolExecutor
 
 from rich.markup import escape
 
+from zairachem.base.generate_config import image_name
 from zairachem.base.utils.concurrency import io_workers
 from zairachem.base.utils.console import active_color, console, echo, plural
 from zairachem.base.utils.logging import logger
 from zairachem.base.utils.model_version import (
   ersilia_model_version,
+  image_tag,
   is_image_up_to_date,
+  newer_on_hub,
+  pinned_major,
+  pull_hint,
   registry_unreachable,
+  tag_latest_as_release,
 )
 from zairachem.base.utils.processes import other_runs
 from zairachem.base.vars import ORG, REDIS_IMAGE
@@ -247,11 +254,15 @@ def _model_images_table():
 
 
 def _probe_model_image(item):
-  """Return ``(kind, model, image, version, state)`` for one ``(kind, model)`` item.
+  """Return ``(kind, model, image, version, state, notes)`` for one ``(kind, model)`` item.
 
-  ``state`` is ``"missing"``, ``"outdated"``, ``"unverified"`` or ``"ok"``.
+  ``state`` is ``"missing"``, ``"outdated"``, ``"unverified"`` or ``"ok"``; ``notes`` are info
+  lines to print. A pinned model is checked on its tag alone (:func:`image_tag`): present is ok,
+  whatever Docker Hub holds.
   """
   kind, m = item
+  if pinned_major(m):
+    return (kind, m, *_probe_pinned_image(m))
   image = f"{ORG}/{m.lower()}:latest"
   if not _docker_image_present(image):
     state = "missing"
@@ -263,7 +274,31 @@ def _probe_model_image(item):
       state = "unverified"  # the registry could not be reached: present, but not known current
     else:
       state = "ok"
-  return kind, m, image, ersilia_model_version(m), state
+  return kind, m, image, ersilia_model_version(m), state, []
+
+
+def _probe_pinned_image(m):
+  """``(image, version, state, notes)`` of a pinned model, after giving the local ``:latest`` its
+  release tag when it is a newer release of the major than the local tags
+  (:func:`tag_latest_as_release`)."""
+  notes = []
+  release = tag_latest_as_release(m)
+  if release:
+    notes.append(
+      f"{m}: the local {image_name(m)}:latest is release {release}; tagged it "
+      f"{image_name(f'{m}:{release}')} (nothing downloaded, :latest unchanged)."
+    )
+  tag, version = image_tag(m), ersilia_model_version(m)
+  image = image_name(f"{m}:{tag}") if tag else f"{image_name(m)}:{version}.x.y"
+  if not (tag and _docker_image_present(image)):
+    return image, version, "missing", notes
+  newer = newer_on_hub(m)
+  if newer:
+    notes.append(
+      f"{m} {newer} is on Docker Hub; this run uses local {tag}. Pull it with: "
+      f"docker pull {image_name(f'{m}:{newer}')}"
+    )
+  return image, version, "ok", notes
 
 
 _IMAGE_STATUS_MARKUP = {
@@ -274,6 +309,18 @@ _IMAGE_STATUS_MARKUP = {
 }
 
 
+def _fetch_hint(m):
+  """The command that gets ``m``'s image: ``docker pull`` of a pinned tag, which leaves ``:latest``
+  alone, else ``ersilia fetch``.
+
+  The tag is Docker Hub's newest of the pinned major.
+  """
+  if not pinned_major(m):
+    return f"[cyan]ersilia fetch {m} --from_dockerhub[/]"
+  hint = pull_hint(m)
+  return f"[cyan]{hint}[/]" if hint.startswith("docker pull") else f"[dim]{m}: {hint}[/]"
+
+
 def _stop_on_bad_images(missing, outdated, total):
   """Print fetch hints and raise ``SystemExit(1)`` if any model image is missing or outdated."""
   if missing:
@@ -281,9 +328,9 @@ def _stop_on_bad_images(missing, outdated, total):
       f"{len(missing)} of {plural(total, 'model image')} missing — ZairaChem cannot continue.",
       kind="error",
     )
-    echo("Fetch them with the Ersilia CLI, then re-run:", kind="info")
+    echo("Fetch them, then re-run:", kind="info")
     for m in missing:
-      console.print(f"      [cyan]ersilia fetch {m} --from_dockerhub[/]")
+      console.print(f"      {_fetch_hint(m)}")
     raise SystemExit(1)
 
   if outdated:
@@ -332,7 +379,8 @@ def report_model_images(featurizer_ids, projection_ids):
 
   Intended to run at the END of the setup step: shows every requested ``ersiliaos/<id>`` image
   with a ✓/✗ status, grouped by kind (descriptors vs projectors). If any are missing it prints
-  the ``ersilia fetch`` commands and raises ``SystemExit(1)``. Never fetches images.
+  the commands that get them (``docker pull`` of the tag for a pinned model, else ``ersilia
+  fetch``) and raises ``SystemExit(1)``. Never fetches images.
 
   Parameters
   ----------
@@ -354,7 +402,7 @@ def report_model_images(featurizer_ids, projection_ids):
     with ThreadPoolExecutor(max_workers=io_workers(len(items))) as ex:
       probed = list(ex.map(_probe_model_image, items))
 
-  for kind, m, image, version, state in probed:
+  for kind, m, image, version, state, _notes in probed:
     if state == "missing":
       missing.append(m)
     elif state == "outdated":
@@ -367,6 +415,8 @@ def report_model_images(featurizer_ids, projection_ids):
       "unreachable); if a model fails, update it with `ersilia fetch <id> --from_dockerhub`.",
       kind="warning",
     )
+  for note in (note for p in probed for note in p[5]):
+    echo(note, kind="info")
 
   _stop_on_bad_images(missing, outdated, len(featurizer_ids) + len(projection_ids))
 
