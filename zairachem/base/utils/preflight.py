@@ -313,7 +313,7 @@ def _fetch_hint(m):
   """The command that gets ``m``'s image: ``docker pull`` of a pinned tag, which leaves ``:latest``
   alone, else ``ersilia fetch``.
 
-  The tag is the one the fit recorded, else Docker Hub's newest of the pinned major.
+  The tag is Docker Hub's newest of the pinned major.
   """
   if not pinned_major(m):
     return f"[cyan]ersilia fetch {m} --from_dockerhub[/]"

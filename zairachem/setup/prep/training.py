@@ -558,7 +558,7 @@ class TrainSetup(BaseSetup):
     require_docker_and_base()
     warn_other_runs()
     reap_orphaned_servers()
-    # Before any version lookup: a pinned model's version is its pin (a resumed run's recorded tag).
+    # Before any version lookup: a pinned model's version is its pin (a resumed run's major).
     pin_models([*self.featurizer_ids, *self.projection_ids], self.params)
     require_model_versions(
       [*self.featurizer_ids, *self.projection_ids],
@@ -585,7 +585,8 @@ class TrainSetup(BaseSetup):
     self._print_summary()
     validate_model_roles(self.featurizer_ids, self.projection_ids)
     report_model_images(self.featurizer_ids, self.projection_ids)
-    # Predict runs the tags recorded here, and a later step command re-pins from them.
+    # The tag and digest each model ran, for provenance: predict and step commands re-pin from the
+    # majors, and run the newest local tag of each.
     self.params[MODEL_IMAGES_KEY] = image_records([*self.featurizer_ids, *self.projection_ids])
     self._save_params()
     # Classification only. lazy-qsar's regression ensemble has no reference library -- its single

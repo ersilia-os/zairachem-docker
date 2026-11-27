@@ -224,7 +224,7 @@ def _activate_step(model_dir, *step_names):
   output_dir = os.path.abspath(model_dir)
   for name in step_names:
     PipelineStep(name, output_dir).unmark()
-  # A step runs the image tags its run's setup chose and recorded (setup ran in another process).
+  # A step runs the newest local tag of each model's recorded major (setup ran in another process).
   try:
     with open(params_path(output_dir)) as f:
       params = json.load(f)

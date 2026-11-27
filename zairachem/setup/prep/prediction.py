@@ -372,7 +372,8 @@ class PredictSetup(BaseSetup):
     featurizers, projections = self._model_id_groups()
     with open(params_path(self.model_dir)) as f:
       trained = json.load(f)
-    # A pinned model runs the exact tag it was fitted with (an older fit: its fitted major).
+    # A pinned model runs the newest local tag of the major it was fitted with: tags within a major
+    # give the same output.
     pin_models([*featurizers, *projections], trained)
     require_model_versions([*featurizers, *projections], trained.get("latest_featurizer_version"))
     self._initialize()

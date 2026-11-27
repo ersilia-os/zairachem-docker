@@ -200,12 +200,13 @@ def test_each_tag_of_a_pinned_model_gets_its_own_compose_server(docker, monkeypa
   assert "eos3l5f_v2_0_1_api:\n    image: ersiliaos/eos3l5f:v2.0.1\n" in yml
   assert "eosxtra_api:\n    image: ersiliaos/eosxtra\n" in yml
   first = get_model_host_port("eos3l5f")
-  # A model fitted on v2.0.0 runs v2.0.0, on a server beside the v2.0.1 one.
-  mv.pin_models(["eos3l5f"], {MODEL_IMAGES_KEY: {"eos3l5f": {"tag": "v2.0.0"}}})
+  # Once v2.0.2 is pulled, a run uses it, on a server beside the v2.0.1 one.
+  docker({"ersiliaos/eos3l5f:v2.0.1": "sha256:v201", "ersiliaos/eos3l5f:v2.0.2": "sha256:v202"})
+  mv.pin_models(["eos3l5f"])
   Describer.create_config_files(run)
   assert get_model_host_port("eos3l5f") not in (None, first)
-  assert set(compose.load_ports()) == {"eos3l5f:v2.0.1", "eos3l5f:v2.0.0", "eosxtra"}
-  assert "eos3l5f_v2_0_0_api" in generate_compose(compose.load_ports())
+  assert set(compose.load_ports()) == {"eos3l5f:v2.0.1", "eos3l5f:v2.0.2", "eosxtra"}
+  assert "eos3l5f_v2_0_2_api" in generate_compose(compose.load_ports())
 
 
 @pytest.fixture
@@ -307,32 +308,35 @@ def predict_setup(monkeypatch, tmp_path):
   return make
 
 
-def test_predict_runs_the_tag_recorded_at_fit_and_stops_without_it(docker, predict_setup, said):
+def test_predict_runs_the_newest_local_tag_of_the_fitted_major(docker, predict_setup, said):
   fitted = {
     "latest_featurizer_version": {"eos3l5f": "v2", "eosxtra": "v1"},
     MODEL_IMAGES_KEY: {"eos3l5f": {"tag": "v2.0.0"}, "eosxtra": {"tag": "latest"}},
   }
-  # v2.0.1 is newer, but the model was fitted with v2.0.0.
-  images = {"ersiliaos/eos3l5f:v2.0.1": "sha256:v201", "ersiliaos/eosxtra:latest": "sha256:xtra"}
-  # Its :latest is v2.0.1, newer, but a recorded tag runs exactly, and is never made from :latest.
-  local = docker(
-    {**images, "ersiliaos/eos3l5f:latest": "sha256:v201"},
-    hub=[*HUB, ("latest", "2026-01-01T00:00:00Z", {"sha256:xtra"})],
-  )
+  hub = [*HUB, ("latest", "2026-01-01T00:00:00Z", {"sha256:xtra"})]
+  # No v2 tag here (:latest is v3): predict stops with the pull of Docker Hub's newest v2.
+  xtra = {"ersiliaos/eosxtra:latest": "sha256:xtra"}
+  docker({**xtra, "ersiliaos/eos3l5f:latest": "sha256:v300"}, hub=hub)
   ps = predict_setup(fitted)
   with pytest.raises(SystemExit):
     ps.setup()
-  assert "docker pull ersiliaos/eos3l5f:v2.0.0" in "\n".join(said)
-  assert local.tagged == []
-  docker({**images, "ersiliaos/eos3l5f:v2.0.0": "sha256:v200"})
+  assert "docker pull ersiliaos/eos3l5f:v2.0.1" in "\n".join(said)
+  # Fitted on v2.0.0, but only v2.0.1 is here: tags within a major give the same output, so it runs.
+  docker({**xtra, "ersiliaos/eos3l5f:v2.0.1": "sha256:v201"}, hub=hub)
   ps = predict_setup(fitted)
   with pytest.raises(ps.reached):
     ps.setup()
-  assert mv.image_tag("eos3l5f") == "v2.0.0"
-  # The fit's tag runs: a newer tag on Docker Hub is not this run's business.
-  assert not any("is on Docker Hub" in line for line in said)
+  assert mv.image_tag("eos3l5f") == "v2.0.1"
   with open(ps.output_dir + "/metadata/parameters.json") as f:
-    assert json.load(f)[MODEL_IMAGES_KEY]["eos3l5f"] == {"tag": "v2.0.0", "digest": "sha256:v200"}
+    assert json.load(f)[MODEL_IMAGES_KEY]["eos3l5f"] == {"tag": "v2.0.1", "digest": "sha256:v201"}
+
+
+def test_a_recorded_tag_alone_sets_the_major(docker):
+  # No latest_featurizer_version, and the table pins v2: the recorded v1 tag's major runs.
+  docker({"ersiliaos/eos3l5f:v2.0.1": "sha256:v201", "ersiliaos/eos3l5f:v1.3.0": "sha256:v130"})
+  mv.pin_models(["eos3l5f"], {MODEL_IMAGES_KEY: {"eos3l5f": {"tag": "v1.2.0"}}})
+  assert mv.pinned_major("eos3l5f") == "v1"
+  assert mv.image_tag("eos3l5f") == "v1.3.0"
 
 
 def test_a_model_fitted_before_tags_were_recorded_runs_its_fitted_major(docker):
@@ -384,10 +388,10 @@ def test_every_pinned_major_has_a_published_scaler_and_rank_reference(eos_id, ma
     assert status == 200, url
 
 
-def test_a_step_command_runs_the_tags_its_setup_recorded(docker, tmp_path):
+def test_a_step_command_runs_the_newest_local_tag_of_the_recorded_major(docker, tmp_path):
   from zairachem.cli.steps import _activate_step
 
-  docker({"ersiliaos/eos3l5f:v2.0.1": "sha256:v201"})  # newer here, but setup chose v2.0.0
+  docker({"ersiliaos/eos3l5f:v2.0.1": "sha256:v201"})  # setup ran v2.0.0; v2.0.1 is newer here
   (tmp_path / "metadata").mkdir()
   (tmp_path / "metadata" / "parameters.json").write_text(
     json.dumps({
@@ -397,7 +401,7 @@ def test_a_step_command_runs_the_tags_its_setup_recorded(docker, tmp_path):
     })
   )
   _activate_step(str(tmp_path))
-  assert mv.image_tag("eos3l5f") == "v2.0.0"
+  assert mv.image_tag("eos3l5f") == "v2.0.1"
 
 
 def test_install_pulls_docker_hubs_newest_tag_of_each_pinned_major(docker, capsys):

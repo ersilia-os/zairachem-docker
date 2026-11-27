@@ -42,19 +42,20 @@ _digest_cache = {}
 _tags_cache = {}
 _release_cache = {}
 _unreachable = set()
-# Pinned models of this process, by lower-case id: [major, tag, exact]. The tag is None until it
-# is chosen; exact says the fit recorded it, rather than it being chosen from the local images.
+# Pinned models of this process, by lower-case id: [major, tag]. The tag is None until it is
+# chosen from the local images.
 _pins = {}
 
 
 def pin_models(model_ids, params=None):
   """Pin each of ``model_ids`` that has a pin, so it runs a released tag of its pinned major.
 
-  A model whose ``params`` record an image tag (:data:`MODEL_IMAGES_KEY`, written by the run that
-  fitted it) runs exactly that tag. Otherwise a model of the pin tables runs the newest local tag of
-  its major: the one recorded in ``params`` (``latest_featurizer_version``, a model fitted before
-  tags were recorded), else the table's. Every other model runs ``:latest``, and loses any pin an
-  earlier call gave it. Ids are case-insensitive.
+  Only a major release changes a model's output, so a pinned model runs the newest local tag of
+  its major, whichever tag a fit ran. The major is the one ``params`` record for the model
+  (``latest_featurizer_version``), else that of the image tag they record
+  (:data:`MODEL_IMAGES_KEY`, provenance only), else the pin table's. A model with neither a pin nor
+  a recorded release tag runs ``:latest``, and loses any pin an earlier call gave it. Ids are
+  case-insensitive.
 
   Parameters
   ----------
@@ -68,11 +69,10 @@ def pin_models(model_ids, params=None):
   fitted = params.get("latest_featurizer_version") or {}
   table = {m: v for m, v in {**DEFAULT_FEATURIZERS, **DEFAULT_PROJECTIONS}.items() if v}
   for m in model_ids:
-    tag = (recorded.get(m) or {}).get("tag") or ""
-    if match := _SEMVER_RE.match(tag):
-      _pins[m.lower()] = [f"v{match.group(1)}", tag, True]
-    elif m.lower() in table:
-      _pins[m.lower()] = [fitted.get(m) or table[m.lower()], None, False]
+    match = _SEMVER_RE.match((recorded.get(m) or {}).get("tag") or "")
+    if match or m.lower() in table:
+      major = fitted.get(m) or (f"v{match.group(1)}" if match else table[m.lower()])
+      _pins[m.lower()] = [major, None]
     else:
       _pins.pop(m.lower(), None)
     for cache in (_cache, _digest_cache, _release_cache):
@@ -88,7 +88,8 @@ def pinned_major(model_id):
 def image_tag(model_id):
   """The released tag a pinned model runs, or None (not pinned, or no local tag of its major).
 
-  The tag its fit recorded, else the newest ``vMAJOR.x.y`` of the pinned major present locally.
+  The newest ``vMAJOR.x.y`` of the pinned major present locally (or the tag a local ``:latest``
+  was given, :func:`tag_latest_as_release`).
   Docker Hub is not asked, so a new release there changes nothing until it is pulled. Never raises.
   """
   pin = _pins.get(model_id.lower())
@@ -103,14 +104,14 @@ def tag_latest_as_release(model_id):
   """Tag the local ``:latest`` as the release of the pinned major it is, when that release is newer
   than every local tag of the major; return that tag, or None.
 
-  For a model with no tag recorded by a fit, whose ``:latest`` (pulled before pins) is a release of
-  its pinned major: it is matched to Docker Hub's tags by digest, or by layers for an image Ersilia
-  re-tagged without one. ``docker tag`` adds the release tag, which the run then uses; nothing is
-  downloaded and ``:latest`` is left as it is. None when a recorded tag runs, ``:latest`` is not a
-  newer release of the major, Docker Hub cannot be asked, or the tag fails; never raises.
+  For a ``:latest`` (pulled before pins) that is a release of the pinned major: it is matched to
+  Docker Hub's tags by digest, or by layers for an image Ersilia re-tagged without one. ``docker
+  tag`` adds the release tag, which the run then uses; nothing is downloaded and ``:latest`` is
+  left as it is. None when ``:latest`` is not a newer release of the major, Docker Hub cannot be
+  asked, or the tag fails; never raises.
   """
   pin = _pins.get(model_id.lower())
-  if not pin or pin[2]:
+  if not pin:
     return None
   local = image_tag(model_id)
   latest = f"{image_name(model_id)}:latest"
@@ -167,7 +168,7 @@ def hub_tag(model_id):
 def pull_hint(model_id):
   """What gets a pinned model's missing image: ``docker pull`` of its tag, or why there is none.
 
-  The tag is the one its fit recorded, else Docker Hub's newest of the pinned major.
+  The tag is Docker Hub's newest of the pinned major.
   """
   major = pinned_major(model_id)
   tag = image_tag(model_id)
@@ -184,11 +185,10 @@ def pull_hint(model_id):
 def newer_on_hub(model_id):
   """Docker Hub's newest tag of the pinned major when it is newer than the local one a run chose.
 
-  None when it is not, when the tag was recorded by the fit (that exact tag runs), or when Docker
-  Hub cannot be asked; never raises.
+  None when it is not, or when Docker Hub cannot be asked; never raises.
   """
   pin = _pins.get(model_id.lower())
-  if not pin or pin[2] or not image_tag(model_id):
+  if not pin or not image_tag(model_id):
     return None
   try:
     newest = hub_tag(model_id)
